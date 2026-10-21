@@ -1,6 +1,6 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 import type { Node, Span } from "../analysis/types";
-import { byteToUtf16 } from "../document/positions";
+import { createPositionIndex, type PositionIndex } from "../document/positions";
 
 interface PreviewProps { source: string; nodes: Node[]; onNavigate(span: Span): void; openExternal?(url: string): void }
 
@@ -12,12 +12,13 @@ export function safeExternalUrl(value: string): string | null {
 }
 
 export function Preview({ source, nodes, onNavigate, openExternal }: PreviewProps) {
-  return <div className="rendered-post">{nodes.map((node, index) => <RenderNode key={`${node.span.start}-${index}`} node={node} source={source} onNavigate={onNavigate} openExternal={openExternal} />)}</div>;
+  const positions = useMemo(() => createPositionIndex(source), [source]);
+  return <div className="rendered-post">{nodes.map((node, index) => <RenderNode key={`${node.span.start}-${index}`} node={node} source={source} positions={positions} onNavigate={onNavigate} openExternal={openExternal} />)}</div>;
 }
 
-function RenderNode({ node, source, onNavigate, openExternal }: { node: Node; source: string; onNavigate(span: Span): void; openExternal?: (url: string) => void }): ReactNode {
-  if (node.kind === "text") return source.slice(byteToUtf16(source, node.span.start), byteToUtf16(source, node.span.end));
-  const children = node.children.map((child, index) => <RenderNode key={`${child.span.start}-${index}`} node={child} source={source} onNavigate={onNavigate} openExternal={openExternal} />);
+function RenderNode({ node, source, positions, onNavigate, openExternal }: { node: Node; source: string; positions: PositionIndex; onNavigate(span: Span): void; openExternal?: (url: string) => void }): ReactNode {
+  if (node.kind === "text") return source.slice(positions.byteToUtf16(node.span.start), positions.byteToUtf16(node.span.end));
+  const children = node.children.map((child, index) => <RenderNode key={`${child.span.start}-${index}`} node={child} source={source} positions={positions} onNavigate={onNavigate} openExternal={openExternal} />);
   const name = node.name ?? "";
   if (name === "b") return <strong>{children}</strong>;
   if (name === "i") return <em>{children}</em>;
@@ -30,10 +31,10 @@ function RenderNode({ node, source, onNavigate, openExternal }: { node: Node; so
   if (name === "list") return <ul>{children}</ul>;
   if (name === "*") return <li>{children}</li>;
   if (name === "spoiler") return <details><summary onDoubleClick={() => onNavigate(node.span)}>{formatTitle(node.parameter ?? "Спойлер")}</summary><div>{children}</div></details>;
-  if (name === "img") return <span className="media-placeholder">Изображение: {plainText(node, source)}</span>;
+  if (name === "img") return <span className="media-placeholder">Изображение: {plainText(node, source, positions)}</span>;
   if (name === "attachment") return <span className="media-placeholder">Вложение: {node.parameter}</span>;
   if (name === "url") {
-    const raw = node.parameter ?? plainText(node, source);
+    const raw = node.parameter ?? plainText(node, source, positions);
     const safe = safeExternalUrl(raw);
     return safe ? <a href={safe} onClick={(event) => { event.preventDefault(); openExternal?.(safe); }}>{children}</a> : <span>{children}</span>;
   }
@@ -43,8 +44,8 @@ function RenderNode({ node, source, onNavigate, openExternal }: { node: Node; so
   return <span>{children}</span>;
 }
 
-function plainText(node: Node, source: string): string {
-  return node.children.map((child) => child.kind === "text" ? source.slice(byteToUtf16(source, child.span.start), byteToUtf16(source, child.span.end)) : plainText(child, source)).join("");
+function plainText(node: Node, source: string, positions: PositionIndex): string {
+  return node.children.map((child) => child.kind === "text" ? source.slice(positions.byteToUtf16(child.span.start), positions.byteToUtf16(child.span.end)) : plainText(child, source, positions)).join("");
 }
 
 function formatTitle(parameter: string): ReactNode {

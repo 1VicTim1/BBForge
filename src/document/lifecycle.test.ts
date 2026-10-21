@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { completeSave, requestDocumentAction } from "./lifecycle";
+import { completeSave, requestDocumentAction, savedSnapshotIsCurrent } from "./lifecycle";
 import { decodeDocument, applyChanges } from "./state";
 
 describe("document lifecycle", () => {
@@ -28,10 +28,24 @@ describe("document lifecycle", () => {
     const saving = applyChanges(initial, [{ from: 3, to: 3, insert: " two" }]);
     const edited = applyChanges(saving, [{ from: 7, to: 7, insert: " three" }]);
 
-    const completed = completeSave(edited, saving.revision, "/tmp/post.bbcode");
+    const completed = completeSave(edited, saving.id, saving.revision, "/tmp/post.bbcode");
 
     expect(completed.savedRevision).toBe(1);
     expect(completed.revision).toBe(2);
     expect(completed.revision).not.toBe(completed.savedRevision);
+  });
+
+  it("ignores completion from a different document", () => {
+    const first = decodeDocument(new TextEncoder().encode("first"), "/tmp/first.bbcode");
+    const second = decodeDocument(new TextEncoder().encode("second"));
+
+    expect(completeSave(second, first.id, first.revision, "/tmp/first.bbcode")).toBe(second);
+  });
+
+  it("does not authorize replacement after a newer edit", () => {
+    const saving = decodeDocument(new TextEncoder().encode("first"));
+    const edited = applyChanges(saving, [{ from: 5, to: 5, insert: " second" }]);
+
+    expect(savedSnapshotIsCurrent(edited, saving.id, saving.revision)).toBe(false);
   });
 });

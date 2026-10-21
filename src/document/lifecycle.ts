@@ -14,6 +14,11 @@ export async function requestDocumentAction(
   return save();
 }
 
-export function completeSave(document: DocumentState, savedRevision: number, path: string): DocumentState {
+export function completeSave(document: DocumentState, savedDocumentId: string, savedRevision: number, path: string): DocumentState {
+  if (document.id !== savedDocumentId) return document;
   return { ...document, path, savedRevision };
+}
+
+export function savedSnapshotIsCurrent(document: DocumentState, savedDocumentId: string, savedRevision: number): boolean {
+  return document.id === savedDocumentId && document.revision === savedRevision;
 }

@@ -8,8 +8,8 @@ import { createAnalysisClient, type AnalysisRequest, type AnalysisResponse } fro
 import { createTauriAnalyzer } from "./analysis/tauri";
 import { emptyAnalysis, type Analysis } from "./analysis/types";
 import { createDesktopFiles } from "./document/desktop";
-import { completeSave, requestDocumentAction, type UnsavedChoice } from "./document/lifecycle";
-import { decodeDocument, replaceDocumentText, serializeDocument } from "./document/state";
+import { completeSave, requestDocumentAction, savedSnapshotIsCurrent, type UnsavedChoice } from "./document/lifecycle";
+import { decodeDocument, serializeDocument, updateDocumentText, type LineEnding, type TextChange } from "./document/state";
 import { byteToUtf16 } from "./document/positions";
 import { Diagnostics } from "./components/Diagnostics";
 import { Outline } from "./components/Outline";
@@ -42,8 +42,8 @@ export default function App() {
     return () => client.dispose();
   }, [client, document.id, document.revision, document.text]);
 
-  const changeSource = (value: string) => {
-    setDocument((current) => replaceDocumentText(current, value));
+  const changeSource = (value: string, endings: LineEnding[], _changes: TextChange[]) => {
+    setDocument((current) => updateDocumentText(current, value, endings));
   };
 
   const saveCurrent = async (saveAs = false): Promise<boolean> => {
@@ -52,9 +52,11 @@ export default function App() {
     try {
       const path = await files.saveDocument(saveAs ? null : snapshot.path, serializeDocument(snapshot));
       if (!path) return false;
-      setDocument((current) => completeSave(current, snapshot.revision, path));
+      const current = documentRef.current;
+      if (current.id !== snapshot.id) return false;
+      setDocument((value) => completeSave(value, snapshot.id, snapshot.revision, path));
       setError(null);
-      return true;
+      return savedSnapshotIsCurrent(current, snapshot.id, snapshot.revision);
     } catch (reason) {
       setError(String(reason));
       return false;
@@ -94,7 +96,9 @@ export default function App() {
     void getCurrentWindow().onCloseRequested(async (event) => {
       if (documentRef.current.revision === documentRef.current.savedRevision) return;
       event.preventDefault();
-      if (await mayReplaceDocument()) await getCurrentWindow().destroy();
+      if (await mayReplaceDocument()) {
+        try { await getCurrentWindow().destroy(); } catch (reason) { setError(String(reason)); }
+      }
     }).then((stop) => { unlisten = stop; });
     return () => unlisten?.();
   });
@@ -110,8 +114,8 @@ export default function App() {
     </header>
     <section className={`workspace ${!panels.outline ? "without-outline" : ""} ${!panels.preview ? "without-preview" : ""}`}>
       {panels.outline && <aside className="panel outline"><h2>Структура</h2><Outline nodes={analysis.nodes} onNavigate={navigate} /></aside>}
-      <section className="source"><Editor value={document.text} onChange={changeSource} selectionRequest={selection} /></section>
-      {panels.preview && <aside className="panel preview"><h2>Предпросмотр</h2><Preview source={document.text} nodes={analysis.nodes} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url); }} /></aside>}
+      <section className="source"><Editor key={document.id} value={document.text} endings={document.endings} onChange={changeSource} selectionRequest={selection} /></section>
+      {panels.preview && <aside className="panel preview"><h2>Предпросмотр</h2><Preview source={document.text} nodes={analysis.nodes} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} /></aside>}
     </section>
     {panels.diagnostics && <section className="diagnostics"><div className="diagnostics-header"><h2>Проблемы</h2><button aria-label="Скрыть проблемы" onClick={() => setPanels((value) => ({ ...value, diagnostics: false }))}>×</button></div><Diagnostics diagnostics={analysis.diagnostics} onNavigate={navigate} />{error && <p className="error">{error}</p>}</section>}
   </main>;

@@ -102,6 +102,31 @@ fn malformed_input_recovers() {
 }
 
 #[test]
+fn apostrophe_in_unquoted_parameter_does_not_swallow_later_tags() {
+    let source = "[spoiler=What's new]hello[/spoiler][b]";
+    let analysis = parse(source);
+
+    assert!(
+        analysis
+            .tokens
+            .iter()
+            .any(|token| token.name.as_deref() == Some("spoiler"))
+    );
+    assert!(
+        analysis
+            .tokens
+            .iter()
+            .any(|token| token.name.as_deref() == Some("b"))
+    );
+    assert!(
+        analysis
+            .diagnostics
+            .iter()
+            .any(|item| item.code == DiagnosticCode::UnclosedTag)
+    );
+}
+
+#[test]
 fn depth_limit_preserves_text() {
     let source = format!("{}текст{}", "[b]".repeat(300), "[/b]".repeat(300));
     let analysis = parse(&source);

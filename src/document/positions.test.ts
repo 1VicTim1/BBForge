@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byteToUtf16, utf16ToByte } from "./positions";
+import { byteToUtf16, createPositionIndex, utf16ToByte } from "./positions";
 
 describe("position conversion", () => {
   it("roundtrips every character boundary in Cyrillic and emoji", () => {
@@ -21,5 +21,13 @@ describe("position conversion", () => {
   it("clamps offsets that split encoded characters", () => {
     expect(byteToUtf16("😀", 2)).toBe(0);
     expect(utf16ToByte("😀", 1)).toBe(0);
+  });
+});
+
+describe("position index", () => {
+  it("converts many offsets from one precomputed snapshot", () => {
+    const source = "a😀бc";
+    const index = createPositionIndex(source);
+    expect([0, 1, 5, 7, 8].map((offset) => index.byteToUtf16(offset))).toEqual([0, 1, 3, 4, 5]);
   });
 });

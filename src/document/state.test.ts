@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyChanges, decodeDocument, replaceDocumentText, serializeDocument } from "./state";
+import { applyChanges, decodeDocument, replaceDocumentText, serializeDocument, updateDocumentText } from "./state";
 
 const bytes = (value: number[]) => new Uint8Array(value);
 
@@ -40,5 +40,13 @@ describe("document serialization", () => {
     const changed = replaceDocumentText(document, "a\nb!\nc\n");
 
     expect(new TextDecoder().decode(serializeDocument(changed))).toBe("a\r\nb!\nc\r\n");
+  });
+
+  it("accepts the exact line-ending state restored by editor undo", () => {
+    const document = decodeDocument(new TextEncoder().encode("a\r\nb\nc\r\n"));
+    const deleted = updateDocumentText(document, "a\nbc\n", ["crlf", "crlf"]);
+    const undone = updateDocumentText(deleted, document.text, document.endings);
+
+    expect(serializeDocument(undone)).toEqual(serializeDocument(document));
   });
 });

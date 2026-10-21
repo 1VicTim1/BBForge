@@ -73,4 +73,22 @@ describe("analysis client", () => {
     expect(analyze).toHaveBeenCalledTimes(2);
     expect(analyze.mock.calls[1][0].source).toBe("three");
   });
+
+  it("continues with the latest snapshot after an analysis fails", async () => {
+    vi.useFakeTimers();
+    const analyze = vi.fn()
+      .mockRejectedValueOnce(new Error("worker stopped"))
+      .mockImplementation(async (request: AnalysisRequest) => ({ ...request, analysis: { value: request.source } }));
+    const received = vi.fn();
+    const client = createAnalysisClient(analyze, received);
+
+    client.update({ source: "broken", documentId: "doc", revision: 1 });
+    await vi.advanceTimersByTimeAsync(150);
+    client.update({ source: "recovered", documentId: "doc", revision: 2 });
+    await vi.advanceTimersByTimeAsync(150);
+    await Promise.resolve();
+
+    expect(analyze).toHaveBeenCalledTimes(2);
+    expect(received).toHaveBeenCalledWith({ value: "recovered" });
+  });
 });
