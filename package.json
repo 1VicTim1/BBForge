@@ -4,10 +4,28 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@codemirror/commands": "6.10.0",
+    "@codemirror/lang-html": "6.4.11",
+    "@codemirror/language": "6.11.3",
+    "@codemirror/search": "6.5.11",
+    "@codemirror/state": "6.5.2",
+    "@codemirror/view": "6.38.6",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  },
   "devDependencies": {
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "@testing-library/react": "16.3.0",
+    "jsdom": "27.0.1",
+    "@vitejs/plugin-react": "5.0.4",
+    "vite": "7.1.12",
     "typescript": "5.9.3",
     "vitest": "4.0.4"
   }
