@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/bbcode-core"]
+members = ["crates/bbcode-core", "src-tauri"]
 resolver = "2"
 
 [workspace.package]

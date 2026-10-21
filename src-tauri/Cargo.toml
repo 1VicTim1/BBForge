@@ -1,0 +1,12 @@
+[package]
+name = "bbforge-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+atomic-write-file = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+
