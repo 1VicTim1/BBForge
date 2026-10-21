@@ -10,7 +10,11 @@ import { emptyAnalysis, type Analysis, type AnalysisSnapshot } from "./analysis/
 import { Builder } from "./builder/Builder";
 import type { EditorController } from "./editor/controller";
 import type { EditCommand, SourceRange } from "./document/commands";
-import type { NodeRef } from "./document/structure";
+import { createSpoiler, moveNode, sourceRange, type NodeRef } from "./document/structure";
+import { identity } from "./document/commands";
+import { applyFormat, type FormatTag } from "./document/formatting";
+import { FormattingToolbar } from "./builder/FormattingToolbar";
+import { Properties } from "./builder/Properties";
 import type { VisualRange } from "./builder/selection";
 import { createDesktopFiles } from "./document/desktop";
 import { completeSave, requestDocumentAction, savedSnapshotIsCurrent, type UnsavedChoice } from "./document/lifecycle";
@@ -37,6 +41,8 @@ export default function App() {
   const [selected, setSelected] = useState<NodeRef | null>(null);
   const [activeRange, setActiveRange] = useState<SourceRange>({ from: 0, to: 0 });
   const composition = useRef(false);
+  const [spoilerDialog, setSpoilerDialog] = useState(false);
+  const [spoilerTitle, setSpoilerTitle] = useState("Новый спойлер");
   const documentRef = useRef(document);
   documentRef.current = document;
   const analyze = useMemo(() => isTauri()
@@ -59,6 +65,9 @@ export default function App() {
     setDocument(next);
   };
   const execute = (command: EditCommand) => { if (!controller) throw new Error("Редактор загружается"); controller.execute(command); };
+  const run = (build: () => EditCommand) => { try { execute(build()); setError(null); } catch (reason) { setError(String(reason)); } };
+  const currentSnapshot = snapshot?.documentId === document.id && snapshot.revision === document.revision ? snapshot : null;
+  const format = (tag: FormatTag, parameter?: string) => { if (currentSnapshot) run(() => applyFormat(documentRef.current, currentSnapshot, { ...identity(documentRef.current), ...activeRange }, tag, parameter)); };
   const visualNavigate = (range: SourceRange) => { setMode("split"); setSelection({ ...range, nonce: Date.now() }); };
 
   const saveCurrent = async (saveAs = false): Promise<boolean> => {
@@ -135,14 +144,16 @@ export default function App() {
       <span className="spacer" /><span className="status">{document.path ?? "Без имени"}{dirty ? " · изменён" : ""}</span>
     </header>
     <section className={`workspace ${!panels.outline ? "without-outline" : ""} ${!panels.preview ? "without-preview" : ""}`}>
-      {panels.outline && <aside className="panel outline"><h2>Структура</h2><Outline nodes={analysis.nodes} onNavigate={navigate} /></aside>}
+      {panels.outline && <aside className="panel outline"><h2>Структура</h2><Outline nodes={currentSnapshot?.analysis.nodes ?? []} selected={selected?.span} onNavigate={(span) => { if (currentSnapshot) setSelected({ ...identity(document), span }); navigate(span); }} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, { ...identity(document), span: source }, { node: { ...identity(document), span: target }, placement })); }} /></aside>}
       <section className={`source mode-${mode}`}>
+        <FormattingToolbar disabled={!currentSnapshot} onFormat={format} onSpoiler={() => setSpoilerDialog(true)} onUndo={() => controller?.undo()} onRedo={() => controller?.redo()} />
         <div style={{ display: mode === "builder" ? "none" : "block", height: "100%" }}><Editor key={document.id} document={document} value={document.text} endings={document.endings} onChange={changeSource} onReady={setController} onSelection={setActiveRange} selectionRequest={selection} /></div>
         {mode !== "code" && <Builder key={document.id} document={document} snapshot={snapshot} execute={execute} getDocument={() => documentRef.current} onSelect={setSelected} onRange={(range: VisualRange) => setActiveRange(range)} onNavigate={visualNavigate} onError={setError} onComposition={(active) => { composition.current = active; }} />}
-        <span hidden>{selected?.span.start}{activeRange.from}</span>
+        {selected && currentSnapshot && <Properties document={document} snapshot={currentSnapshot} selected={selected} execute={execute} onError={setError} onNavigate={() => visualNavigate(sourceRange(document, selected.span))} />}
       </section>
       {panels.preview && <aside className="panel preview"><h2>Предпросмотр</h2><Preview source={document.text} nodes={analysis.nodes} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} /></aside>}
     </section>
     {panels.diagnostics && <section className="diagnostics"><div className="diagnostics-header"><h2>Проблемы</h2><button aria-label="Скрыть проблемы" onClick={() => setPanels((value) => ({ ...value, diagnostics: false }))}>×</button></div><Diagnostics diagnostics={analysis.diagnostics} onNavigate={navigate} />{error && <p className="error">{error}</p>}</section>}
+    {spoilerDialog && <div className="modal-backdrop"><form className="dialog" role="dialog" aria-label="Создать спойлер" onSubmit={(event) => { event.preventDefault(); run(() => createSpoiler(documentRef.current, activeRange, spoilerTitle)); setSpoilerDialog(false); }}><h3>Создать спойлер</h3><label>Заголовок <input autoFocus value={spoilerTitle} onChange={(event) => setSpoilerTitle(event.target.value)} /></label><p>Выделенный текст станет содержимым спойлера.</p><button type="submit">Создать</button><button type="button" onClick={() => setSpoilerDialog(false)}>Отмена</button></form></div>}
   </main>;
 }
