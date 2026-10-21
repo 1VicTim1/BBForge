@@ -31,3 +31,18 @@ test("toggles structure and preview panels", async ({ page }) => {
   await page.getByRole("button", { name: "Предпросмотр" }).click();
   await expect(page.getByRole("heading", { name: "Предпросмотр" })).toBeVisible();
 });
+
+test("selects all and copies with physical keys on Russian layout", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:1420" });
+  const code = page.locator(".cm-content");
+  await code.fill("[b]Привет[/b]");
+  await code.dispatchEvent("keydown", { key: "ф", code: "KeyA", ctrlKey: true });
+  await page.keyboard.insertText("X");
+  await expect(code).toHaveText("X");
+
+  await code.fill("[b]Привет[/b]");
+  await page.evaluate(() => navigator.clipboard.writeText("seed"));
+  await code.dispatchEvent("keydown", { key: "ф", code: "KeyA", ctrlKey: true });
+  await code.dispatchEvent("keydown", { key: "с", code: "KeyC", ctrlKey: true });
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("[b]Привет[/b]");
+});
