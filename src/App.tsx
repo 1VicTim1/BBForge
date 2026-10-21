@@ -9,7 +9,7 @@ import { createTauriAnalyzer } from "./analysis/tauri";
 import { emptyAnalysis, type Analysis } from "./analysis/types";
 import { createDesktopFiles } from "./document/desktop";
 import { completeSave, requestDocumentAction, savedSnapshotIsCurrent, type UnsavedChoice } from "./document/lifecycle";
-import { decodeDocument, serializeDocument, updateDocumentText, type LineEnding, type TextChange } from "./document/state";
+import { decodeDocument, serializeDocument, updateDocumentText, type LineEnding } from "./document/state";
 import { byteToUtf16 } from "./document/positions";
 import { Diagnostics } from "./components/Diagnostics";
 import { Outline } from "./components/Outline";
@@ -42,7 +42,7 @@ export default function App() {
     return () => client.dispose();
   }, [client, document.id, document.revision, document.text]);
 
-  const changeSource = (value: string, endings: LineEnding[], _changes: TextChange[]) => {
+  const changeSource = (value: string, endings: LineEnding[]) => {
     setDocument((current) => updateDocumentText(current, value, endings));
   };
 
