@@ -1,16 +1,31 @@
+import { useState } from "react";
 import type { Node, Span } from "../analysis/types";
-
-export function Outline({ nodes, onNavigate }: { nodes: Node[]; onNavigate(span: Span): void }) {
-  return <div className="outline-tree">{nodes.map((node, index) => <OutlineNode key={`${node.span.start}-${index}`} node={node} onNavigate={onNavigate} />)}</div>;
+export interface OutlineProps {
+  nodes: Node[]; onNavigate(span: Span): void;
+  selected?: Span; onMove?(source: Span, target: Span, placement: "before" | "inside" | "after"): void;
 }
-
-function OutlineNode({ node, onNavigate }: { node: Node; onNavigate(span: Span): void }) {
+export function Outline(props: OutlineProps) {
+  return <div className="outline-tree" role="tree" aria-label="Структура документа">{props.nodes.map((node, index) => <OutlineNode key={`${node.span.start}-${index}`} {...props} node={node} depth={0} />)}</div>;
+}
+function OutlineNode({ node, depth, ...props }: OutlineProps & { node: Node; depth: number }) {
+  const [expanded, setExpanded] = useState(depth < 2);
+  const [drop, setDrop] = useState<string | null>(null);
   if (node.kind === "text") return null;
-  const title = node.name === "spoiler" && node.parameter ? stripTags(node.parameter) : node.name;
-  return <div className="outline-node">
-    <button className="tree-item" onClick={() => onNavigate(node.span)}>▾ {title}</button>
-    {node.children.length > 0 && <div className="outline-children">{node.children.map((child, index) => <OutlineNode key={`${child.span.start}-${index}`} node={child} onNavigate={onNavigate} />)}</div>}
+  const children = node.children.filter((child) => child.kind !== "text");
+  const title = node.name === "spoiler" && node.parameter ? node.parameter.replace(/\[[^\]]+\]/g, "").trim() : node.name;
+  const selected = props.selected?.start === node.span.start && props.selected?.end === node.span.end;
+  return <div className={`outline-node ${selected ? "selected" : ""}`}>
+    <div className={`tree-row ${drop ? `drop-${drop}` : ""}`} draggable={!!props.onMove && node.wellFormed} onDragStart={(event) => event.dataTransfer.setData("application/bbforge-node", JSON.stringify(node.span))} onDragOver={(event) => {
+      if (!props.onMove) return; event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect();
+      setDrop(event.clientY < rect.top + rect.height / 3 ? "before" : event.clientY > rect.bottom - rect.height / 3 ? "after" : node.name === "spoiler" ? "inside" : "after");
+    }} onDragLeave={() => setDrop(null)} onDrop={(event) => {
+      event.preventDefault(); event.stopPropagation();
+      try { const span = JSON.parse(event.dataTransfer.getData("application/bbforge-node")) as Span; props.onMove?.(span, node.span, (drop ?? "after") as "before" | "inside" | "after"); } catch { /* foreign drag */ }
+      setDrop(null);
+    }}>
+      <button className="tree-toggle" aria-label={`${expanded ? "Свернуть" : "Развернуть"} ${title}`} disabled={!children.length} onClick={() => setExpanded(!expanded)}>{children.length ? expanded ? "▾" : "▸" : "·"}</button>
+      <button role="treeitem" aria-selected={selected} className="tree-item" onClick={() => props.onNavigate(node.span)}><span className={`node-icon ${node.name === "spoiler" ? "spoiler-icon" : ""}`}>{node.name === "spoiler" ? "▣" : "◇"}</span>{title}<small>{!node.wellFormed ? "!" : node.name === "spoiler" ? "spoiler" : ""}</small></button>
+    </div>
+    {expanded && children.length > 0 && <div role="group" className="outline-children">{children.map((child, index) => <OutlineNode {...props} key={`${child.span.start}-${index}`} node={child} depth={depth + 1} />)}</div>}
   </div>;
 }
-
-function stripTags(value: string): string { return value.replace(/\[[^\]]+\]/g, "").trim(); }

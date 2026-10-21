@@ -38,7 +38,7 @@ describe("preview panels", () => {
   it("navigates from outline and diagnostics using byte spans", () => {
     const navigate = vi.fn();
     render(<><Outline nodes={analysis.nodes} onNavigate={navigate} /><Diagnostics diagnostics={analysis.diagnostics} onNavigate={navigate} /></>);
-    fireEvent.click(screen.getByRole("button", { name: /Важно/ }));
+    fireEvent.click(screen.getByRole("treeitem", { name: /Важно/ }));
     fireEvent.click(screen.getByRole("button", { name: /Тег не закрыт/ }));
     expect(navigate).toHaveBeenNthCalledWith(1, analysis.nodes[0].span);
     expect(navigate).toHaveBeenNthCalledWith(2, { start: 0, end: 3 });
