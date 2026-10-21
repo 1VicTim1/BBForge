@@ -7,7 +7,13 @@ build = "build.rs"
 
 [features]
 default = []
-desktop = ["dep:tauri", "dep:tauri-plugin-dialog", "dep:tauri-plugin-opener", "tauri/wry"]
+desktop = [
+  "dep:tauri",
+  "dep:tauri-plugin-dialog",
+  "dep:tauri-plugin-opener",
+  "tauri/custom-protocol",
+  "tauri/wry",
+]
 
 [dependencies]
 atomic-write-file = "0.3"
