@@ -3,8 +3,11 @@
 node_modules/
 dist/
 target/
+container-target/
+artifacts/
 test-results/
 playwright-report/
+src-tauri/gen/
 src-tauri/icons/ios/
 src-tauri/icons/mipmap-*/
 

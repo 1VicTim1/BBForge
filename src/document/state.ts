@@ -74,6 +74,12 @@ export function replaceDocumentText(document: DocumentState, nextText: string): 
   return applyChanges(document, [{ from, to: oldTo, insert: nextText.slice(from, newTo) }]);
 }
 
+export function updateDocumentText(document: DocumentState, text: string, endings: LineEnding[]): DocumentState {
+  if (text === document.text && endings.every((ending, index) => ending === document.endings[index]) && endings.length === document.endings.length) return document;
+  if (countNewlines(text) !== endings.length) throw new Error("Число типов переносов не совпадает с текстом");
+  return { ...document, text, endings: [...endings], revision: document.revision + 1 };
+}
+
 export function serializeDocument(document: DocumentState): Uint8Array {
   let endingIndex = 0;
   const restored = document.text.replace(/\n/g, () => document.endings[endingIndex++] === "crlf" ? "\r\n" : "\n");

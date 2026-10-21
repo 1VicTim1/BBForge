@@ -67,6 +67,7 @@ fn tag_end(source: &str, start: usize) -> Option<usize> {
     let bytes = source.as_bytes();
     let mut nested = 0usize;
     let mut quote = None;
+    let mut after_equals = false;
     let mut index = start + 1;
     while index < bytes.len() {
         let byte = bytes[index];
@@ -76,11 +77,16 @@ fn tag_end(source: &str, start: usize) -> Option<usize> {
             }
         } else {
             match byte {
-                b'\'' | b'"' => quote = Some(byte),
+                b'=' => after_equals = true,
+                b' ' | b'\t' if after_equals => {}
+                b'\'' | b'"' if after_equals => {
+                    quote = Some(byte);
+                    after_equals = false;
+                }
                 b'[' => nested += 1,
                 b']' if nested > 0 => nested -= 1,
                 b']' => return Some(index + 1),
-                _ => {}
+                _ => after_equals = false,
             }
         }
         index += 1;

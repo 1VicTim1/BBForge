@@ -20,15 +20,20 @@ export function createAnalysisClient<T>(
 
   async function run(request: AnalysisRequest) {
     active = true;
-    const response = await analyze(request);
-    if (latest?.documentId === response.documentId && latest.revision === response.revision) {
-      onResult(response.analysis);
-    }
-    active = false;
-    if (pending) {
-      const next = pending;
-      pending = undefined;
-      void run(next);
+    try {
+      const response = await analyze(request);
+      if (latest?.documentId === response.documentId && latest.revision === response.revision) {
+        onResult(response.analysis);
+      }
+    } catch {
+      // A worker or IPC failure must not block later snapshots.
+    } finally {
+      active = false;
+      if (pending) {
+        const next = pending;
+        pending = undefined;
+        void run(next);
+      }
     }
   }
 
