@@ -3,9 +3,20 @@ name = "bbforge-app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build.rs"
+
+[features]
+default = []
+desktop = ["dep:tauri", "tauri/wry"]
 
 [dependencies]
 atomic-write-file = "0.3"
+bbcode-core = { path = "../crates/bbcode-core" }
+serde.workspace = true
+tauri = { version = "2", default-features = false, features = [], optional = true }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
 tempfile = "3"

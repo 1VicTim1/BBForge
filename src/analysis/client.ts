@@ -15,21 +15,36 @@ export function createAnalysisClient<T>(
 ) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let latest: AnalysisRequest | undefined;
+  let active = false;
+  let pending: AnalysisRequest | undefined;
+
+  async function run(request: AnalysisRequest) {
+    active = true;
+    const response = await analyze(request);
+    if (latest?.documentId === response.documentId && latest.revision === response.revision) {
+      onResult(response.analysis);
+    }
+    active = false;
+    if (pending) {
+      const next = pending;
+      pending = undefined;
+      void run(next);
+    }
+  }
 
   return {
     update(request: AnalysisRequest) {
       latest = request;
       clearTimeout(timer);
-      timer = setTimeout(async () => {
-        const response = await analyze(request);
-        if (latest?.documentId === response.documentId && latest.revision === response.revision) {
-          onResult(response.analysis);
-        }
+      timer = setTimeout(() => {
+        if (active) pending = request;
+        else void run(request);
       }, delay);
     },
     dispose() {
       clearTimeout(timer);
       latest = undefined;
+      pending = undefined;
     },
   };
 }

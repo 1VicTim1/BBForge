@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BBForge",
+  "version": "0.1.0",
+  "identifier": "io.github.bbforge.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:" },
+    "windows": [{ "title": "BBForge", "width": 1440, "height": 900, "minWidth": 960, "minHeight": 640 }]
+  },
+  "bundle": { "active": false }
+}

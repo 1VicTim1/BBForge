@@ -1,4 +1,3 @@
-
 use std::{fmt, fs, io::Write, path::Path};
 
 #[derive(Debug)]

@@ -29,9 +29,9 @@ describe("analysis client", () => {
     await vi.advanceTimersByTimeAsync(150);
     client.update({ source: "new", documentId: "one", revision: 2 });
     await vi.advanceTimersByTimeAsync(150);
-    resolvers[1]({ value: "new" });
-    await Promise.resolve();
     resolvers[0]({ value: "old" });
+    await Promise.resolve();
+    resolvers[1]({ value: "new" });
     await Promise.resolve();
 
     expect(received).toHaveBeenCalledTimes(1);
@@ -51,5 +51,26 @@ describe("analysis client", () => {
     await Promise.resolve();
 
     expect(received).not.toHaveBeenCalled();
+  });
+
+  it("keeps only the latest snapshot while one analysis is active", async () => {
+    vi.useFakeTimers();
+    const resolvers: Array<(value: TestAnalysis) => void> = [];
+    const analyze = vi.fn((request: AnalysisRequest) => new Promise<AnalysisResponse<TestAnalysis>>((resolve) => resolvers.push((analysis) => resolve({ ...request, analysis }))));
+    const received = vi.fn();
+    const client = createAnalysisClient(analyze, received);
+
+    client.update({ source: "one", documentId: "doc", revision: 1 });
+    await vi.advanceTimersByTimeAsync(150);
+    client.update({ source: "two", documentId: "doc", revision: 2 });
+    await vi.advanceTimersByTimeAsync(150);
+    client.update({ source: "three", documentId: "doc", revision: 3 });
+    await vi.advanceTimersByTimeAsync(150);
+    expect(analyze).toHaveBeenCalledTimes(1);
+
+    resolvers[0]({ value: "one" });
+    await Promise.resolve();
+    expect(analyze).toHaveBeenCalledTimes(2);
+    expect(analyze.mock.calls[1][0].source).toBe("three");
   });
 });
