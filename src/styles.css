@@ -19,3 +19,6 @@ select:focus-visible { outline: 2px solid #689af7; outline-offset: 1px; }
 select:disabled { color: #747b88; opacity: .65; }
 .visual-text.insertion-text { display: block; min-width: 100%; min-height: 30px; margin-top: 6px; padding: 3px 7px; border: 1px dashed #626977; border-radius: 4px; background: #1e1f22; }
 .visual-text.insertion-text:focus { border-color: #689af7; }
+.document-tabs-row { height: 42px; display: flex; flex-shrink: 0; min-width: 0; background: #252629; border-bottom: 1px solid #17181b; }
+.document-tabs-row > .document-tabs { flex: 1; min-width: 0; border-bottom: 0; }
+.document-tabs-row > .mode-tabs { flex-shrink: 0; }
