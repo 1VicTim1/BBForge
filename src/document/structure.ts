@@ -23,9 +23,25 @@ export function resolveNode(document: DocumentState, snapshot: AnalysisSnapshot,
 export function sourceRange(document: DocumentState, span: Span): SourceRange {
   const index = createPositionIndex(document.text); return { from: index.byteToUtf16(span.start), to: index.byteToUtf16(span.end) };
 }
-export function createSpoiler(document: DocumentState, range: SourceRange, title: string): EditCommand {
+export function createSpoiler(document: DocumentState, range: SourceRange, title: string, snapshot: AnalysisSnapshot): EditCommand {
+  validateWrap(document, snapshot, range);
   const opening = `[spoiler=${title}]`;
   return { ...identity(document), label: "Создать спойлер", changes: range.from === range.to ? [{ from: range.from, to: range.to, insert: `${opening}[/spoiler]` }] : [{ from: range.from, to: range.from, insert: opening }, { from: range.to, to: range.to, insert: "[/spoiler]" }], selection: { from: range.from + opening.length, to: range.to + opening.length } };
+}
+export function validateWrap(document: DocumentState, snapshot: AnalysisSnapshot, range: SourceRange): void {
+  if (!snapshot || snapshot.documentId !== document.id || snapshot.revision !== document.revision || snapshot.source !== document.text) throw new Error("Дождитесь обновления структуры");
+  validateCommand(document, { ...identity(document), label: "range", changes: [{ ...range, insert: "" }] });
+  const visit = (nodes: Node[]) => { for (const node of nodes) {
+    const span = sourceRange(document, node.span), content = sourceRange(document, node.contentSpan);
+    for (const part of [node.openingSpan, node.closingSpan]) {
+      if (!part) continue; const tag = sourceRange(document, part);
+      if ((range.from > tag.from && range.from < tag.to) || (range.to > tag.from && range.to < tag.to)) throw new Error("Выделение разрезает тег");
+    }
+    if ((range.from < span.from && range.to > content.from && range.to < span.to) || (range.from > span.from && range.from < content.to && range.to > span.to)) throw new Error("Выделите целый блок");
+    if (!node.wellFormed && range.from < span.to && range.to > span.from) throw new Error("Сначала исправьте разметку");
+    if (node.name === "code" && range.from >= content.from && range.to <= content.to) throw new Error("Внутри code создание блоков недоступно");
+    visit(node.children);
+  } }; visit(snapshot.analysis.nodes);
 }
 export function renameSpoiler(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef, title: string): EditCommand {
   const { node } = resolveNode(document, snapshot, reference);
@@ -38,7 +54,8 @@ export function unwrapNode(document: DocumentState, snapshot: AnalysisSnapshot, 
   return { ...identity(document), label: "Убрать оболочку", changes: [node.openingSpan, node.closingSpan].map((span) => ({ ...sourceRange(document, span), insert: "" })) };
 }
 export function moveNode(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef, target: DropTarget): EditCommand {
-  const { node } = resolveNode(document, snapshot, reference), destination = resolveNode(document, snapshot, target.node).node;
+  const { node } = resolveNode(document, snapshot, reference), resolved = resolveNode(document, snapshot, target.node), destination = resolved.node;
+  if (node.name === "*" && (target.placement === "inside" || destination.name !== "*" || resolved.parent?.name !== "list")) throw new Error("Элемент списка можно перемещать только рядом с другим элементом списка");
   if (destination.span.start >= node.span.start && destination.span.end <= node.span.end) throw new Error("Нельзя переместить блок в самого себя или потомка");
   if (target.placement === "inside" && (destination.name !== "spoiler" || !destination.closingSpan)) throw new Error("Вложить можно в корректный спойлер");
   const index = createPositionIndex(document.text);

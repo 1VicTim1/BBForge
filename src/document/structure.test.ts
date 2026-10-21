@@ -5,8 +5,8 @@ import { snapshotFixture, refFor } from "../test/structureFixture";
 
 it("wraps and renames without adding whitespace or losing title markup", () => {
   const document = decodeDocument(new TextEncoder().encode("hello"));
-  expect(applyChanges(document, createSpoiler(document, { from: 0, to: 0 }, "X").changes).text).toBe("[spoiler=X][/spoiler]hello");
-  const wrapped = applyChanges(document, createSpoiler(document, { from: 0, to: 5 }, "[b]Важно[/b]").changes);
+  expect(applyChanges(document, createSpoiler(document, { from: 0, to: 0 }, "X", snapshotFixture(document)).changes).text).toBe("[spoiler=X][/spoiler]hello");
+  const wrapped = applyChanges(document, createSpoiler(document, { from: 0, to: 5 }, "[b]Важно[/b]", snapshotFixture(document)).changes);
   expect(wrapped.text).toBe("[spoiler=[b]Важно[/b]]hello[/spoiler]");
   const snapshot = snapshotFixture(wrapped);
   expect(applyChanges(wrapped, renameSpoiler(wrapped, snapshot, refFor(snapshot, 0), "Новое").changes).text).toBe("[spoiler=Новое]hello[/spoiler]");
@@ -29,4 +29,11 @@ it("moves opaque blocks exactly and rejects stale refs", () => {
   const snapshot = snapshotFixture(document);
   expect(applyChanges(document, moveNode(document, snapshot, refFor(snapshot, 0), { node: refFor(snapshot, 1), placement: "after" }).changes).text).toBe("[spoiler=S]y[/spoiler][alien=q]x[/alien]");
   expect(() => unwrapNode({ ...document, revision: 2 }, snapshot, refFor(snapshot, 0))).toThrow();
+});
+
+it("rejects spoiler ranges cutting tags or literal code", () => {
+  for (const [text, from, to] of [["[b]abc[/b]", 1, 5], ["[code]abc[/code]", 6, 9]] as const) {
+    const document = decodeDocument(new TextEncoder().encode(text));
+    expect(() => createSpoiler(document, { from, to }, "X", snapshotFixture(document))).toThrow();
+  }
 });

@@ -1,6 +1,45 @@
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 
+test("keeps visual typing coherent through Undo and formatting", async ({ page }) => {
+  const code = page.locator(".cm-content"); await code.fill("[spoiler=S]hello[/spoiler]");
+  const leaf = page.getByRole("textbox", { name: "Текст блока" }); await expect(leaf).toHaveText("hello");
+  await leaf.click(); await page.keyboard.press("End"); await page.keyboard.type("X");
+  await page.keyboard.press("Control+z"); await page.keyboard.type("Q");
+  await expect(code).toHaveText("[spoiler=S]helloQ[/spoiler]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await page.keyboard.press("Control+b");
+  await expect(code).toHaveText("[spoiler=S]helloQ[b][/b][/spoiler]");
+});
+
+test("protects IME from toolbar history and pastes literal text inside code", async ({ page }) => {
+  const code = page.locator(".cm-content"); await code.fill("[code]abc[/code]");
+  const leaf = page.getByRole("textbox", { name: "Текст блока" }); await expect(leaf).toHaveText("abc");
+  await leaf.click(); await page.keyboard.press("End");
+  await leaf.evaluate((element) => { const data = new DataTransfer(); data.setData("text/plain", "[b]literal[/b]"); element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true })); });
+  await expect(code).toHaveText("[code]abc[b]literal[/b][/code]");
+  await leaf.dispatchEvent("compositionstart");
+  await page.getByRole("button", { name: "Отменить", exact: true }).click();
+  await leaf.evaluate((element) => { element.textContent += "日本語"; });
+  await leaf.dispatchEvent("compositionend");
+  await expect(code).toHaveText("[code]abc[b]literal[/b]日本語[/code]");
+});
+
+test("rejects stale drag identity and list-item escape", async ({ page }) => {
+  const code = page.locator(".cm-content"); await code.fill("[spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
+  await expect(page.getByRole("treeitem", { name: /A/ })).toBeVisible();
+  const payload = await page.getByRole("treeitem", { name: /A/ }).evaluate((element) => { const data = new DataTransfer(); element.parentElement!.dispatchEvent(new DragEvent("dragstart", { dataTransfer: data, bubbles: true })); return data.getData("application/bbforge-node"); });
+  await code.fill("[spoiler=C]c[/spoiler][spoiler=B]b[/spoiler]");
+  await expect(page.getByRole("treeitem", { name: /C/ })).toBeVisible();
+  await page.getByRole("treeitem", { name: /B/ }).evaluate((element, value) => { const data = new DataTransfer(); data.setData("application/bbforge-node", value); element.parentElement!.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true })); }, payload);
+  await expect(code).toHaveText("[spoiler=C]c[/spoiler][spoiler=B]b[/spoiler]");
+  await code.fill("[list][*]a[/list][spoiler=S]b[/spoiler]");
+  await expect(page.getByRole("treeitem", { name: "◇ *" })).toBeVisible();
+  const item = page.getByRole("treeitem", { name: "◇ *" });
+  await item.dragTo(page.getByRole("treeitem", { name: /S spoiler/ }));
+  await expect(code).toHaveText("[list][*]a[/list][spoiler=S]b[/spoiler]");
+});
+
 test.beforeEach(async ({ page }) => {
   await page.exposeFunction("analyzeWithRust", (source: string) => JSON.parse(execFileSync("target/debug/examples/analyze", [], { input: JSON.stringify(source) + "\n", encoding: "utf8" })));
   await page.addInitScript(() => {

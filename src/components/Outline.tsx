@@ -1,8 +1,11 @@
 import { useState } from "react";
 import type { Node, Span } from "../analysis/types";
+import type { NodeRef } from "../document/structure";
+import type { DocumentIdentity } from "../document/commands";
 export interface OutlineProps {
   nodes: Node[]; onNavigate(span: Span): void;
-  selected?: Span; onMove?(source: Span, target: Span, placement: "before" | "inside" | "after"): void;
+  identity?: DocumentIdentity;
+  selected?: Span; onMove?(source: NodeRef, target: Span, placement: "before" | "inside" | "after"): void;
 }
 export function Outline(props: OutlineProps) {
   return <div className="outline-tree" role="tree" aria-label="Структура документа">{props.nodes.map((node, index) => <OutlineNode key={`${node.span.start}-${index}`} {...props} node={node} depth={0} />)}</div>;
@@ -15,12 +18,12 @@ function OutlineNode({ node, depth, ...props }: OutlineProps & { node: Node; dep
   const title = node.name === "spoiler" && node.parameter ? node.parameter.replace(/\[[^\]]+\]/g, "").trim() : node.name;
   const selected = props.selected?.start === node.span.start && props.selected?.end === node.span.end;
   return <div className={`outline-node ${selected ? "selected" : ""}`}>
-    <div className={`tree-row ${drop ? `drop-${drop}` : ""}`} draggable={!!props.onMove && node.wellFormed} onDragStart={(event) => event.dataTransfer.setData("application/bbforge-node", JSON.stringify(node.span))} onDragOver={(event) => {
+    <div className={`tree-row ${drop ? `drop-${drop}` : ""}`} draggable={!!props.onMove && node.wellFormed} onDragStart={(event) => event.dataTransfer.setData("application/bbforge-node", JSON.stringify({ ...props.identity, span: node.span }))} onDragOver={(event) => {
       if (!props.onMove) return; event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect();
       setDrop(event.clientY < rect.top + rect.height / 3 ? "before" : event.clientY > rect.bottom - rect.height / 3 ? "after" : node.name === "spoiler" ? "inside" : "after");
     }} onDragLeave={() => setDrop(null)} onDrop={(event) => {
       event.preventDefault(); event.stopPropagation();
-      try { const span = JSON.parse(event.dataTransfer.getData("application/bbforge-node")) as Span; props.onMove?.(span, node.span, (drop ?? "after") as "before" | "inside" | "after"); } catch { /* foreign drag */ }
+      try { const reference = JSON.parse(event.dataTransfer.getData("application/bbforge-node")) as NodeRef; props.onMove?.(reference, node.span, (drop ?? "after") as "before" | "inside" | "after"); } catch { /* foreign drag */ }
       setDrop(null);
     }}>
       <button className="tree-toggle" aria-label={`${expanded ? "Свернуть" : "Развернуть"} ${title}`} disabled={!children.length} onClick={() => setExpanded(!expanded)}>{children.length ? expanded ? "▾" : "▸" : "·"}</button>
