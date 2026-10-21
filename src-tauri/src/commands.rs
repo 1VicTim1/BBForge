@@ -2,6 +2,8 @@ use bbcode_core::{Analysis, parse};
 use serde::Serialize;
 #[cfg(feature = "desktop")]
 use std::path::PathBuf;
+#[cfg(feature = "desktop")]
+use tauri::Manager;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,4 +43,18 @@ pub fn read_document(path: String) -> Result<Vec<u8>, String> {
 #[tauri::command]
 pub fn write_document(path: String, bytes: Vec<u8>) -> Result<(), String> {
     crate::files::write_document(&PathBuf::from(path), &bytes).map_err(|error| error.to_string())
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn read_workspace_session(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("workspace-v1.json");
+    crate::session::read(&path)
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn write_workspace_session(app: tauri::AppHandle, payload: String) -> Result<(), String> {
+    let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("workspace-v1.json");
+    crate::session::write(&path, &payload)
 }

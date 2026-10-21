@@ -2,6 +2,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import App from "./App";
+import { decodeDocument, updateDocumentText } from "./document/state";
+import { serializeWorkspace } from "./workspace/persistence";
+import { createWorkspace, workspaceReducer } from "./workspace/session";
 
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 Range.prototype.getBoundingClientRect = () => new DOMRect();
@@ -34,5 +37,22 @@ describe("BBForge shell", () => {
 
     fireEvent.keyDown(content, { key: "z", ctrlKey: true });
     expect(document.querySelector(".cm-placeholder")).not.toBeNull();
+  });
+
+  it("restores every tab and unsaved text with a fresh undo baseline", async () => {
+    const first = decodeDocument(new TextEncoder().encode("saved"), "/tmp/first.bbcode");
+    const changed = updateDocumentText(first, "unsaved", []);
+    const second = decodeDocument(new TextEncoder().encode("second"), "/tmp/second.bbcode");
+    let workspace = createWorkspace(changed);
+    workspace = workspaceReducer(workspace, { type: "open", session: { document: second } });
+    workspace = workspaceReducer(workspace, { type: "activate", documentId: changed.id });
+    localStorage.setItem("bbforge.workspace.v1", serializeWorkspace(workspace));
+
+    render(<App />);
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
+    const content = document.querySelector(".cm-content") as HTMLElement;
+    await waitFor(() => expect(content.textContent).toBe("unsaved"));
+    fireEvent.keyDown(content, { key: "z", ctrlKey: true });
+    expect(content.textContent).toBe("unsaved");
   });
 });
