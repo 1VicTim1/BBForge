@@ -2,7 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Editor } from "./editor/Editor";
 import { createAnalysisClient, type AnalysisRequest, type AnalysisResponse } from "./analysis/client";
 import { createTauriAnalyzer } from "./analysis/tauri";
@@ -32,13 +32,18 @@ import { defaultLayout, loadLayout, saveLayout, type WorkspaceMode } from "./lay
 import { Workspace } from "./layout/Workspace";
 import { Splitter } from "./layout/Splitter";
 import { StatusBar } from "./layout/StatusBar";
+import { TabStrip } from "./workspace/TabStrip";
+import { createWorkspace, workspaceReducer } from "./workspace/session";
 import "./styles.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
 
 export default function App() {
-  const [document, setDocument] = useState(() => decodeDocument(new TextEncoder().encode(example)));
-  const [analysis, setAnalysis] = useState<Analysis>(emptyAnalysis);
+  const [workspace, dispatchWorkspace] = useReducer(workspaceReducer, decodeDocument(new TextEncoder().encode(example)), createWorkspace);
+  const activeSession = workspace.tabs.find((tab) => tab.document.id === workspace.activeId) ?? workspace.tabs[0];
+  const document = activeSession.document;
+  const [analyses, setAnalyses] = useState<Record<string, Analysis>>({});
+  const analysis = analyses[document.id] ?? emptyAnalysis();
   const [error, setError] = useState<string | null>(null);
   const [selection, setSelection] = useState<SelectionRequest>();
   const [layout, setLayout] = useState(() => loadLayout(localStorage));
@@ -46,7 +51,8 @@ export default function App() {
   const mode = layout.mode;
   const setMode = (mode: WorkspaceMode) => { if (!composition.current && !controller?.isComposing()) { setLayout((current) => ({ ...current, mode })); setShowPreview(false); } };
   useEffect(() => { saveLayout(localStorage, layout); }, [layout]);
-  const [snapshot, setSnapshot] = useState<AnalysisSnapshot | null>(null);
+  const [snapshots, setSnapshots] = useState<Record<string, AnalysisSnapshot>>({});
+  const snapshot = snapshots[document.id] ?? null;
   const [controller, setController] = useState<EditorController | null>(null);
   const [selected, setSelected] = useState<NodeRef | null>(null);
   const [activeRange, setActiveRange] = useState<SourceRange>({ from: 0, to: 0 });
@@ -57,11 +63,22 @@ export default function App() {
   const [fix, setFix] = useState<FixSuggestion | null>(null);
   const documentRef = useRef(document);
   documentRef.current = document;
-  useEffect(() => { setSelected(null); setActiveRange({ from: 0, to: 0 }); setFix(null); setSpoilerDialog(false); setAnalysis(emptyAnalysis()); }, [document.id]);
+  const workspaceRef = useRef(workspace);
+  workspaceRef.current = workspace;
+  const setDocument = (next: typeof document | ((current: typeof document) => typeof document)) => {
+    const current = workspaceRef.current.tabs.find((tab) => tab.document.id === workspaceRef.current.activeId)?.document;
+    if (!current) return;
+    const value = typeof next === "function" ? next(current) : next;
+    dispatchWorkspace({ type: "updateDocument", documentId: current.id, document: value });
+  };
+  useEffect(() => { setSelected(null); setActiveRange(activeSession.ui.codeSelection); setFix(null); setSpoilerDialog(false); }, [document.id]);
   const analyze = useMemo(() => isTauri()
     ? createTauriAnalyzer<Analysis>(invoke)
     : window.__BBFORGE_ANALYZE__ ?? (async (request: AnalysisRequest): Promise<AnalysisResponse<Analysis>> => ({ ...request, analysis: emptyAnalysis() })), []);
-  const client = useMemo(() => createAnalysisClient(analyze, (result, response) => { setAnalysis(result); setSnapshot(response); }, 150, (reason) => setError(`Ошибка анализа: ${String(reason)}`)), [analyze]);
+  const client = useMemo(() => createAnalysisClient(analyze, (result, response) => {
+    setAnalyses((current) => ({ ...current, [response.documentId]: result }));
+    setSnapshots((current) => ({ ...current, [response.documentId]: response }));
+  }, 150, (reason) => setError(`Ошибка анализа: ${String(reason)}`)), [analyze]);
   const files = useMemo(() => createDesktopFiles(
     invoke,
     async () => await openDialog({ multiple: false, filters: [{ name: "BBCode", extensions: ["bbcode", "txt"] }] }) as string | null,
@@ -72,11 +89,13 @@ export default function App() {
   }, [client, document.id, document.revision, document.text]);
   useEffect(() => () => client.dispose(), [client]);
 
-  const changeSource = (value: string, endings: LineEnding[]) => {
-    const next = updateDocumentText(documentRef.current, value, endings);
-    documentRef.current = next;
-    setDocument(next);
-    setSelected(null);
+  const changeSource = (documentId: string, value: string, endings: LineEnding[]) => {
+    const session = workspaceRef.current.tabs.find((tab) => tab.document.id === documentId);
+    if (!session) return;
+    const next = updateDocumentText(session.document, value, endings);
+    if (documentId === workspaceRef.current.activeId) documentRef.current = next;
+    dispatchWorkspace({ type: "updateDocument", documentId, document: next });
+    if (documentId === workspaceRef.current.activeId) setSelected(null);
   };
   const execute = (command: EditCommand) => { if (composition.current || controller?.isComposing()) throw new Error("Завершите ввод текста перед изменением документа"); if (!controller) throw new Error("Редактор загружается"); controller.execute(command); };
   const historyAction = (redo: boolean) => { if (composition.current || controller?.isComposing()) return; if (redo) controller?.redo(); else controller?.undo(); };
@@ -136,12 +155,16 @@ export default function App() {
       return requestDocumentAction(documentRef.current.revision !== documentRef.current.savedRevision, chooseUnsaved, saveCurrent);
     } catch (reason) { setError(String(reason)); return false; }
   };
-  const newDocument = async () => { if (await mayReplaceDocument()) setDocument(decodeDocument(new Uint8Array())); };
+  const newDocument = async () => {
+    if (composition.current || controller?.isComposing()) { setError("Завершите ввод текста перед сменой вкладки"); return; }
+    dispatchWorkspace({ type: "open", session: { document: decodeDocument(new Uint8Array()) } });
+  };
   const openDocument = async () => {
-    if (!isTauri() || !await mayReplaceDocument()) return;
+    if (!isTauri()) return;
+    if (composition.current || controller?.isComposing()) { setError("Завершите ввод текста перед сменой вкладки"); return; }
     try {
       const opened = await files.openDocument();
-      if (opened) { setDocument(decodeDocument(opened.bytes, opened.path)); setError(null); }
+      if (opened) { dispatchWorkspace({ type: "open", session: { document: decodeDocument(opened.bytes, opened.path) } }); setError(null); }
     } catch (reason) { setError(String(reason)); }
   };
 
@@ -173,6 +196,19 @@ export default function App() {
   });
 
   const dirty = document.revision !== document.savedRevision;
+  const closeDocument = async (documentId: string) => {
+    const tab = workspaceRef.current.tabs.find((item) => item.document.id === documentId);
+    if (!tab) return;
+    if (tab.document.revision !== tab.document.savedRevision) {
+      const discard = isTauri()
+        ? await ask("Отбросить несохранённые изменения в этой вкладке?", { title: "BBForge", kind: "warning", okLabel: "Отбросить", cancelLabel: "Отмена" })
+        : window.confirm("Отбросить несохранённые изменения в этой вкладке?");
+      if (!discard) return;
+    }
+    controller?.discard(documentId);
+    dispatchWorkspace({ type: "close", documentId });
+    if (workspaceRef.current.tabs.length === 1) dispatchWorkspace({ type: "open", session: { document: decodeDocument(new Uint8Array()) } });
+  };
   const navigate = (span: Span) => { const range = { from: byteToUtf16(document.text, span.start), to: byteToUtf16(document.text, span.end) }; setActiveRange(range); controller?.select(range, mode !== "builder"); };
   return <main className="app">
     <header className="toolbar">
@@ -182,12 +218,12 @@ export default function App() {
     </header>
     <div className="ide-shell"><nav className="tool-rail" aria-label="Панели"><button className={layout.showOutline ? "active" : ""} title="Структура" aria-label="Структура" onClick={() => setLayout({ ...layout, showOutline: !layout.showOutline })}>▤</button><button className={showPreview ? "active" : ""} title="Предпросмотр" aria-label="Предпросмотр" onClick={() => { if (!composition.current) setShowPreview(!showPreview); }}>◉</button><span className="spacer" /><button className={layout.showProblems ? "active" : ""} title="Проблемы" aria-label="Проблемы" onClick={() => setLayout({ ...layout, showProblems: !layout.showProblems })}>⚠</button></nav>
     <div className="ide-main">
-      <div className="document-tabs"><div className="document-tab"><span className="file-icon">[ ]</span>{document.path?.split(/[\\/]/).at(-1) ?? "untitled.bbcode"}<span className="dirty-dot">{dirty ? "●" : ""}</span></div><span className="spacer" /><div className="mode-tabs">{(["code", "builder", "split"] as const).map((value) => <button key={value} className={!showPreview && mode === value ? "active" : ""} onClick={() => setMode(value)}>{value === "code" ? "Код" : value === "builder" ? "Конструктор" : "Рядом"}</button>)}</div></div>
+      <div className="document-tabs-row"><TabStrip tabs={workspace.tabs} activeId={workspace.activeId} onActivate={(documentId) => { if (!composition.current && !controller?.isComposing()) dispatchWorkspace({ type: "activate", documentId }); }} onClose={(documentId) => void closeDocument(documentId)} /><div className="mode-tabs">{(["code", "builder", "split"] as const).map((value) => <button key={value} className={!showPreview && mode === value ? "active" : ""} onClick={() => setMode(value)}>{value === "code" ? "Код" : value === "builder" ? "Конструктор" : "Рядом"}</button>)}</div></div>
       <div className="breadcrumbs"><span>{document.path ?? "Без имени"}{dirty ? " · изменён" : ""}</span><span>›</span><span>{selected ? "Выбранный блок" : "Документ"}</span><span className="spacer" /><span>Профиль 4PDA</span></div>
       <FormattingToolbar disabled={!currentSnapshot} onFormat={format} onSpoiler={() => { if (composition.current || controller?.isComposing()) return; spoilerOrigin.current = { ...identity(documentRef.current), ...activeRange }; setSpoilerDialog(true); }} onUndo={() => historyAction(false)} onRedo={() => historyAction(true)} />
       <Workspace layout={layout} setLayout={setLayout} showPreview={showPreview}
         outline={<Outline identity={identity(document)} nodes={currentSnapshot?.analysis.nodes ?? []} selected={selected?.span} onNavigate={(span) => { if (currentSnapshot) setSelected({ ...identity(document), span }); navigate(span); }} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, source, { node: { ...identity(document), span: target }, placement })); }} />}
-        editor={<Editor key={document.id} document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} onChange={changeSource} onReady={setController} onSelection={setActiveRange} selectionRequest={selection} />}
+        editor={<Editor document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} onChange={changeSource} onReady={setController} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range } }); }} selectionRequest={selection} />}
         builder={<Builder key={document.id} document={document} snapshot={snapshot} execute={execute} getDocument={() => documentRef.current} onSelect={setSelected} onRange={(range: VisualRange) => setActiveRange(range)} onNavigate={visualNavigate} onError={setError} onComposition={(active) => { composition.current = active; }} />}
         preview={<Preview source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}
         properties={selected && currentSnapshot ? <Properties document={document} snapshot={currentSnapshot} selected={selected} execute={execute} onError={setError} onNavigate={() => visualNavigate(sourceRange(document, selected.span))} /> : <div className="selection-hint">Выберите текст для оформления или блок для изменения его свойств <kbd>Alt</kbd> + <kbd>Enter</kbd> — исправления</div>} />

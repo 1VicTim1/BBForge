@@ -4,10 +4,13 @@ import { EditorView } from "@codemirror/view";
 import { applyChanges, type DocumentState, type LineEnding } from "../document/state";
 import { validateCommand, type EditCommand, type SourceRange } from "../document/commands";
 import { lineEndingExtensions, setEditorEndings } from "./lineEndings";
+import { EditorSessionCache } from "./sessionCache";
 export interface EditorController {
   execute(command: EditCommand): void; undo(): boolean; redo(): boolean;
   getSelection(): SourceRange; isComposing(): boolean; finishComposition(): Promise<void>;
   select(range: SourceRange, focus?: boolean): void;
+  activate(documentId: string, document: DocumentState): boolean;
+  discard(documentId: string): void;
 }
 export function createEditorState(document: DocumentState, extensions: Extension[], onChange: (text: string, endings: LineEnding[]) => void): EditorState {
   const endings = lineEndingExtensions(document);
@@ -15,7 +18,9 @@ export function createEditorState(document: DocumentState, extensions: Extension
     if (update.docChanged) onChange(update.state.doc.toString(), update.state.field(endings.field));
   })] });
 }
-export function createEditorController(view: EditorView, getDocument: () => DocumentState): EditorController {
+export function createEditorController(view: EditorView, getDocument: (documentId?: string) => DocumentState, createState?: (document: DocumentState) => EditorState, getComposing: () => boolean = () => false): EditorController {
+  const cache = new EditorSessionCache();
+  let activeId = getDocument().id;
   return {
     execute(command) {
       const current = getDocument(); validateCommand(current, command);
@@ -26,11 +31,24 @@ export function createEditorController(view: EditorView, getDocument: () => Docu
     undo: () => undo(view), redo: () => redo(view),
     getSelection: () => ({ from: view.state.selection.main.from, to: view.state.selection.main.to }),
     select(range, focus = true) { view.dispatch({ selection: { anchor: range.from, head: range.to }, scrollIntoView: true }); if (focus) view.focus(); },
-    isComposing: () => view.composing,
+    isComposing: () => view.composing || getComposing(),
     async finishComposition() {
       if (!view.composing) return; view.contentDOM.blur();
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       if (view.composing) throw new Error("Завершите ввод текста перед файловым действием");
+    },
+    activate(documentId, document) {
+      if (documentId === activeId) return true;
+      if (view.composing || getComposing()) return false;
+      cache.save(activeId, view.state);
+      const state = cache.restore(documentId) ?? createState?.(document);
+      if (!state) throw new Error("Редактор не умеет создать состояние документа");
+      activeId = documentId;
+      view.setState(state);
+      return true;
+    },
+    discard(documentId) {
+      cache.delete(documentId);
     },
   };
 }

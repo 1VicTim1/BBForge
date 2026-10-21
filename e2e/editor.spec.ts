@@ -46,3 +46,28 @@ test("selects all and copies with physical keys on Russian layout", async ({ pag
   await code.dispatchEvent("keydown", { key: "с", code: "KeyC", ctrlKey: true });
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("[b]Привет[/b]");
 });
+
+test("keeps text and undo history independent across tabs", async ({ page }) => {
+  const editor = page.locator(".cm-content");
+  await editor.fill("first");
+  await page.getByRole("button", { name: /Новый/ }).click();
+  await expect(page.getByRole("tab")).toHaveCount(2);
+  await editor.fill("second");
+
+  await page.getByRole("tab").nth(0).click();
+  await expect(editor).toHaveText("first");
+  await page.keyboard.press("Control+z");
+  await expect(editor).toContainText("Моя новая тема");
+
+  await page.getByRole("tab").nth(1).click();
+  await expect(editor).toHaveText("second");
+});
+
+test("does not switch tabs while the editor is composing", async ({ page }) => {
+  await page.getByRole("button", { name: /Новый/ }).click();
+  const editor = page.locator(".cm-content");
+  await editor.dispatchEvent("compositionstart", { data: "т" });
+  await page.getByRole("tab").nth(0).click();
+  await expect(page.getByRole("tab").nth(1)).toHaveAttribute("aria-selected", "true");
+  await editor.dispatchEvent("compositionend", { data: "т" });
+});
