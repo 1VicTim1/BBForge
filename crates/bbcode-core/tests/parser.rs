@@ -61,15 +61,15 @@ fn unclosed_parent_covers_content() {
 }
 
 #[test]
-fn crossed_nodes_are_not_well_formed() {
+fn crossed_nodes_are_recovered_for_visual_rendering() {
     let analysis = parse("[b][i]x[/b]");
     assert_eq!(
         serde_json::to_value(&analysis.nodes[0]).unwrap()["wellFormed"],
-        false
+        true
     );
     assert_eq!(
         serde_json::to_value(&analysis.nodes[0].children[0]).unwrap()["wellFormed"],
-        false
+        true
     );
     let list = parse("[list][*]a[*]b[/list]");
     assert_eq!(
