@@ -34,6 +34,7 @@ import { Splitter } from "./layout/Splitter";
 import { StatusBar } from "./layout/StatusBar";
 import { TabStrip } from "./workspace/TabStrip";
 import { createWorkspace, workspaceReducer } from "./workspace/session";
+import { createWorkspaceStore } from "./workspace/persistence";
 import "./styles.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
@@ -65,6 +66,8 @@ export default function App() {
   documentRef.current = document;
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
+  const workspaceStore = useMemo(() => createWorkspaceStore(isTauri() ? invoke : null, localStorage), []);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
   const setDocument = (next: typeof document | ((current: typeof document) => typeof document)) => {
     const current = workspaceRef.current.tabs.find((tab) => tab.document.id === workspaceRef.current.activeId)?.document;
     if (!current) return;
@@ -72,6 +75,14 @@ export default function App() {
     dispatchWorkspace({ type: "updateDocument", documentId: current.id, document: value });
   };
   useEffect(() => { setSelected(null); setActiveRange(activeSession.ui.codeSelection); setFix(null); setSpoilerDialog(false); }, [document.id]);
+  useEffect(() => {
+    let active = true;
+    void workspaceStore.load().then((restored) => {
+      if (active && restored) dispatchWorkspace({ type: "restore", workspace: restored });
+    }).catch((reason) => setError(`Не удалось восстановить сеанс: ${String(reason)}`)).finally(() => { if (active) setWorkspaceReady(true); });
+    return () => { active = false; };
+  }, [workspaceStore]);
+  useEffect(() => { if (workspaceReady) workspaceStore.schedule(workspace); }, [workspace, workspaceReady, workspaceStore]);
   const analyze = useMemo(() => isTauri()
     ? createTauriAnalyzer<Analysis>(invoke)
     : window.__BBFORGE_ANALYZE__ ?? (async (request: AnalysisRequest): Promise<AnalysisResponse<Analysis>> => ({ ...request, analysis: emptyAnalysis() })), []);
@@ -185,15 +196,18 @@ export default function App() {
     if (!isTauri()) return;
     let unlisten: (() => void) | undefined;
     void getCurrentWindow().onCloseRequested(async (event) => {
-      if (composition.current || controller?.isComposing()) { event.preventDefault(); setError("Завершите ввод текста перед закрытием"); return; }
-      if (documentRef.current.revision === documentRef.current.savedRevision) return;
       event.preventDefault();
-      if (await mayReplaceDocument()) {
-        try { await getCurrentWindow().destroy(); } catch (reason) { setError(String(reason)); }
-      }
+      if (composition.current || controller?.isComposing()) { setError("Завершите ввод текста перед закрытием"); return; }
+      const dirtyTabs = workspaceRef.current.tabs.some((tab) => tab.document.revision !== tab.document.savedRevision);
+      if (dirtyTabs && !await mayReplaceDocument()) return;
+      try {
+        workspaceStore.schedule(workspaceRef.current);
+        await workspaceStore.flush();
+        await getCurrentWindow().destroy();
+      } catch (reason) { setError(String(reason)); }
     }).then((stop) => { unlisten = stop; });
     return () => unlisten?.();
-  });
+  }, [controller, workspaceStore]);
 
   const dirty = document.revision !== document.savedRevision;
   const closeDocument = async (documentId: string) => {

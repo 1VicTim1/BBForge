@@ -30,6 +30,7 @@ export interface WorkspaceSession {
 
 type OpenSession = Pick<DocumentSession, "document"> & Partial<Omit<DocumentSession, "document">>;
 type WorkspaceAction =
+  | { type: "restore"; workspace: WorkspaceSession }
   | { type: "open"; session: OpenSession; canonicalPath?: (path: string) => string }
   | { type: "activate"; documentId: string }
   | { type: "updateDocument"; documentId: string; document: DocumentState }
@@ -68,6 +69,8 @@ function completeSession(session: OpenSession): DocumentSession {
 
 export function workspaceReducer(state: WorkspaceSession, action: WorkspaceAction): WorkspaceSession {
   switch (action.type) {
+    case "restore":
+      return action.workspace.tabs.length ? action.workspace : state;
     case "open": {
       const path = action.session.document.path;
       const existing = path === null ? undefined : state.tabs.find((tab) => {

@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod files;
+pub mod session;
 
 #[cfg(all(target_os = "linux", feature = "legacy-webkit"))]
 mod webkit_compat;
@@ -13,6 +14,8 @@ pub fn run() {
             commands::analyze,
             commands::read_document,
             commands::write_document
+            ,commands::read_workspace_session
+            ,commands::write_workspace_session
         ])
         .run(tauri::generate_context!())
         .expect("ошибка запуска BBForge");
