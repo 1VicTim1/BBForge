@@ -7,7 +7,7 @@ build = "build.rs"
 
 [features]
 default = []
-desktop = ["dep:tauri", "dep:tauri-plugin-dialog", "tauri/wry"]
+desktop = ["dep:tauri", "dep:tauri-plugin-dialog", "dep:tauri-plugin-opener", "tauri/wry"]
 
 [dependencies]
 atomic-write-file = "0.3"
@@ -15,6 +15,7 @@ bbcode-core = { path = "../crates/bbcode-core" }
 serde.workspace = true
 tauri = { version = "2", default-features = false, features = [], optional = true }
 tauri-plugin-dialog = { version = "2", optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

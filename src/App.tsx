@@ -1,6 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Editor } from "./editor/Editor";
 import { createAnalysisClient, type AnalysisRequest, type AnalysisResponse } from "./analysis/client";
@@ -9,6 +10,12 @@ import { emptyAnalysis, type Analysis } from "./analysis/types";
 import { createDesktopFiles } from "./document/desktop";
 import { completeSave, requestDocumentAction, type UnsavedChoice } from "./document/lifecycle";
 import { decodeDocument, replaceDocumentText, serializeDocument } from "./document/state";
+import { byteToUtf16 } from "./document/positions";
+import { Diagnostics } from "./components/Diagnostics";
+import { Outline } from "./components/Outline";
+import { Preview } from "./components/Preview";
+import type { Span } from "./analysis/types";
+import type { SelectionRequest } from "./editor/Editor";
 import "./styles.css";
 
 const example = `[spoiler=[b][color=red]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]`;
@@ -17,6 +24,8 @@ export default function App() {
   const [document, setDocument] = useState(() => decodeDocument(new TextEncoder().encode(example)));
   const [analysis, setAnalysis] = useState<Analysis>(emptyAnalysis);
   const [error, setError] = useState<string | null>(null);
+  const [selection, setSelection] = useState<SelectionRequest>();
+  const [panels, setPanels] = useState({ outline: true, preview: true, diagnostics: true });
   const documentRef = useRef(document);
   documentRef.current = document;
   const analyze = useMemo(() => isTauri()
@@ -91,20 +100,19 @@ export default function App() {
   });
 
   const dirty = document.revision !== document.savedRevision;
+  const navigate = (span: Span) => setSelection({ from: byteToUtf16(document.text, span.start), to: byteToUtf16(document.text, span.end), nonce: Date.now() });
   return <main className="app">
     <header className="toolbar">
       <h1>BBForge</h1>
       <button onClick={() => void newDocument()}>Новый</button><button disabled={!isTauri()} onClick={() => void openDocument()}>Открыть</button><button disabled={!isTauri()} onClick={() => void saveCurrent()}>Сохранить</button><button disabled={!isTauri()} onClick={() => void saveCurrent(true)}>Сохранить как</button>
+      <button onClick={() => setPanels((value) => ({ ...value, outline: !value.outline }))}>Структура</button><button onClick={() => setPanels((value) => ({ ...value, preview: !value.preview }))}>Предпросмотр</button>
       <span className="spacer" /><span className="status">{document.path ?? "Без имени"}{dirty ? " · изменён" : ""}</span>
     </header>
-    <section className="workspace">
-      <aside className="panel outline"><h2>Структура</h2><button className="tree-item">▾ Важная информация!</button></aside>
-      <section className="source"><Editor value={document.text} onChange={changeSource} /></section>
-      <aside className="panel preview"><h2>Предпросмотр</h2><details open><summary>Важная информация!</summary><pre>{document.text}</pre></details></aside>
+    <section className={`workspace ${!panels.outline ? "without-outline" : ""} ${!panels.preview ? "without-preview" : ""}`}>
+      {panels.outline && <aside className="panel outline"><h2>Структура</h2><Outline nodes={analysis.nodes} onNavigate={navigate} /></aside>}
+      <section className="source"><Editor value={document.text} onChange={changeSource} selectionRequest={selection} /></section>
+      {panels.preview && <aside className="panel preview"><h2>Предпросмотр</h2><Preview source={document.text} nodes={analysis.nodes} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url); }} /></aside>}
     </section>
-    <section className="diagnostics"><h2>Проблемы</h2>{analysis.diagnostics.length === 0
-      ? <p>Ошибок не найдено</p>
-      : analysis.diagnostics.map((item, index) => <p key={`${item.code}-${item.span.start}-${index}`}>{item.line}:{item.column} · {item.message}</p>)}
-      {error && <p className="error">{error}</p>}</section>
+    {panels.diagnostics && <section className="diagnostics"><div className="diagnostics-header"><h2>Проблемы</h2><button aria-label="Скрыть проблемы" onClick={() => setPanels((value) => ({ ...value, diagnostics: false }))}>×</button></div><Diagnostics diagnostics={analysis.diagnostics} onNavigate={navigate} />{error && <p className="error">{error}</p>}</section>}
   </main>;
 }
