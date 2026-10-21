@@ -6,7 +6,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Editor } from "./editor/Editor";
 import { createAnalysisClient, type AnalysisRequest, type AnalysisResponse } from "./analysis/client";
 import { createTauriAnalyzer } from "./analysis/tauri";
-import { emptyAnalysis, type Analysis } from "./analysis/types";
+import { emptyAnalysis, type Analysis, type AnalysisSnapshot } from "./analysis/types";
+import { Builder } from "./builder/Builder";
+import type { EditorController } from "./editor/controller";
+import type { EditCommand, SourceRange } from "./document/commands";
+import type { NodeRef } from "./document/structure";
+import type { VisualRange } from "./builder/selection";
 import { createDesktopFiles } from "./document/desktop";
 import { completeSave, requestDocumentAction, savedSnapshotIsCurrent, type UnsavedChoice } from "./document/lifecycle";
 import { decodeDocument, serializeDocument, updateDocumentText, type LineEnding } from "./document/state";
@@ -26,12 +31,18 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [selection, setSelection] = useState<SelectionRequest>();
   const [panels, setPanels] = useState({ outline: true, preview: true, diagnostics: true });
+  const [mode, setMode] = useState<"code" | "builder" | "split">("split");
+  const [snapshot, setSnapshot] = useState<AnalysisSnapshot | null>(null);
+  const [controller, setController] = useState<EditorController | null>(null);
+  const [selected, setSelected] = useState<NodeRef | null>(null);
+  const [activeRange, setActiveRange] = useState<SourceRange>({ from: 0, to: 0 });
+  const composition = useRef(false);
   const documentRef = useRef(document);
   documentRef.current = document;
   const analyze = useMemo(() => isTauri()
     ? createTauriAnalyzer<Analysis>(invoke)
     : window.__BBFORGE_ANALYZE__ ?? (async (request: AnalysisRequest): Promise<AnalysisResponse<Analysis>> => ({ ...request, analysis: emptyAnalysis() })), []);
-  const client = useMemo(() => createAnalysisClient(analyze, setAnalysis), [analyze]);
+  const client = useMemo(() => createAnalysisClient(analyze, (result, response) => { setAnalysis(result); setSnapshot(response); }, 150, (reason) => setError(`Ошибка анализа: ${String(reason)}`)), [analyze]);
   const files = useMemo(() => createDesktopFiles(
     invoke,
     async () => await openDialog({ multiple: false, filters: [{ name: "BBCode", extensions: ["bbcode", "txt"] }] }) as string | null,
@@ -39,15 +50,21 @@ export default function App() {
   ), []);
   useEffect(() => {
     client.update({ source: document.text, documentId: document.id, revision: document.revision });
-    return () => client.dispose();
   }, [client, document.id, document.revision, document.text]);
+  useEffect(() => () => client.dispose(), [client]);
 
   const changeSource = (value: string, endings: LineEnding[]) => {
-    setDocument((current) => updateDocumentText(current, value, endings));
+    const next = updateDocumentText(documentRef.current, value, endings);
+    documentRef.current = next;
+    setDocument(next);
   };
+  const execute = (command: EditCommand) => { if (!controller) throw new Error("Редактор загружается"); controller.execute(command); };
+  const visualNavigate = (range: SourceRange) => { setMode("split"); setSelection({ ...range, nonce: Date.now() }); };
 
   const saveCurrent = async (saveAs = false): Promise<boolean> => {
     if (!isTauri()) return false;
+    if (composition.current) { setError("Завершите ввод текста перед сохранением"); return false; }
+    await controller?.finishComposition();
     const snapshot = documentRef.current;
     try {
       const path = await files.saveDocument(saveAs ? null : snapshot.path, serializeDocument(snapshot));
@@ -70,7 +87,11 @@ export default function App() {
     return "cancel";
   };
 
-  const mayReplaceDocument = () => requestDocumentAction(documentRef.current.revision !== documentRef.current.savedRevision, chooseUnsaved, saveCurrent);
+  const mayReplaceDocument = async () => {
+    if (composition.current) { setError("Завершите ввод текста перед сменой документа"); return false; }
+    await controller?.finishComposition();
+    return requestDocumentAction(documentRef.current.revision !== documentRef.current.savedRevision, chooseUnsaved, saveCurrent);
+  };
   const newDocument = async () => { if (await mayReplaceDocument()) setDocument(decodeDocument(new Uint8Array())); };
   const openDocument = async () => {
     if (!isTauri() || !await mayReplaceDocument()) return;
@@ -108,13 +129,18 @@ export default function App() {
   return <main className="app">
     <header className="toolbar">
       <h1>BBForge</h1>
+      {(["code", "builder", "split"] as const).map((value) => <button key={value} onClick={() => { if (!composition.current) setMode(value); }}>{value === "code" ? "Код" : value === "builder" ? "Конструктор" : "Рядом"}</button>)}
       <button onClick={() => void newDocument()}>Новый</button><button disabled={!isTauri()} onClick={() => void openDocument()}>Открыть</button><button disabled={!isTauri()} onClick={() => void saveCurrent()}>Сохранить</button><button disabled={!isTauri()} onClick={() => void saveCurrent(true)}>Сохранить как</button>
       <button onClick={() => setPanels((value) => ({ ...value, outline: !value.outline }))}>Структура</button><button onClick={() => setPanels((value) => ({ ...value, preview: !value.preview }))}>Предпросмотр</button><button onClick={() => setPanels((value) => ({ ...value, diagnostics: !value.diagnostics }))}>Проблемы</button>
       <span className="spacer" /><span className="status">{document.path ?? "Без имени"}{dirty ? " · изменён" : ""}</span>
     </header>
     <section className={`workspace ${!panels.outline ? "without-outline" : ""} ${!panels.preview ? "without-preview" : ""}`}>
       {panels.outline && <aside className="panel outline"><h2>Структура</h2><Outline nodes={analysis.nodes} onNavigate={navigate} /></aside>}
-      <section className="source"><Editor key={document.id} value={document.text} endings={document.endings} onChange={changeSource} selectionRequest={selection} /></section>
+      <section className={`source mode-${mode}`}>
+        <div style={{ display: mode === "builder" ? "none" : "block", height: "100%" }}><Editor key={document.id} document={document} value={document.text} endings={document.endings} onChange={changeSource} onReady={setController} onSelection={setActiveRange} selectionRequest={selection} /></div>
+        {mode !== "code" && <Builder key={document.id} document={document} snapshot={snapshot} execute={execute} getDocument={() => documentRef.current} onSelect={setSelected} onRange={(range: VisualRange) => setActiveRange(range)} onNavigate={visualNavigate} onError={setError} onComposition={(active) => { composition.current = active; }} />}
+        <span hidden>{selected?.span.start}{activeRange.from}</span>
+      </section>
       {panels.preview && <aside className="panel preview"><h2>Предпросмотр</h2><Preview source={document.text} nodes={analysis.nodes} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} /></aside>}
     </section>
     {panels.diagnostics && <section className="diagnostics"><div className="diagnostics-header"><h2>Проблемы</h2><button aria-label="Скрыть проблемы" onClick={() => setPanels((value) => ({ ...value, diagnostics: false }))}>×</button></div><Diagnostics diagnostics={analysis.diagnostics} onNavigate={navigate} />{error && <p className="error">{error}</p>}</section>}
