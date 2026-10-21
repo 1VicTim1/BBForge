@@ -1,6 +1,9 @@
 pub mod commands;
 pub mod files;
 
+#[cfg(all(target_os = "linux", feature = "desktop"))]
+mod webkit_compat;
+
 #[cfg(feature = "desktop")]
 pub fn run() {
     tauri::Builder::default()
