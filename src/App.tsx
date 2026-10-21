@@ -44,7 +44,7 @@ export default function App() {
   const [layout, setLayout] = useState(() => loadLayout(localStorage));
   const [showPreview, setShowPreview] = useState(false);
   const mode = layout.mode;
-  const setMode = (mode: WorkspaceMode) => { if (!composition.current) { setLayout((current) => ({ ...current, mode })); setShowPreview(false); } };
+  const setMode = (mode: WorkspaceMode) => { if (!composition.current && !controller?.isComposing()) { setLayout((current) => ({ ...current, mode })); setShowPreview(false); } };
   useEffect(() => { saveLayout(localStorage, layout); }, [layout]);
   const [snapshot, setSnapshot] = useState<AnalysisSnapshot | null>(null);
   const [controller, setController] = useState<EditorController | null>(null);
@@ -52,6 +52,7 @@ export default function App() {
   const [activeRange, setActiveRange] = useState<SourceRange>({ from: 0, to: 0 });
   const composition = useRef(false);
   const [spoilerDialog, setSpoilerDialog] = useState(false);
+  const spoilerOrigin = useRef<VisualRange | null>(null);
   const [spoilerTitle, setSpoilerTitle] = useState("Новый спойлер");
   const [fix, setFix] = useState<FixSuggestion | null>(null);
   const documentRef = useRef(document);
@@ -77,10 +78,11 @@ export default function App() {
     setDocument(next);
     setSelected(null);
   };
-  const execute = (command: EditCommand) => { if (!controller) throw new Error("Редактор загружается"); controller.execute(command); };
+  const execute = (command: EditCommand) => { if (composition.current || controller?.isComposing()) throw new Error("Завершите ввод текста перед изменением документа"); if (!controller) throw new Error("Редактор загружается"); controller.execute(command); };
+  const historyAction = (redo: boolean) => { if (composition.current || controller?.isComposing()) return; if (redo) controller?.redo(); else controller?.undo(); };
   const run = (build: () => EditCommand) => { try { execute(build()); setError(null); } catch (reason) { setError(String(reason)); } };
   const currentSnapshot = snapshot?.documentId === document.id && snapshot.revision === document.revision ? snapshot : null;
-  const format = (tag: FormatTag, parameter?: string) => { if (currentSnapshot) {
+  const format = (tag: FormatTag, parameter?: string) => { if (composition.current || controller?.isComposing()) return; if (currentSnapshot) {
     const range = { ...identity(documentRef.current), ...activeRange };
     try {
       const command = applyFormat(documentRef.current, currentSnapshot, range, tag, parameter);
@@ -182,9 +184,9 @@ export default function App() {
     <div className="ide-main">
       <div className="document-tabs"><div className="document-tab"><span className="file-icon">[ ]</span>{document.path?.split(/[\\/]/).at(-1) ?? "untitled.bbcode"}<span className="dirty-dot">{dirty ? "●" : ""}</span></div><span className="spacer" /><div className="mode-tabs">{(["code", "builder", "split"] as const).map((value) => <button key={value} className={!showPreview && mode === value ? "active" : ""} onClick={() => setMode(value)}>{value === "code" ? "Код" : value === "builder" ? "Конструктор" : "Рядом"}</button>)}</div></div>
       <div className="breadcrumbs"><span>{document.path ?? "Без имени"}{dirty ? " · изменён" : ""}</span><span>›</span><span>{selected ? "Выбранный блок" : "Документ"}</span><span className="spacer" /><span>Профиль 4PDA</span></div>
-      <FormattingToolbar disabled={!currentSnapshot} onFormat={format} onSpoiler={() => setSpoilerDialog(true)} onUndo={() => controller?.undo()} onRedo={() => controller?.redo()} />
+      <FormattingToolbar disabled={!currentSnapshot} onFormat={format} onSpoiler={() => { if (composition.current || controller?.isComposing()) return; spoilerOrigin.current = { ...identity(documentRef.current), ...activeRange }; setSpoilerDialog(true); }} onUndo={() => historyAction(false)} onRedo={() => historyAction(true)} />
       <Workspace layout={layout} setLayout={setLayout} showPreview={showPreview}
-        outline={<Outline nodes={currentSnapshot?.analysis.nodes ?? []} selected={selected?.span} onNavigate={(span) => { if (currentSnapshot) setSelected({ ...identity(document), span }); navigate(span); }} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, { ...identity(document), span: source }, { node: { ...identity(document), span: target }, placement })); }} />}
+        outline={<Outline identity={identity(document)} nodes={currentSnapshot?.analysis.nodes ?? []} selected={selected?.span} onNavigate={(span) => { if (currentSnapshot) setSelected({ ...identity(document), span }); navigate(span); }} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, source, { node: { ...identity(document), span: target }, placement })); }} />}
         editor={<Editor key={document.id} document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} onChange={changeSource} onReady={setController} onSelection={setActiveRange} selectionRequest={selection} />}
         builder={<Builder key={document.id} document={document} snapshot={snapshot} execute={execute} getDocument={() => documentRef.current} onSelect={setSelected} onRange={(range: VisualRange) => setActiveRange(range)} onNavigate={visualNavigate} onError={setError} onComposition={(active) => { composition.current = active; }} />}
         preview={<Preview source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}
@@ -194,6 +196,6 @@ export default function App() {
     </div></div>
     <StatusBar document={document} position={activeRange.from} problems={analysis.diagnostics.length} />
     {fix && <ChangePreview document={document} suggestion={fix} onApply={(command) => { run(() => command); setFix(null); }} onClose={() => setFix(null)} />}
-    {spoilerDialog && <div className="modal-backdrop"><form className="dialog" role="dialog" aria-label="Создать спойлер" onSubmit={(event) => { event.preventDefault(); run(() => createSpoiler(documentRef.current, activeRange, spoilerTitle)); setSpoilerDialog(false); }}><h3>Создать спойлер</h3><label>Заголовок <input autoFocus value={spoilerTitle} onChange={(event) => setSpoilerTitle(event.target.value)} /></label><p>Выделенный текст станет содержимым спойлера.</p><button type="submit">Создать</button><button type="button" onClick={() => setSpoilerDialog(false)}>Отмена</button></form></div>}
+    {spoilerDialog && <div className="modal-backdrop"><form className="dialog" role="dialog" aria-label="Создать спойлер" onSubmit={(event) => { event.preventDefault(); run(() => { const origin = spoilerOrigin.current; if (!origin || !currentSnapshot || origin.documentId !== documentRef.current.id || origin.revision !== documentRef.current.revision) throw new Error("Документ изменился. Выделите текст заново."); return createSpoiler(documentRef.current, origin, spoilerTitle, currentSnapshot); }); setSpoilerDialog(false); }}><h3>Создать спойлер</h3><label>Заголовок <input autoFocus value={spoilerTitle} onChange={(event) => setSpoilerTitle(event.target.value)} /></label><p>Выделенный текст станет содержимым спойлера.</p><button type="submit">Создать</button><button type="button" onClick={() => setSpoilerDialog(false)}>Отмена</button></form></div>}
   </main>;
 }

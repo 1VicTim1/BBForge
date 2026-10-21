@@ -35,7 +35,7 @@ export function Editor(props: EditorProps) {
         return node ? { from: index.byteToUtf16(node.contentSpan.start), to: index.byteToUtf16(node.contentSpan.end) } : null;
       }),
       placeholder("Вставьте BBCode шапки…"), keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap]), EditorView.lineWrapping,
-      EditorView.updateListener.of((update) => { if (update.selectionSet || update.docChanged) latest.current.onSelection?.({ from: update.state.selection.main.from, to: update.state.selection.main.to }); }),
+      EditorView.updateListener.of((update) => { if (update.view.hasFocus && (update.selectionSet || update.docChanged)) latest.current.onSelection?.({ from: update.state.selection.main.from, to: update.state.selection.main.to }); }),
       EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "JetBrains Mono, Consolas, monospace" } }),
     ], (text, endings) => latest.current.onChange(text, endings)) });
     const controller = createEditorController(view, () => latest.current.document ?? initial);
