@@ -15,6 +15,9 @@ import { identity } from "./document/commands";
 import { applyFormat, type FormatTag } from "./document/formatting";
 import { FormattingToolbar } from "./builder/FormattingToolbar";
 import { Properties } from "./builder/Properties";
+import { combineFixes, suggestFixes, type FixSuggestion } from "./diagnostics/fixes";
+import { ChangePreview } from "./components/ChangePreview";
+import type { Diagnostic } from "./analysis/types";
 import type { VisualRange } from "./builder/selection";
 import { createDesktopFiles } from "./document/desktop";
 import { completeSave, requestDocumentAction, savedSnapshotIsCurrent, type UnsavedChoice } from "./document/lifecycle";
@@ -43,6 +46,7 @@ export default function App() {
   const composition = useRef(false);
   const [spoilerDialog, setSpoilerDialog] = useState(false);
   const [spoilerTitle, setSpoilerTitle] = useState("Новый спойлер");
+  const [fix, setFix] = useState<FixSuggestion | null>(null);
   const documentRef = useRef(document);
   documentRef.current = document;
   const analyze = useMemo(() => isTauri()
@@ -68,6 +72,17 @@ export default function App() {
   const run = (build: () => EditCommand) => { try { execute(build()); setError(null); } catch (reason) { setError(String(reason)); } };
   const currentSnapshot = snapshot?.documentId === document.id && snapshot.revision === document.revision ? snapshot : null;
   const format = (tag: FormatTag, parameter?: string) => { if (currentSnapshot) run(() => applyFormat(documentRef.current, currentSnapshot, { ...identity(documentRef.current), ...activeRange }, tag, parameter)); };
+  const showFix = (diagnostic?: Diagnostic) => {
+    if (!currentSnapshot) return;
+    const item = diagnostic ?? analysis.diagnostics.find((entry) => { const range = sourceRange(document, entry.span); return activeRange.from >= range.from && activeRange.from <= range.to; }) ?? analysis.diagnostics[0];
+    const suggestions = item ? suggestFixes(document, currentSnapshot, item) : [];
+    if (suggestions.length) setFix(suggestions[0]); else setError("Для этой ошибки нет однозначного исправления. Исправьте её в коде.");
+  };
+  const showAllFixes = () => { if (!currentSnapshot) return; try {
+    const fixes = analysis.diagnostics.flatMap((item) => suggestFixes(document, currentSnapshot, item)).filter((item) => !item.needsParameter);
+    if (!fixes.length) { setError("Нет доступных однозначных исправлений"); return; }
+    setFix({ id: "all", title: "Исправить однозначные ошибки", command: combineFixes(document, fixes) });
+  } catch (reason) { setError(String(reason)); } };
   const visualNavigate = (range: SourceRange) => { setMode("split"); setSelection({ ...range, nonce: Date.now() }); };
 
   const saveCurrent = async (saveAs = false): Promise<boolean> => {
@@ -112,6 +127,7 @@ export default function App() {
 
   useEffect(() => {
     const shortcuts = (event: KeyboardEvent) => {
+      if (event.altKey && event.key === "Enter") { event.preventDefault(); showFix(); return; }
       if (!(event.ctrlKey || event.metaKey)) return;
       if (event.key.toLowerCase() === "s") { event.preventDefault(); void saveCurrent(event.shiftKey); }
       if (event.key.toLowerCase() === "o") { event.preventDefault(); void openDocument(); }
@@ -153,7 +169,8 @@ export default function App() {
       </section>
       {panels.preview && <aside className="panel preview"><h2>Предпросмотр</h2><Preview source={document.text} nodes={analysis.nodes} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} /></aside>}
     </section>
-    {panels.diagnostics && <section className="diagnostics"><div className="diagnostics-header"><h2>Проблемы</h2><button aria-label="Скрыть проблемы" onClick={() => setPanels((value) => ({ ...value, diagnostics: false }))}>×</button></div><Diagnostics diagnostics={analysis.diagnostics} onNavigate={navigate} />{error && <p className="error">{error}</p>}</section>}
+    {panels.diagnostics && <section className="diagnostics"><div className="diagnostics-header"><h2>Проблемы</h2><button onClick={showAllFixes}>Исправить все однозначные…</button><button aria-label="Скрыть проблемы" onClick={() => setPanels((value) => ({ ...value, diagnostics: false }))}>×</button></div><Diagnostics diagnostics={analysis.diagnostics} onNavigate={navigate} onFix={showFix} />{error && <p className="error">{error}</p>}</section>}
+    {fix && <ChangePreview document={document} suggestion={fix} onApply={(command) => { run(() => command); setFix(null); }} onClose={() => setFix(null)} />}
     {spoilerDialog && <div className="modal-backdrop"><form className="dialog" role="dialog" aria-label="Создать спойлер" onSubmit={(event) => { event.preventDefault(); run(() => createSpoiler(documentRef.current, activeRange, spoilerTitle)); setSpoilerDialog(false); }}><h3>Создать спойлер</h3><label>Заголовок <input autoFocus value={spoilerTitle} onChange={(event) => setSpoilerTitle(event.target.value)} /></label><p>Выделенный текст станет содержимым спойлера.</p><button type="submit">Создать</button><button type="button" onClick={() => setSpoilerDialog(false)}>Отмена</button></form></div>}
   </main>;
 }
