@@ -10,6 +10,7 @@ pub fn parse(source: &str) -> Analysis {
     let mut roots = Vec::new();
     let mut stack: Vec<Node> = Vec::new();
     let mut diagnostics = Vec::new();
+    let mut recovered = Vec::new();
     for token in &tokens {
         match token.kind {
             TokenKind::Text => append(&mut roots, &mut stack, text_node(token.span)),
@@ -35,7 +36,13 @@ pub fn parse(source: &str) -> Analysis {
                     stack.push(element_node(token));
                 }
             }
-            TokenKind::ClosingTag => close_tag(token, &mut roots, &mut stack, &mut diagnostics),
+            TokenKind::ClosingTag => close_tag(
+                token,
+                &mut roots,
+                &mut stack,
+                &mut diagnostics,
+                &mut recovered,
+            ),
         }
     }
     while let Some(mut node) = stack.pop() {
@@ -68,6 +75,7 @@ fn close_tag(
     roots: &mut Vec<Node>,
     stack: &mut Vec<Node>,
     diagnostics: &mut Vec<Diagnostic>,
+    recovered: &mut Vec<String>,
 ) {
     let name = token.name.as_deref().unwrap_or_default();
     if name == "list" && stack.last().and_then(|node| node.name.as_deref()) == Some("*") {
@@ -77,9 +85,17 @@ fn close_tag(
         .iter()
         .rposition(|node| node.name.as_deref() == Some(name))
     else {
+        let recovery = recovered.iter().rposition(|item| item == name);
+        if let Some(at) = recovery {
+            recovered.remove(at);
+        }
         diagnostics.push(Diagnostic {
             code: DiagnosticCode::UnexpectedClosingTag,
-            severity: Severity::Error,
+            severity: if recovery.is_some() {
+                Severity::Warning
+            } else {
+                Severity::Error
+            },
             message: format!("Закрывающий тег [/{name}] не имеет открывающего"),
             span: token.span,
             line: 0,
@@ -92,7 +108,7 @@ fn close_tag(
     if crossed {
         diagnostics.push(Diagnostic {
             code: DiagnosticCode::CrossedClosingTag,
-            severity: Severity::Error,
+            severity: Severity::Warning,
             message: format!("Тег [/{name}] пересекает вложенные теги"),
             span: token.span,
             line: 0,
@@ -100,6 +116,9 @@ fn close_tag(
         });
     }
     while stack.len() > index + 1 {
+        if let Some(name) = stack.last().and_then(|node| node.name.clone()) {
+            recovered.push(name);
+        }
         finish_top(roots, stack, token.span.start, false);
     }
     let mut node = stack.pop().expect("matching stack entry exists");

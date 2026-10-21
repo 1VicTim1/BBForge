@@ -1,5 +1,21 @@
 use bbcode_core::{DiagnosticCode, NodeKind, TokenKind, parse};
 
+#[test]
+fn crossed_formatting_and_its_recovery_are_warnings() {
+    let analysis = parse("[size=1][color=grey]fire[/size][/color]");
+    assert_eq!(analysis.diagnostics.len(), 2);
+    assert!(
+        analysis
+            .diagnostics
+            .iter()
+            .all(|d| d.severity == bbcode_core::Severity::Warning)
+    );
+    assert_eq!(
+        parse("[/color]").diagnostics[0].severity,
+        bbcode_core::Severity::Error
+    );
+}
+
 fn token_text(source: &str, start: usize, end: usize) -> &str {
     &source[start..end]
 }

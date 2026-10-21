@@ -97,7 +97,7 @@ export default function App() {
     if (suggestions.length) setFix(suggestions[0]); else setError("Для этой ошибки нет однозначного исправления. Исправьте её в коде.");
   };
   const showAllFixes = () => { if (!currentSnapshot) return; try {
-    const fixes = analysis.diagnostics.flatMap((item) => suggestFixes(document, currentSnapshot, item)).filter((item) => !item.needsParameter);
+    const fixes = [...new Map(analysis.diagnostics.flatMap((item) => suggestFixes(document, currentSnapshot, item)).filter((item) => !item.needsParameter).map((item) => [item.id, item])).values()];
     if (!fixes.length) { setError("Нет доступных однозначных исправлений"); return; }
     setFix({ id: "all", title: "Исправить однозначные ошибки", command: combineFixes(document, fixes) });
   } catch (reason) { setError(String(reason)); } };
@@ -150,7 +150,7 @@ export default function App() {
       if (event.altKey && event.key === "Enter") { event.preventDefault(); showFix(); return; }
       if (!(event.ctrlKey || event.metaKey)) return;
       if (["b", "i", "u"].includes(event.key.toLowerCase()) && (event.target as HTMLElement).closest(".visual-text") && !composition.current) { event.preventDefault(); format(event.key.toLowerCase() as FormatTag); return; }
-      if (event.key.toLowerCase() === "z" && !(event.target as HTMLElement).closest(".cm-editor, input, textarea") && !composition.current) { event.preventDefault(); if (event.shiftKey) controller?.redo(); else controller?.undo(); }
+      if ((event.code === "KeyZ" || event.key.toLowerCase() === "z") && !(event.target as HTMLElement).closest(".cm-editor, input, textarea") && !composition.current) { event.preventDefault(); historyAction(event.shiftKey); }
       if (event.key.toLowerCase() === "s") { event.preventDefault(); void saveCurrent(event.shiftKey); }
       if (event.key.toLowerCase() === "o") { event.preventDefault(); void openDocument(); }
     };

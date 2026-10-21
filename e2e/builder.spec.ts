@@ -1,6 +1,61 @@
 import { expect, test } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 
+test("visual Undo and Redo use the physical key in Russian layout", async ({ page }) => {
+  const code = page.locator(".cm-content"); await code.fill("[spoiler=S]hello[/spoiler]");
+  const leaf = page.getByRole("textbox", { name: "Текст блока" }); await expect(leaf).toHaveText("hello");
+  await leaf.fill("changed");
+  await leaf.dispatchEvent("keydown", { key: "я", code: "KeyZ", ctrlKey: true });
+  await expect(code).toHaveText("[spoiler=S]hello[/spoiler]");
+  await leaf.dispatchEvent("keydown", { key: "Я", code: "KeyZ", ctrlKey: true, shiftKey: true });
+  await expect(code).toHaveText("[spoiler=S]changed[/spoiler]");
+});
+
+test("code Undo uses the physical key in Russian layout", async ({ page }) => {
+  const code = page.locator(".cm-content"); await code.fill("hello");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await page.waitForTimeout(550);
+  await code.press("End"); await page.keyboard.type("X");
+  await code.dispatchEvent("keydown", { key: "я", code: "KeyZ", ctrlKey: true });
+  await expect(code).toHaveText("hello");
+});
+
+test("insert-in-spoiler focuses a real input after nested formatting", async ({ page }) => {
+  const code = page.locator(".cm-content"); await code.fill("[spoiler=S][b]hello[/b][/spoiler]");
+  await page.getByRole("button", { name: "+ Вставить в спойлер", exact: true }).click();
+  await page.keyboard.type("tail");
+  await expect(code).toHaveText("[spoiler=S][b]hello[/b]tail[/spoiler]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await page.getByRole("button", { name: "+ Вставить в спойлер", exact: true }).click();
+  await page.keyboard.type("more");
+  await expect(code).toHaveText("[spoiler=S][b]hello[/b]tailmore[/spoiler]");
+});
+
+test("repairs crossed closing runs without deleting formatting", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  for (const [source, expected] of [
+    ["[size=1][color=grey]fire[/size][/color]", "[size=1][color=grey]fire[/color][/size]"],
+    ['[i][color=green][b]текст [color="#0099FF"]ссылка[/color] текст[/color][/i][/b]', '[i][color=green][b]текст [color="#0099FF"]ссылка[/color] текст[/b][/color][/i]'],
+  ]) {
+    await code.fill(source);
+    await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+    await page.getByRole("button", { name: "Исправить однозначные…", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Предпросмотр исправления" })).toBeVisible();
+    await page.getByRole("button", { name: "Применить исправление", exact: true }).click();
+    await expect(code).toHaveText(expected);
+    await expect(page.locator(".diagnostics .count-badge")).toHaveText("0");
+  }
+});
+
+test("does not delete recovery tags when a crossing repair is ambiguous", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("[b][i]a[/b]tail[/i]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await page.getByRole("button", { name: "Исправить однозначные…", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Нет доступных однозначных исправлений");
+  await expect(code).toHaveText("[b][i]a[/b]tail[/i]");
+});
+
 test("keeps visual typing coherent through Undo and formatting", async ({ page }) => {
   const code = page.locator(".cm-content"); await code.fill("[spoiler=S]hello[/spoiler]");
   const leaf = page.getByRole("textbox", { name: "Текст блока" }); await expect(leaf).toHaveText("hello");
