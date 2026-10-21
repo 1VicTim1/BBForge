@@ -34,6 +34,7 @@ type WorkspaceAction =
   | { type: "open"; session: OpenSession; canonicalPath?: (path: string) => string }
   | { type: "activate"; documentId: string }
   | { type: "updateDocument"; documentId: string; document: DocumentState }
+  | { type: "updateFingerprint"; documentId: string; fingerprint: DiskFingerprint | null }
   | { type: "updateUi"; documentId: string; ui: Partial<DocumentUiState> }
   | { type: "reorder"; documentId: string; to: number }
   | { type: "close"; documentId: string };
@@ -88,6 +89,8 @@ export function workspaceReducer(state: WorkspaceSession, action: WorkspaceActio
         : state;
     case "updateDocument":
       return { ...state, tabs: state.tabs.map((tab) => tab.document.id === action.documentId ? { ...tab, document: action.document } : tab) };
+    case "updateFingerprint":
+      return { ...state, tabs: state.tabs.map((tab) => tab.document.id === action.documentId ? { ...tab, diskFingerprint: action.fingerprint } : tab) };
     case "updateUi":
       return { ...state, tabs: state.tabs.map((tab) => tab.document.id === action.documentId ? { ...tab, ui: { ...tab.ui, ...action.ui } } : tab) };
     case "reorder": {

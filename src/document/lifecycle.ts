@@ -14,6 +14,11 @@ export async function requestDocumentAction(
   return save();
 }
 
+export async function requestWorkspaceClose(documentIds: string[], request: (documentId: string) => Promise<boolean>): Promise<boolean> {
+  for (const documentId of documentIds) if (!await request(documentId)) return false;
+  return true;
+}
+
 export function completeSave(document: DocumentState, savedDocumentId: string, savedRevision: number, path: string): DocumentState {
   if (document.id !== savedDocumentId) return document;
   return { ...document, path, savedRevision };

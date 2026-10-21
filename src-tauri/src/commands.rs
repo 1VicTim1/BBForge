@@ -35,14 +35,14 @@ pub async fn analyze(
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
-pub fn read_document(path: String) -> Result<Vec<u8>, String> {
-    crate::files::read_document(&PathBuf::from(path)).map_err(|error| error.to_string())
+pub fn read_document(path: String) -> Result<crate::files::OpenedDocument, String> {
+    crate::files::read_document_info(&PathBuf::from(path)).map_err(|error| error.to_string())
 }
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
-pub fn write_document(path: String, bytes: Vec<u8>) -> Result<(), String> {
-    crate::files::write_document(&PathBuf::from(path), &bytes).map_err(|error| error.to_string())
+pub fn write_document(path: String, bytes: Vec<u8>, expected_fingerprint: Option<crate::files::DiskFingerprint>) -> Result<crate::files::SavedDocument, String> {
+    crate::files::save_document_info(&PathBuf::from(path), &bytes, expected_fingerprint.as_ref()).map_err(|error| error.to_string())
 }
 
 #[cfg(feature = "desktop")]

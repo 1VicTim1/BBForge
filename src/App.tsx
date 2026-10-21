@@ -20,7 +20,7 @@ import { ChangePreview } from "./components/ChangePreview";
 import type { Diagnostic } from "./analysis/types";
 import type { VisualRange } from "./builder/selection";
 import { createDesktopFiles } from "./document/desktop";
-import { completeSave, requestDocumentAction, savedSnapshotIsCurrent, type UnsavedChoice } from "./document/lifecycle";
+import { completeSave, requestDocumentAction, requestWorkspaceClose, savedSnapshotIsCurrent, type UnsavedChoice } from "./document/lifecycle";
 import { decodeDocument, serializeDocument, updateDocumentText, type LineEnding } from "./document/state";
 import { byteToUtf16 } from "./document/positions";
 import { Diagnostics } from "./components/Diagnostics";
@@ -68,12 +68,6 @@ export default function App() {
   workspaceRef.current = workspace;
   const workspaceStore = useMemo(() => createWorkspaceStore(isTauri() ? invoke : null, localStorage), []);
   const [workspaceReady, setWorkspaceReady] = useState(false);
-  const setDocument = (next: typeof document | ((current: typeof document) => typeof document)) => {
-    const current = workspaceRef.current.tabs.find((tab) => tab.document.id === workspaceRef.current.activeId)?.document;
-    if (!current) return;
-    const value = typeof next === "function" ? next(current) : next;
-    dispatchWorkspace({ type: "updateDocument", documentId: current.id, document: value });
-  };
   useEffect(() => { setSelected(null); setActiveRange(activeSession.ui.codeSelection); setFix(null); setSpoilerDialog(false); }, [document.id]);
   useEffect(() => {
     let active = true;
@@ -133,17 +127,20 @@ export default function App() {
   } catch (reason) { setError(String(reason)); } };
   const visualNavigate = (range: SourceRange) => { setMode("split"); setSelection({ ...range, nonce: Date.now() }); };
 
-  const saveCurrent = async (saveAs = false): Promise<boolean> => {
+  const saveTab = async (documentId: string, saveAs = false): Promise<boolean> => {
     if (!isTauri()) return false;
     if (composition.current) { setError("Завершите ввод текста перед сохранением"); return false; }
-    const snapshot = documentRef.current;
+    const tab = workspaceRef.current.tabs.find((item) => item.document.id === documentId);
+    if (!tab) return false;
+    const snapshot = tab.document;
     try {
-      await controller?.finishComposition();
-      const path = await files.saveDocument(saveAs ? null : snapshot.path, serializeDocument(snapshot));
-      if (!path) return false;
-      const current = documentRef.current;
-      if (current.id !== snapshot.id) return false;
-      setDocument((value) => completeSave(value, snapshot.id, snapshot.revision, path));
+      if (documentId === workspaceRef.current.activeId) await controller?.finishComposition();
+      const saved = await files.saveDocument(saveAs ? null : snapshot.path, serializeDocument(snapshot), saveAs ? null : tab.diskFingerprint);
+      if (!saved) return false;
+      const current = workspaceRef.current.tabs.find((item) => item.document.id === documentId)?.document;
+      if (!current) return false;
+      dispatchWorkspace({ type: "updateDocument", documentId, document: completeSave(current, snapshot.id, snapshot.revision, saved.path) });
+      dispatchWorkspace({ type: "updateFingerprint", documentId: snapshot.id, fingerprint: saved.fingerprint });
       setError(null);
       return savedSnapshotIsCurrent(current, snapshot.id, snapshot.revision);
     } catch (reason) {
@@ -151,6 +148,7 @@ export default function App() {
       return false;
     }
   };
+  const saveCurrent = async (saveAs = false): Promise<boolean> => saveTab(workspaceRef.current.activeId, saveAs);
 
   const chooseUnsaved = async (): Promise<UnsavedChoice> => {
     if (!isTauri()) return window.confirm("Отбросить несохранённые изменения?") ? "discard" : "cancel";
@@ -159,13 +157,6 @@ export default function App() {
     return "cancel";
   };
 
-  const mayReplaceDocument = async () => {
-    if (composition.current) { setError("Завершите ввод текста перед сменой документа"); return false; }
-    try {
-      await controller?.finishComposition();
-      return requestDocumentAction(documentRef.current.revision !== documentRef.current.savedRevision, chooseUnsaved, saveCurrent);
-    } catch (reason) { setError(String(reason)); return false; }
-  };
   const newDocument = async () => {
     if (composition.current || controller?.isComposing()) { setError("Завершите ввод текста перед сменой вкладки"); return; }
     dispatchWorkspace({ type: "open", session: { document: decodeDocument(new Uint8Array()) } });
@@ -175,7 +166,7 @@ export default function App() {
     if (composition.current || controller?.isComposing()) { setError("Завершите ввод текста перед сменой вкладки"); return; }
     try {
       const opened = await files.openDocument();
-      if (opened) { dispatchWorkspace({ type: "open", session: { document: decodeDocument(opened.bytes, opened.path) } }); setError(null); }
+      if (opened) { dispatchWorkspace({ type: "open", session: { document: decodeDocument(opened.bytes, opened.path), diskFingerprint: opened.fingerprint } }); setError(null); }
     } catch (reason) { setError(String(reason)); }
   };
 
@@ -198,8 +189,8 @@ export default function App() {
     void getCurrentWindow().onCloseRequested(async (event) => {
       event.preventDefault();
       if (composition.current || controller?.isComposing()) { setError("Завершите ввод текста перед закрытием"); return; }
-      const dirtyTabs = workspaceRef.current.tabs.some((tab) => tab.document.revision !== tab.document.savedRevision);
-      if (dirtyTabs && !await mayReplaceDocument()) return;
+      const dirtyTabs = workspaceRef.current.tabs.filter((tab) => tab.document.revision !== tab.document.savedRevision).map((tab) => tab.document.id);
+      if (!await requestWorkspaceClose(dirtyTabs, async (documentId) => requestDocumentAction(true, chooseUnsaved, () => saveTab(documentId)))) return;
       try {
         workspaceStore.schedule(workspaceRef.current);
         await workspaceStore.flush();
@@ -213,12 +204,7 @@ export default function App() {
   const closeDocument = async (documentId: string) => {
     const tab = workspaceRef.current.tabs.find((item) => item.document.id === documentId);
     if (!tab) return;
-    if (tab.document.revision !== tab.document.savedRevision) {
-      const discard = isTauri()
-        ? await ask("Отбросить несохранённые изменения в этой вкладке?", { title: "BBForge", kind: "warning", okLabel: "Отбросить", cancelLabel: "Отмена" })
-        : window.confirm("Отбросить несохранённые изменения в этой вкладке?");
-      if (!discard) return;
-    }
+    if (!await requestDocumentAction(tab.document.revision !== tab.document.savedRevision, chooseUnsaved, () => saveTab(documentId))) return;
     controller?.discard(documentId);
     dispatchWorkspace({ type: "close", documentId });
     if (workspaceRef.current.tabs.length === 1) dispatchWorkspace({ type: "open", session: { document: decodeDocument(new Uint8Array()) } });
