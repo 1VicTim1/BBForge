@@ -48,7 +48,7 @@ function plainText(node: Node, source: string, positions: PositionIndex): string
   return node.children.map((child) => child.kind === "text" ? source.slice(positions.byteToUtf16(child.span.start), positions.byteToUtf16(child.span.end)) : plainText(child, source, positions)).join("");
 }
 
-function formatTitle(parameter: string): ReactNode {
+export function formatTitle(parameter: string): ReactNode {
   const text = parameter.replace(/\[[^\]]+\]/g, "").trim() || "Спойлер";
   const color = parameter.match(/\[color=([^\]]+)\]/i)?.[1];
   const content = /\[b\]/i.test(parameter) ? <strong>{text}</strong> : text;

@@ -37,7 +37,8 @@ export function createPositionIndex(source: string): PositionIndex {
   let byteOffset = 0;
   let utf16Offset = 0;
   for (const character of source) {
-    byteOffset += encoder.encode(character).length;
+    const point = character.codePointAt(0)!;
+    byteOffset += point <= 0x7f ? 1 : point <= 0x7ff ? 2 : point <= 0xffff ? 3 : 4;
     utf16Offset += character.length;
     bytes.push(byteOffset);
     utf16.push(utf16Offset);

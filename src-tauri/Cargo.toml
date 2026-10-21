@@ -7,6 +7,7 @@ build = "build.rs"
 
 [features]
 default = []
+legacy-webkit = ["desktop"]
 desktop = [
   "dep:tauri",
   "dep:tauri-plugin-dialog",

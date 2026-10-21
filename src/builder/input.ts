@@ -5,8 +5,9 @@ export function literalPaste(text: string): string {
   if (/\[\/code\]/i.test(text)) throw new Error("Текст содержит [/code]. Вставьте его в режиме кода.");
   return `[code]${normalizeInput(text)}[/code]`;
 }
-export function textEditCommand(document: DocumentState, range: SourceRange, value: string): EditCommand {
+export function textEditCommand(document: DocumentState, range: SourceRange, value: string, expected?: string): EditCommand {
   const text = normalizeInput(value), original = document.text.slice(range.from, range.to);
+  if (expected !== undefined && original !== expected) throw new Error("Текст изменился. Дождитесь обновления конструктора.");
   let start = 0, oldEnd = original.length, newEnd = text.length;
   while (start < oldEnd && start < newEnd && original[start] === text[start]) start++;
   if (start > 0 && /[\uDC00-\uDFFF]/.test(original[start] ?? "")) start--;

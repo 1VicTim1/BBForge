@@ -9,6 +9,7 @@ import { TextLeaf } from "./TextLeaf";
 import { literalPaste, textEditCommand } from "./input";
 import { readVisualSelection, type VisualRange } from "./selection";
 import { safeExternalUrl } from "../components/Preview";
+import { LazyBlockGroup, SpoilerBlock } from "./Block";
 
 export interface BuilderProps {
   document: DocumentState; snapshot: AnalysisSnapshot | null;
@@ -33,14 +34,14 @@ export function Builder(props: BuilderProps) {
     if (node.kind === "text") {
       const text = source.slice(from, to);
       if (text.length > 65536) return <button className="opaque-block" key={path} onClick={() => props.onNavigate({ from, to })}>Большой текстовый блок · Редактировать код</button>;
-      return <TextLeaf key={path} text={text} from={from} to={to} onEdit={(range, value) => run(() => textEditCommand(props.getDocument(), range, value))} onSelect={select} onComposition={props.onComposition} onPasteCode={(range, text) => setPaste({ range, text, ...identity(props.document) })} />;
+      return <TextLeaf key={path} editable={snapshot?.revision === props.document.revision} text={text} from={from} to={to} onEdit={(range, value, expected) => { try { props.execute(textEditCommand(props.getDocument(), range, value, expected)); } catch (error) { props.onError(String(error)); throw error; } }} onSelect={select} onComposition={props.onComposition} onPasteCode={(range, text) => setPaste({ range, text, ...identity(props.document) })} />;
     }
     const reference = nodeRef(snapshot!, node);
-    const children = () => node.children.map((child, at) => render(child, `${path}.${at}`));
+    const children = () => node.children.length ? node.children.map((child, at) => render(child, `${path}.${at}`)) : render({ kind: "text", name: null, parameter: null, span: node.contentSpan, contentSpan: node.contentSpan, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, `${path}.empty`);
     const selectNode = (event: React.MouseEvent) => { event.stopPropagation(); props.onSelect(reference); };
     const known = ["b", "i", "u", "s", "color", "background", "url", "quote", "code", "list", "*", "spoiler", "size", "font", "left", "center", "right", "sub", "sup", "img", "attachment"];
     if (!node.wellFormed || !known.includes(node.name ?? "")) return <div key={path} className="opaque-block" onClick={selectNode}><span>{node.wellFormed ? `Неизвестный тег [${node.name}]` : "Повреждённая разметка"}</span><code>{source.slice(from, to)}</code><button onClick={() => props.onNavigate({ from, to })}>Редактировать код</button></div>;
-    if (node.name === "spoiler") return <details key={path} className="builder-spoiler" open onClick={selectNode}><summary><span className="node-icon">▣</span>{(node.parameter ?? "Спойлер").replace(/\[[^\]]+\]/g, "")}<span className="tag-label">spoiler</span></summary><div className="spoiler-body">{children()}<button className="empty-insert" onClick={() => { const at = index.byteToUtf16(node.contentSpan.end); props.onRange({ ...identity(props.document), from: at, to: at }); props.onSelect(reference); }}>+ Вставить в спойлер</button></div></details>;
+    if (node.name === "spoiler") return <SpoilerBlock key={path} title={node.parameter ?? "Спойлер"} depth={path.split(".").length - 1} onSelect={selectNode} onInsert={() => { const at = index.byteToUtf16(node.contentSpan.end); props.onRange({ ...identity(props.document), from: at, to: at }); props.onSelect(reference); }}>{children}</SpoilerBlock>;
     if (node.name === "img" || node.name === "attachment") return <button key={path} className="media-placeholder" onClick={selectNode}>{node.name === "img" ? "▧ Изображение" : "▤ Вложение"} · Свойства</button>;
     if (node.name === "code") return <pre className="builder-code" key={path} onClick={selectNode}>{children()}</pre>;
     if (node.name === "quote") return <blockquote key={path} onClick={selectNode}>{children()}</blockquote>;
@@ -49,6 +50,7 @@ export function Builder(props: BuilderProps) {
     const style: React.CSSProperties = {};
     if (node.name === "b") style.fontWeight = 700;
     if (node.name === "i") style.fontStyle = "italic";
+    if (node.name === "sub" || node.name === "sup") { style.verticalAlign = node.name; style.fontSize = "smaller"; }
     if (node.name === "u") style.textDecoration = "underline";
     if (node.name === "s") style.textDecoration = "line-through";
     if (node.name === "color" && /^(#[\da-f]{3,8}|[a-z]{1,20})$/i.test(node.parameter ?? "")) style.color = node.parameter!;
@@ -61,7 +63,7 @@ export function Builder(props: BuilderProps) {
   };
   return <div className="builder" ref={root} onMouseUp={select}>
     <div className="builder-caption"><span>ВИЗУАЛЬНЫЙ ДОКУМЕНТ</span><small>{snapshot?.revision === props.document.revision ? "Синхронизирован с кодом" : "Обновление структуры…"}</small></div>
-    <div className="builder-page">{snapshot ? snapshot.analysis.nodes.map((node, at) => render(node, String(at))) : <p>Анализ документа…</p>}{snapshot?.analysis.nodes.length === 0 && <button onClick={() => props.onNavigate({ from: 0, to: 0 })}>Начните ввод в редакторе или создайте спойлер</button>}</div>
+    <div className="builder-page">{snapshot ? Array.from({ length: Math.ceil(snapshot.analysis.nodes.length / 30) }, (_, group) => <LazyBlockGroup key={`${props.document.id}-${group}`} eager={group === 0} count={Math.min(30, snapshot.analysis.nodes.length - group * 30)}>{() => snapshot.analysis.nodes.slice(group * 30, group * 30 + 30).map((node, at) => render(node, String(group * 30 + at)))}</LazyBlockGroup>) : <p>Анализ документа…</p>}{snapshot?.analysis.nodes.length === 0 && render({ kind: "text", name: null, parameter: null, span: { start: 0, end: 0 }, contentSpan: { start: 0, end: 0 }, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, "empty")}</div>
     {paste && <div className="modal-backdrop"><section className="dialog" role="dialog" aria-label="Вставить текст"><h3>В тексте найдены BBCode-теги</h3><pre>{paste.text}</pre><button onClick={() => { run(() => ({ ...paste, label: "Вставить BBCode", changes: [{ ...paste.range, insert: paste.text }] })); setPaste(null); }}>Вставить как BBCode</button><button onClick={() => { run(() => ({ ...paste, label: "Вставить буквальный текст", changes: [{ ...paste.range, insert: literalPaste(paste.text) }] })); setPaste(null); }}>Буквально в code</button><button onClick={() => setPaste(null)}>Отмена</button></section></div>}
   </div>;
 }

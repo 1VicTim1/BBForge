@@ -29,5 +29,5 @@ test("toggles structure and preview panels", async ({ page }) => {
   await page.getByRole("button", { name: "Структура" }).click();
   await expect(page.getByRole("heading", { name: "Структура" })).toBeHidden();
   await page.getByRole("button", { name: "Предпросмотр" }).click();
-  await expect(page.getByRole("heading", { name: "Предпросмотр" })).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Предпросмотр" })).toBeVisible();
 });

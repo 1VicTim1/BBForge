@@ -1,18 +1,22 @@
 import { historyKeymap, defaultKeymap } from "@codemirror/commands";
 import { searchKeymap } from "@codemirror/search";
-import { bracketMatching, foldGutter, foldKeymap } from "@codemirror/language";
+import { bracketMatching, foldGutter, foldKeymap, foldService } from "@codemirror/language";
 import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 import { bbcodeLanguage } from "./language";
 import { decodeDocument, type DocumentState, type LineEnding } from "../document/state";
 import { createEditorController, createEditorState, type EditorController } from "./controller";
 import type { SourceRange } from "../document/commands";
+import type { AnalysisSnapshot } from "../analysis/types";
+import { allNodes } from "../document/formatting";
+import { createPositionIndex } from "../document/positions";
 export interface SelectionRequest extends SourceRange { nonce: number }
 interface EditorProps {
   value: string; endings: LineEnding[]; document?: DocumentState;
   onChange(value: string, endings: LineEnding[]): void;
   onReady?(controller: EditorController | null): void; onSelection?(range: SourceRange): void;
   selectionRequest?: SelectionRequest;
+  snapshot?: AnalysisSnapshot | null;
 }
 export function Editor(props: EditorProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -23,6 +27,13 @@ export function Editor(props: EditorProps) {
     const initial = props.document ?? { ...decodeDocument(new TextEncoder().encode(props.value)), endings: props.endings };
     const view = new EditorView({ parent: host.current, state: createEditorState(initial, [
       lineNumbers(), drawSelection(), highlightActiveLine(), bracketMatching(), foldGutter(), bbcodeLanguage,
+      foldService.of((state, lineStart, lineEnd) => {
+        const snapshot = latest.current.snapshot;
+        if (!snapshot || snapshot.source !== state.doc.toString()) return null;
+        const index = createPositionIndex(snapshot.source);
+        const node = allNodes(snapshot.analysis.nodes).find((node) => node.name === "spoiler" && node.wellFormed && index.byteToUtf16(node.contentSpan.start) >= lineStart && index.byteToUtf16(node.contentSpan.start) <= lineEnd && node.contentSpan.start < node.contentSpan.end);
+        return node ? { from: index.byteToUtf16(node.contentSpan.start), to: index.byteToUtf16(node.contentSpan.end) } : null;
+      }),
       placeholder("Вставьте BBCode шапки…"), keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap]), EditorView.lineWrapping,
       EditorView.updateListener.of((update) => { if (update.selectionSet || update.docChanged) latest.current.onSelection?.({ from: update.state.selection.main.from, to: update.state.selection.main.to }); }),
       EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "JetBrains Mono, Consolas, monospace" } }),
