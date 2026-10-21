@@ -12,7 +12,7 @@ import type { EditorController } from "./editor/controller";
 import type { EditCommand, SourceRange } from "./document/commands";
 import { createSpoiler, moveNode, sourceRange, type NodeRef } from "./document/structure";
 import { identity } from "./document/commands";
-import { applyFormat, formatState, type FormatTag } from "./document/formatting";
+import { applyFormat, formatState, formattingActionState, type FormatTag } from "./document/formatting";
 import { FormattingToolbar } from "./builder/FormattingToolbar";
 import { Properties } from "./builder/Properties";
 import { combineFixes, suggestFixes, type FixSuggestion } from "./diagnostics/fixes";
@@ -35,6 +35,7 @@ import { StatusBar } from "./layout/StatusBar";
 import { TabStrip } from "./workspace/TabStrip";
 import { createWorkspace, workspaceReducer } from "./workspace/session";
 import { createWorkspaceStore } from "./workspace/persistence";
+import { resolveActiveSelection } from "./commands/activeSelection";
 import "./styles.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
@@ -106,14 +107,16 @@ export default function App() {
   const historyAction = (redo: boolean) => { if (composition.current || controller?.isComposing()) return; if (redo) controller?.redo(); else controller?.undo(); };
   const run = (build: () => EditCommand) => { try { execute(build()); setError(null); } catch (reason) { setError(String(reason)); } };
   const currentSnapshot = snapshot?.documentId === document.id && snapshot.revision === document.revision ? snapshot : null;
+  const commandSelection = () => resolveActiveSelection(activeSession, controller);
   const format = (tag: FormatTag, parameter?: string) => { if (composition.current || controller?.isComposing()) return; if (currentSnapshot) {
-    const range = { ...identity(documentRef.current), ...activeRange };
+    const range = commandSelection();
     try {
       const command = applyFormat(documentRef.current, currentSnapshot, range, tag, parameter);
       if (formatState(currentSnapshot, range, tag) === "mixed") setFix({ id: "format", title: "Смешанное оформление: применить ко всему выделению", command });
       else run(() => command);
     } catch (reason) { setError(String(reason)); }
   } };
+  const formattingStates = Object.fromEntries((["b", "i", "u", "s", "color", "background", "url", "quote", "code", "list"] as FormatTag[]).map((tag) => [tag, formattingActionState(document, currentSnapshot, commandSelection(), tag)]));
   const showFix = (diagnostic?: Diagnostic) => {
     if (!currentSnapshot) return;
     const item = diagnostic ?? analysis.diagnostics.find((entry) => { const range = sourceRange(document, entry.span); return activeRange.from >= range.from && activeRange.from <= range.to; }) ?? analysis.diagnostics[0];
@@ -220,11 +223,11 @@ export default function App() {
     <div className="ide-main">
       <div className="document-tabs-row"><TabStrip tabs={workspace.tabs} activeId={workspace.activeId} onActivate={(documentId) => { if (!composition.current && !controller?.isComposing()) dispatchWorkspace({ type: "activate", documentId }); }} onClose={(documentId) => void closeDocument(documentId)} /><div className="mode-tabs">{(["code", "builder", "split"] as const).map((value) => <button key={value} className={!showPreview && mode === value ? "active" : ""} onClick={() => setMode(value)}>{value === "code" ? "Код" : value === "builder" ? "Конструктор" : "Рядом"}</button>)}</div></div>
       <div className="breadcrumbs"><span>{document.path ?? "Без имени"}{dirty ? " · изменён" : ""}</span><span>›</span><span>{selected ? "Выбранный блок" : "Документ"}</span><span className="spacer" /><span>Профиль 4PDA</span></div>
-      <FormattingToolbar disabled={!currentSnapshot} onFormat={format} onSpoiler={() => { if (composition.current || controller?.isComposing()) return; spoilerOrigin.current = { ...identity(documentRef.current), ...activeRange }; setSpoilerDialog(true); }} onUndo={() => historyAction(false)} onRedo={() => historyAction(true)} />
+      <FormattingToolbar disabled={!currentSnapshot} states={formattingStates} onFormat={format} onSpoiler={() => { if (composition.current || controller?.isComposing()) return; spoilerOrigin.current = commandSelection(); setSpoilerDialog(true); }} onUndo={() => historyAction(false)} onRedo={() => historyAction(true)} />
       <Workspace layout={layout} setLayout={setLayout} showPreview={showPreview}
         outline={<Outline identity={identity(document)} nodes={currentSnapshot?.analysis.nodes ?? []} selected={selected?.span} onNavigate={(span) => { if (currentSnapshot) setSelected({ ...identity(document), span }); navigate(span); }} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, source, { node: { ...identity(document), span: target }, placement })); }} />}
-        editor={<Editor document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} onChange={changeSource} onReady={setController} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range } }); }} selectionRequest={selection} />}
-        builder={<Builder key={document.id} document={document} snapshot={snapshot} execute={execute} getDocument={() => documentRef.current} onSelect={setSelected} onRange={(range: VisualRange) => setActiveRange(range)} onNavigate={visualNavigate} onError={setError} onComposition={(active) => { composition.current = active; }} />}
+        editor={<Editor document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} onChange={changeSource} onReady={setController} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
+        builder={<Builder key={document.id} document={document} snapshot={snapshot} execute={execute} getDocument={() => documentRef.current} onSelect={setSelected} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onError={setError} onComposition={(active) => { composition.current = active; }} />}
         preview={<Preview source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}
         properties={selected && currentSnapshot ? <Properties document={document} snapshot={currentSnapshot} selected={selected} execute={execute} onError={setError} onNavigate={() => visualNavigate(sourceRange(document, selected.span))} /> : <div className="selection-hint">Выберите текст для оформления или блок для изменения его свойств <kbd>Alt</kbd> + <kbd>Enter</kbd> — исправления</div>} />
       {layout.showProblems && <><Splitter orientation="horizontal" value={layout.problemsHeight} min={100} max={400} label="Высота панели проблем" onChange={(problemsHeight) => setLayout({ ...layout, problemsHeight })} /><section className="diagnostics" style={{ height: layout.problemsHeight }}><div className="diagnostics-header"><h2>Проблемы <span className="count-badge">{analysis.diagnostics.length}</span></h2><span className="spacer" /><button onClick={showAllFixes}>Исправить однозначные…</button><button aria-label="Скрыть проблемы" onClick={() => setLayout({ ...layout, showProblems: false })}>×</button></div><Diagnostics diagnostics={analysis.diagnostics} onNavigate={navigate} onFix={showFix} /></section></>}

@@ -6,6 +6,7 @@ import { createPositionIndex } from "./positions";
 import { sourceRange } from "./structure";
 import type { DocumentState } from "./state";
 export type FormatTag = "b" | "i" | "u" | "s" | "color" | "background" | "url" | "quote" | "code" | "list";
+export interface FormattingActionState { state: "on" | "off" | "mixed" | "disabled"; reason?: string }
 export function allNodes(nodes: Node[]): Node[] { return nodes.flatMap((node) => [node, ...allNodes(node.children)]); }
 export function formatState(snapshot: AnalysisSnapshot, range: VisualRange, tag: FormatTag): "on" | "off" | "mixed" {
   if (range.documentId !== snapshot.documentId || range.revision !== snapshot.revision) return "off";
@@ -13,6 +14,13 @@ export function formatState(snapshot: AnalysisSnapshot, range: VisualRange, tag:
   const matches = allNodes(snapshot.analysis.nodes).filter((node) => node.name === tag);
   if (matches.some((node) => node.contentSpan.start <= from && node.contentSpan.end >= to)) return "on";
   return matches.some((node) => node.span.start < to && node.span.end > from) ? "mixed" : "off";
+}
+export function formattingActionState(document: DocumentState, snapshot: AnalysisSnapshot | null, range: VisualRange, tag: FormatTag): FormattingActionState {
+  if (!snapshot || snapshot.documentId !== document.id || snapshot.revision !== document.revision) return { state: "disabled", reason: "Структура документа ещё обновляется" };
+  try {
+    applyFormat(document, snapshot, range, tag, tag === "url" ? "https://example.com" : tag === "color" || tag === "background" ? "#ffffff" : undefined);
+    return { state: formatState(snapshot, range, tag) };
+  } catch (reason) { return { state: "disabled", reason: String(reason) }; }
 }
 export function applyFormat(document: DocumentState, snapshot: AnalysisSnapshot, range: VisualRange, tag: FormatTag, parameter?: string): EditCommand {
   validateCommand(document, { ...range, label: "format", changes: [] });

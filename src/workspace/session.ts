@@ -2,6 +2,7 @@ import type { SourceRange } from "../document/commands";
 import type { DocumentState } from "../document/state";
 import type { NodeRef } from "../document/structure";
 import type { WorkspaceMode } from "../layout/settings";
+import type { ActiveSurface } from "../commands/activeSelection";
 
 export interface DiskFingerprint {
   modifiedMs: number;
@@ -15,6 +16,7 @@ export interface DocumentUiState {
   selected: NodeRef | null;
   mode: WorkspaceMode;
   showPreview: boolean;
+  activeSurface: ActiveSurface;
 }
 
 export interface DocumentSession {
@@ -50,6 +52,7 @@ export function createDocumentSession(document: DocumentState): DocumentSession 
       selected: null,
       mode: "split",
       showPreview: false,
+      activeSurface: "code",
     },
     diskFingerprint: null,
   };
