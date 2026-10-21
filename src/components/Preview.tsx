@@ -31,12 +31,12 @@ function RenderNode({ node, source, positions, onNavigate, openExternal }: { nod
   if (name === "list") return <ul>{children}</ul>;
   if (name === "*") return <li>{children}</li>;
   if (name === "spoiler") return <details><summary onDoubleClick={() => onNavigate(node.span)}>{formatTitle(node.parameter ?? "Спойлер")}</summary><div>{children}</div></details>;
-  if (name === "img") return <span className="media-placeholder">Изображение: {plainText(node, source, positions)}</span>;
-  if (name === "attachment") return <span className="media-placeholder">Вложение: {node.parameter}</span>;
+  if (name === "img") return <span className="media-placeholder" data-context-surface="media" data-source-value={plainText(node, source, positions)}>Изображение: {plainText(node, source, positions)}</span>;
+  if (name === "attachment") return <span className="media-placeholder" data-context-surface="media" data-source-value={node.parameter ?? ""}>Вложение: {node.parameter}</span>;
   if (name === "url") {
     const raw = node.parameter ?? plainText(node, source, positions);
     const safe = safeExternalUrl(raw);
-    return safe ? <a href={safe} onClick={(event) => { event.preventDefault(); openExternal?.(safe); }}>{children}</a> : <span>{children}</span>;
+    return safe ? <a href={safe} data-context-surface="link" onClick={(event) => { event.preventDefault(); openExternal?.(safe); }}>{children}</a> : <span>{children}</span>;
   }
   const style = safeStyle(name, node.parameter);
   if (style) return <span style={style}>{children}</span>;
