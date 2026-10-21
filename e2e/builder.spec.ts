@@ -47,6 +47,19 @@ test("repairs crossed closing runs without deleting formatting", async ({ page }
   }
 });
 
+test("does not render recovery closing tags as visual text", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  const source = '[img]https://4pda.to/static/forum/style_images/f/281-firmware.png[/img] [size=1][color=grey]fire[/size][/color]\n[i][color=green][b]В теме нет куратора. [color="#0099FF"]модераторам[/color] раздела[/color][/i][/b]';
+  await code.fill(source);
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  const visual = page.locator(".builder-page");
+  await expect(visual).not.toContainText("Повреждённая разметка");
+  await expect(visual).toContainText("В теме нет куратора");
+  await expect(visual).not.toContainText("[/color]");
+  await expect(visual).not.toContainText("[/b]");
+  expect((await page.locator(".cm-line").allTextContents()).join("\n")).toBe(source);
+});
+
 test("does not delete recovery tags when a crossing repair is ambiguous", async ({ page }) => {
   const code = page.locator(".cm-content");
   await code.fill("[b][i]a[/b]tail[/i]");

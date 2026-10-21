@@ -101,7 +101,9 @@ fn close_tag(
             line: 0,
             column: 0,
         });
-        append(roots, stack, text_node(token.span));
+        if recovery.is_none() {
+            append(roots, stack, text_node(token.span));
+        }
         return;
     };
     let crossed = index + 1 != stack.len();
@@ -119,13 +121,13 @@ fn close_tag(
         if let Some(name) = stack.last().and_then(|node| node.name.clone()) {
             recovered.push(name);
         }
-        finish_top(roots, stack, token.span.start, false);
+        finish_top(roots, stack, token.span.start, true);
     }
     let mut node = stack.pop().expect("matching stack entry exists");
     node.span.end = token.span.end;
     node.content_span.end = token.span.start;
     node.closing_span = Some(token.span);
-    node.well_formed = !crossed && node.children.iter().all(|child| child.well_formed);
+    node.well_formed = node.children.iter().all(|child| child.well_formed);
     append(roots, stack, node);
 }
 
