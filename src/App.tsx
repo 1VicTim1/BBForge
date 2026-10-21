@@ -30,7 +30,7 @@ export default function App() {
   documentRef.current = document;
   const analyze = useMemo(() => isTauri()
     ? createTauriAnalyzer<Analysis>(invoke)
-    : async (request: AnalysisRequest): Promise<AnalysisResponse<Analysis>> => ({ ...request, analysis: emptyAnalysis() }), []);
+    : window.__BBFORGE_ANALYZE__ ?? (async (request: AnalysisRequest): Promise<AnalysisResponse<Analysis>> => ({ ...request, analysis: emptyAnalysis() })), []);
   const client = useMemo(() => createAnalysisClient(analyze, setAnalysis), [analyze]);
   const files = useMemo(() => createDesktopFiles(
     invoke,
@@ -105,7 +105,7 @@ export default function App() {
     <header className="toolbar">
       <h1>BBForge</h1>
       <button onClick={() => void newDocument()}>Новый</button><button disabled={!isTauri()} onClick={() => void openDocument()}>Открыть</button><button disabled={!isTauri()} onClick={() => void saveCurrent()}>Сохранить</button><button disabled={!isTauri()} onClick={() => void saveCurrent(true)}>Сохранить как</button>
-      <button onClick={() => setPanels((value) => ({ ...value, outline: !value.outline }))}>Структура</button><button onClick={() => setPanels((value) => ({ ...value, preview: !value.preview }))}>Предпросмотр</button>
+      <button onClick={() => setPanels((value) => ({ ...value, outline: !value.outline }))}>Структура</button><button onClick={() => setPanels((value) => ({ ...value, preview: !value.preview }))}>Предпросмотр</button><button onClick={() => setPanels((value) => ({ ...value, diagnostics: !value.diagnostics }))}>Проблемы</button>
       <span className="spacer" /><span className="status">{document.path ?? "Без имени"}{dirty ? " · изменён" : ""}</span>
     </header>
     <section className={`workspace ${!panels.outline ? "without-outline" : ""} ${!panels.preview ? "without-preview" : ""}`}>

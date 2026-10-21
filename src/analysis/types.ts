@@ -4,3 +4,9 @@ export interface Node { kind: "text" | "element"; span: Span; name: string | nul
 export interface Analysis { nodes: Node[]; diagnostics: Diagnostic[]; tokens: unknown[] }
 
 export const emptyAnalysis = (): Analysis => ({ nodes: [], diagnostics: [], tokens: [] });
+
+declare global {
+  interface Window {
+    __BBFORGE_ANALYZE__?: (request: import("./client").AnalysisRequest) => Promise<import("./client").AnalysisResponse<Analysis>>;
+  }
+}

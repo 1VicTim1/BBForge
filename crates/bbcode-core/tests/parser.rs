@@ -119,3 +119,20 @@ fn depth_limit_preserves_text() {
             .any(|item| item.code == DiagnosticCode::DepthLimit)
     );
 }
+
+#[test]
+fn parses_one_mebibyte_with_one_hundred_levels_without_panicking() {
+    let body = "текст ".repeat(96_000);
+    let source = format!(
+        "{}{}{}",
+        "[spoiler]".repeat(100),
+        body,
+        "[/spoiler]".repeat(100)
+    );
+    assert!(source.len() >= 1024 * 1024);
+
+    let analysis = parse(&source);
+
+    assert_eq!(analysis.tokens.first().unwrap().span.start, 0);
+    assert_eq!(analysis.tokens.last().unwrap().span.end, source.len());
+}
