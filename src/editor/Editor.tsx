@@ -36,8 +36,17 @@ export function Editor(props: EditorProps) {
       }),
       placeholder("Вставьте BBCode шапки…"), keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap]), EditorView.lineWrapping,
       EditorView.domEventHandlers({ keydown(event, view) {
-        if ((event.ctrlKey || event.metaKey) && !event.altKey && event.code === "KeyZ" && event.key.toLowerCase() !== "z" && !event.isComposing && !view.composing) {
-          event.preventDefault(); if (event.shiftKey) redo(view); else undo(view); return true;
+        if (!(event.ctrlKey || event.metaKey) || event.altKey || event.isComposing || view.composing) return false;
+        const key = event.key.toLowerCase();
+        if (event.code === "KeyZ" && key !== "z") { event.preventDefault(); if (event.shiftKey) redo(view); else undo(view); return true; }
+        if (event.code === "KeyA" && key !== "a") { event.preventDefault(); view.dispatch({ selection: { anchor: 0, head: view.state.doc.length }, scrollIntoView: true }); return true; }
+        if (event.code === "KeyC" && key !== "c") {
+          const range = view.state.selection.main;
+          if (range.empty) return false;
+          event.preventDefault();
+          const value = view.state.sliceDoc(range.from, range.to);
+          void navigator.clipboard?.writeText(value).catch(() => document.execCommand("copy"));
+          return true;
         }
         return false;
       } }),
