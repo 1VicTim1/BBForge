@@ -53,6 +53,9 @@ pub enum DiagnosticCode {
     UnexpectedClosingTag,
     CrossedClosingTag,
     DepthLimit,
+    UnknownTag,
+    MissingParameter,
+    DuplicateLink,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,6 +64,8 @@ pub struct Diagnostic {
     pub severity: Severity,
     pub message: String,
     pub span: Span,
+    pub line: usize,
+    pub column: usize,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

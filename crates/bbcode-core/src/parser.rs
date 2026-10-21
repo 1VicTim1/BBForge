@@ -1,6 +1,6 @@
 use crate::{
     Analysis, Diagnostic, DiagnosticCode, Node, NodeKind, Severity, Span, Token, TokenKind,
-    lexer::lex,
+    lexer::lex, lint::lint,
 };
 
 const MAX_DEPTH: usize = 256;
@@ -27,6 +27,8 @@ pub fn parse(source: &str) -> Analysis {
                         severity: Severity::Error,
                         message: format!("Максимальная глубина BBCode — {MAX_DEPTH}"),
                         span: token.span,
+                        line: 0,
+                        column: 0,
                     });
                     append(&mut roots, &mut stack, text_node(token.span));
                 } else {
@@ -42,8 +44,14 @@ pub fn parse(source: &str) -> Analysis {
             severity: Severity::Error,
             message: format!("Тег [{}] не закрыт", node.name.as_deref().unwrap_or("")),
             span: node.span,
+            line: 0,
+            column: 0,
         });
         append(&mut roots, &mut stack, node);
+    }
+    lint(source, &roots, &mut diagnostics);
+    for diagnostic in &mut diagnostics {
+        (diagnostic.line, diagnostic.column) = line_column(source, diagnostic.span.start);
     }
     Analysis {
         tokens,
@@ -71,6 +79,8 @@ fn close_tag(
             severity: Severity::Error,
             message: format!("Закрывающий тег [/{name}] не имеет открывающего"),
             span: token.span,
+            line: 0,
+            column: 0,
         });
         append(roots, stack, text_node(token.span));
         return;
@@ -81,6 +91,8 @@ fn close_tag(
             severity: Severity::Error,
             message: format!("Тег [/{name}] пересекает вложенные теги"),
             span: token.span,
+            line: 0,
+            column: 0,
         });
     }
     while stack.len() > index + 1 {
@@ -89,6 +101,18 @@ fn close_tag(
     let mut node = stack.pop().expect("matching stack entry exists");
     node.span.end = token.span.end;
     append(roots, stack, node);
+}
+
+fn line_column(source: &str, byte_offset: usize) -> (usize, usize) {
+    let prefix = &source[..byte_offset.min(source.len())];
+    let line = prefix.bytes().filter(|byte| *byte == b'\n').count() + 1;
+    let column = prefix
+        .rsplit_once('\n')
+        .map_or(prefix, |(_, tail)| tail)
+        .chars()
+        .count()
+        + 1;
+    (line, column)
 }
 
 fn finish_top(roots: &mut Vec<Node>, stack: &mut Vec<Node>, end: usize) {
