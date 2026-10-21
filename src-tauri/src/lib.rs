@@ -1,7 +1,7 @@
 pub mod commands;
 pub mod files;
 
-#[cfg(all(target_os = "linux", feature = "desktop"))]
+#[cfg(all(target_os = "linux", feature = "legacy-webkit"))]
 mod webkit_compat;
 
 #[cfg(feature = "desktop")]

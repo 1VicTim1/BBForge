@@ -1,4 +1,3 @@
-import { foldService } from "@codemirror/language";
 import { type Extension, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
@@ -54,7 +53,6 @@ const highlighting = ViewPlugin.fromClass(class {
 
 export const bbcodeLanguage: Extension = [
   highlighting,
-  foldService.of((state, lineStart, lineEnd) => spoilerFoldRanges(state.doc.toString()).find((range) => range.from >= lineStart && range.from <= lineEnd) ?? null),
   EditorView.baseTheme({
     ".bb-bracket": { color: "#7c8da6" },
     ".bb-name": { color: "#075f9f", fontWeight: "600" },

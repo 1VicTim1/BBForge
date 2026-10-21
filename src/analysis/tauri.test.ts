@@ -10,5 +10,6 @@ describe("Tauri analysis adapter", () => {
 
     expect(invoke).toHaveBeenCalledWith("analyze", { source: "[b]", documentId: "doc", revision: 3 });
     expect(response.revision).toBe(3);
+    expect(response.source).toBe("[b]");
   });
 });

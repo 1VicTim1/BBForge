@@ -7,7 +7,7 @@ import type { FixSuggestion } from "../diagnostics/fixes";
 import { safeExternalUrl } from "./Preview";
 export function ChangePreview({ document, suggestion, onApply, onClose }: { document: DocumentState; suggestion: FixSuggestion; onApply(command: EditCommand): void; onClose(): void }) {
   const [parameter, setParameter] = useState(""), [error, setError] = useState("");
-  const command = { ...suggestion.command, changes: suggestion.command.changes.map((change) => ({ ...change, insert: suggestion.needsParameter ? change.insert.replace("$VALUE", parameter) : change.insert })) };
+  const command = { ...suggestion.command, changes: suggestion.command.changes.map((change) => ({ ...change, insert: suggestion.needsParameter ? change.insert.replace("$VALUE", () => parameter) : change.insert })) };
   let next = document.text, stale = false;
   try { validateCommand(document, command); next = applyChanges(document, command.changes).text; } catch { stale = true; }
   const low = Math.min(...command.changes.map((item) => item.from)), high = Math.max(...command.changes.map((item) => item.to));
@@ -24,6 +24,8 @@ export function ChangePreview({ document, suggestion, onApply, onClose }: { docu
       if (suggestion.needsParameter && /[\]\r\n]/.test(parameter)) { setError("Параметр содержит недопустимые символы"); return; }
       if (suggestion.needsParameter === "url" && !safeExternalUrl(parameter)) { setError("Введите http, https или mailto ссылку"); return; }
       if (suggestion.needsParameter === "color" && !/^(#[\da-f]{3,8}|[a-z]{1,20})$/i.test(parameter)) { setError("Некорректный цвет"); return; }
+      if (suggestion.needsParameter === "size" && !/^\d{1,2}$/.test(parameter)) { setError("Размер — целое число от 1 до 99"); return; }
+      if (suggestion.needsParameter === "font" && !/^[\w -]{1,40}$/.test(parameter)) { setError("Некорректное название шрифта"); return; }
       onApply(command);
     }}>Применить исправление</button></footer>
   </section></div>;

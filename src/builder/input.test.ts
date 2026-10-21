@@ -8,4 +8,5 @@ it("makes minimal Unicode text edits and normalizes pasted endings", () => {
   expect(normalizeInput("a\r\nb\rc")).toBe("a\nb\nc");
   expect(literalPaste("[b]x")).toBe("[code][b]x[/code]");
   expect(() => literalPaste("[/code]")).toThrow();
+  expect(() => textEditCommand(document, { from: 3, to: 6 }, "new", "stale leaf")).toThrow();
 });
