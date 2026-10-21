@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyChanges, decodeDocument, serializeDocument } from "./state";
+import { applyChanges, decodeDocument, replaceDocumentText, serializeDocument } from "./state";
 
 const bytes = (value: number[]) => new Uint8Array(value);
 
@@ -33,5 +33,12 @@ describe("document serialization", () => {
     expect(second.revision).toBe(2);
     expect(second.text).toBe("one two three");
     expect(second.savedRevision).toBe(0);
+  });
+
+  it("preserves neighbouring mixed endings when CodeMirror returns a full snapshot", () => {
+    const document = decodeDocument(new TextEncoder().encode("a\r\nb\nc\r\n"));
+    const changed = replaceDocumentText(document, "a\nb!\nc\n");
+
+    expect(new TextDecoder().decode(serializeDocument(changed))).toBe("a\r\nb!\nc\r\n");
   });
 });

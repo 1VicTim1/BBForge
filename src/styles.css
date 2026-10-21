@@ -17,3 +17,4 @@ button:hover { background: #29364a; }
 .preview pre { white-space: pre-wrap; overflow-wrap: anywhere; color: #bcc9db; }
 .diagnostics { overflow: auto; padding: 10px 14px; border-top: 1px solid #2b3646; background: #121923; }
 .diagnostics p { color: #7f91a8; font-size: 13px; }
+.diagnostics .error { color: #ff8f8f; }

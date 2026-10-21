@@ -4,7 +4,12 @@ pub mod files;
 #[cfg(feature = "desktop")]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![commands::analyze])
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            commands::analyze,
+            commands::read_document,
+            commands::write_document
+        ])
         .run(tauri::generate_context!())
         .expect("ошибка запуска BBForge");
 }

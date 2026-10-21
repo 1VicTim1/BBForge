@@ -1,5 +1,7 @@
 use bbcode_core::{Analysis, parse};
 use serde::Serialize;
+#[cfg(feature = "desktop")]
+use std::path::PathBuf;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,4 +29,16 @@ pub async fn analyze(
     tauri::async_runtime::spawn_blocking(move || analyze_document(source, document_id, revision))
         .await
         .map_err(|error| format!("Не удалось проанализировать документ: {error}"))
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn read_document(path: String) -> Result<Vec<u8>, String> {
+    crate::files::read_document(&PathBuf::from(path)).map_err(|error| error.to_string())
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
+pub fn write_document(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    crate::files::write_document(&PathBuf::from(path), &bytes).map_err(|error| error.to_string())
 }
