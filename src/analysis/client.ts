@@ -10,8 +10,9 @@ export interface AnalysisResponse<T> extends AnalysisRequest {
 
 export function createAnalysisClient<T>(
   analyze: (request: AnalysisRequest) => Promise<AnalysisResponse<T>>,
-  onResult: (analysis: T) => void,
+  onResult: (analysis: T, snapshot: AnalysisResponse<T>) => void,
   delay = 150,
+  onError: (error: unknown) => void = () => undefined,
 ) {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let latest: AnalysisRequest | undefined;
@@ -23,10 +24,10 @@ export function createAnalysisClient<T>(
     try {
       const response = await analyze(request);
       if (latest?.documentId === response.documentId && latest.revision === response.revision) {
-        onResult(response.analysis);
+        onResult(response.analysis, response);
       }
-    } catch {
-      // A worker or IPC failure must not block later snapshots.
+    } catch (error) {
+      if (latest?.documentId === request.documentId && latest.revision === request.revision) onError(error);
     } finally {
       active = false;
       if (pending) {

@@ -13,10 +13,10 @@ const linkFrom = source.indexOf("ссылка");
 const closeFrom = source.indexOf("[/spoiler]");
 const analysis: Analysis = {
   tokens: [], diagnostics: [{ code: "unclosedTag", severity: "error", message: "Тег не закрыт", span: { start: 0, end: 3 }, line: 1, column: 1 }],
-  nodes: [{ kind: "element", name: "spoiler", parameter: "[b][color=red]Важно[/color][/b]", span: { start: 0, end: new TextEncoder().encode(source).length }, children: [
-    { kind: "text", name: null, parameter: null, span: { start: byteAt(textFrom), end: byteAt(linkFrom) }, children: [] },
-    { kind: "element", name: "url", parameter: "javascript:alert(1)", span: { start: byteAt(linkFrom), end: byteAt(closeFrom) }, children: [
-      { kind: "text", name: null, parameter: null, span: { start: byteAt(linkFrom), end: byteAt(closeFrom) }, children: [] },
+  nodes: [{ kind: "element", name: "spoiler", parameter: "[b][color=red]Важно[/color][/b]", span: { start: 0, end: new TextEncoder().encode(source).length }, openingSpan: null, closingSpan: null, contentSpan: { start: byteAt(textFrom), end: byteAt(closeFrom) }, wellFormed: true, children: [
+    { kind: "text", name: null, parameter: null, span: { start: byteAt(textFrom), end: byteAt(linkFrom) }, openingSpan: null, closingSpan: null, contentSpan: { start: byteAt(textFrom), end: byteAt(linkFrom) }, wellFormed: true, children: [] },
+    { kind: "element", name: "url", parameter: "javascript:alert(1)", span: { start: byteAt(linkFrom), end: byteAt(closeFrom) }, openingSpan: null, closingSpan: null, contentSpan: { start: byteAt(linkFrom), end: byteAt(closeFrom) }, wellFormed: true, children: [
+      { kind: "text", name: null, parameter: null, span: { start: byteAt(linkFrom), end: byteAt(closeFrom) }, openingSpan: null, closingSpan: null, contentSpan: { start: byteAt(linkFrom), end: byteAt(closeFrom) }, wellFormed: true, children: [] },
     ] },
   ] }],
 };

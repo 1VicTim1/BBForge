@@ -20,6 +20,49 @@ fn reconstructs_source_exactly() {
 }
 
 #[test]
+fn exact_element_boundaries() {
+    let source = "[spoiler=[b]😀[/b]]x[/spoiler]";
+    let node = &parse(source).nodes[0];
+    let value = serde_json::to_value(node).unwrap();
+    let start = source.find('x').unwrap();
+    assert_eq!(value["openingSpan"]["end"], start);
+    assert_eq!(
+        value["contentSpan"],
+        serde_json::json!({"start": start, "end": start + 1})
+    );
+    assert_eq!(value["closingSpan"]["start"], start + 1);
+    assert_eq!(value["wellFormed"], true);
+}
+
+#[test]
+fn unclosed_parent_covers_content() {
+    let source = "[b]hello[i]world";
+    let node = &parse(source).nodes[0];
+    assert_eq!(node.span.end, source.len());
+    let value = serde_json::to_value(node).unwrap();
+    assert_eq!(value["contentSpan"]["end"], source.len());
+    assert_eq!(value["wellFormed"], false);
+}
+
+#[test]
+fn crossed_nodes_are_not_well_formed() {
+    let analysis = parse("[b][i]x[/b]");
+    assert_eq!(
+        serde_json::to_value(&analysis.nodes[0]).unwrap()["wellFormed"],
+        false
+    );
+    assert_eq!(
+        serde_json::to_value(&analysis.nodes[0].children[0]).unwrap()["wellFormed"],
+        false
+    );
+    let list = parse("[list][*]a[*]b[/list]");
+    assert_eq!(
+        serde_json::to_value(&list.nodes[0].children[0]).unwrap()["wellFormed"],
+        true
+    );
+}
+
+#[test]
 fn nested_formatted_spoiler_title() {
     let source = "[spoiler=[b][color=red]Важно![/color][/b]]Текст[/spoiler]";
     let analysis = parse(source);
