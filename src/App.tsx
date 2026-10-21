@@ -10,7 +10,7 @@ import { emptyAnalysis, type Analysis, type AnalysisSnapshot } from "./analysis/
 import { Builder } from "./builder/Builder";
 import type { EditorController } from "./editor/controller";
 import type { EditCommand, SourceRange } from "./document/commands";
-import { createSpoiler, moveNode, sourceRange, type NodeRef } from "./document/structure";
+import { createSpoiler, moveNode, sourceRange, unwrapNode, type NodeRef } from "./document/structure";
 import { identity } from "./document/commands";
 import { applyFormat, formatState, formattingActionState, type FormatTag } from "./document/formatting";
 import { FormattingToolbar } from "./builder/FormattingToolbar";
@@ -36,6 +36,9 @@ import { TabStrip } from "./workspace/TabStrip";
 import { createWorkspace, workspaceReducer } from "./workspace/session";
 import { createWorkspaceStore } from "./workspace/persistence";
 import { resolveActiveSelection } from "./commands/activeSelection";
+import { buildContextCommands, type MenuSurface } from "./context/commands";
+import { ContextMenu } from "./context/ContextMenu";
+import { useContextMenu } from "./context/useContextMenu";
 import "./styles.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
@@ -69,6 +72,8 @@ export default function App() {
   workspaceRef.current = workspace;
   const workspaceStore = useMemo(() => createWorkspaceStore(isTauri() ? invoke : null, localStorage), []);
   const [workspaceReady, setWorkspaceReady] = useState(false);
+  const contextMenu = useContextMenu();
+  useEffect(() => { contextMenu.close(); }, [workspace.activeId, contextMenu.close]);
   useEffect(() => { setSelected(null); setActiveRange(activeSession.ui.codeSelection); setFix(null); setSpoilerDialog(false); }, [document.id]);
   useEffect(() => {
     let active = true;
@@ -129,6 +134,47 @@ export default function App() {
     setFix({ id: "all", title: "Исправить однозначные ошибки", command: combineFixes(document, fixes) });
   } catch (reason) { setError(String(reason)); } };
   const visualNavigate = (range: SourceRange) => { setMode("split"); setSelection({ ...range, nonce: Date.now() }); };
+  const copyText = async (value: string) => { try { await navigator.clipboard.writeText(value); } catch { setError("Не удалось скопировать текст"); } };
+  const contextEdit = (captured: ReturnType<typeof commandSelection>, insert: string) => run(() => ({ ...captured, label: "Контекстное редактирование", changes: [{ from: captured.from, to: captured.to, insert }] }));
+  const openContextMenu = (event: React.MouseEvent) => {
+    event.preventDefault(); contextMenu.close();
+    const target = event.target as HTMLElement;
+    let surface: MenuSurface | null = null;
+    if (target.closest("input,textarea,select")) surface = "field";
+    else if (target.closest(".cm-editor")) surface = "code";
+    else if (target.closest(".rendered-post [data-context-surface='link']")) surface = "link";
+    else if (target.closest(".rendered-post [data-context-surface='media']")) surface = "media";
+    else if (target.closest(".rendered-post")) surface = "preview";
+    else if (target.closest(".builder")) surface = "builder";
+    if (!surface) return;
+    if (surface === "field") {
+      const field = target.closest<HTMLInputElement | HTMLTextAreaElement>("input,textarea");
+      if (!field) return;
+      const from = field.selectionStart ?? 0, to = field.selectionEnd ?? from;
+      const action = (command: string) => () => { field.focus(); field.setSelectionRange(from, to); globalThis.document.execCommand(command); };
+      const commands = buildContextCommands({ surface, editable: true, hasSelection: from !== to }, { undo: action("undo"), redo: action("redo"), cut: action("cut"), copy: action("copy"), paste: action("paste"), delete: action("delete"), selectAll: () => { field.focus(); field.select(); } });
+      contextMenu.open({ x: event.clientX, y: event.clientY, commands }); return;
+    }
+    const captured = commandSelection();
+    const selectedText = documentRef.current.text.slice(captured.from, captured.to);
+    const checked = (action: () => void) => () => { const current = documentRef.current; if (current.id !== captured.documentId || current.revision !== captured.revision) { setError("Документ изменился. Откройте меню заново."); return; } action(); };
+    const formatCaptured = (tag: FormatTag) => checked(() => { if (currentSnapshot) run(() => applyFormat(documentRef.current, currentSnapshot, captured, tag)); });
+    const handlers: Partial<Record<string, () => void>> = {
+      undo: () => historyAction(false), redo: () => historyAction(true), copy: () => void copyText(selectedText),
+      cut: checked(() => { void copyText(selectedText); contextEdit(captured, ""); }), delete: checked(() => contextEdit(captured, "")),
+      paste: checked(() => { void navigator.clipboard.readText().then((text) => contextEdit(captured, text)).catch(() => setError("Не удалось прочитать буфер обмена")); }),
+      selectAll: () => { const range = { from: 0, to: documentRef.current.text.length }; controller?.select(range, surface === "code"); dispatchWorkspace({ type: "updateUi", documentId: documentRef.current.id, ui: surface === "builder" ? { visualSelection: range, activeSurface: "builder" } : { codeSelection: range, activeSurface: "code" } }); },
+      bold: formatCaptured("b"), italic: formatCaptured("i"), underline: formatCaptured("u"), strike: formatCaptured("s"),
+      spoiler: checked(() => { spoilerOrigin.current = captured; setSpoilerDialog(true); }), fix: () => showFix(),
+      unwrap: checked(() => { if (selected && currentSnapshot) run(() => unwrapNode(documentRef.current, currentSnapshot, selected)); }),
+      source: () => visualNavigate(captured), copyText: () => void copyText(window.getSelection()?.toString() || selectedText),
+      copyInner: () => void copyText(selectedText), copyWrapped: () => void copyText(selectedText), copyBlock: () => void copyText(selectedText),
+      openLink: () => (target.closest("a") as HTMLAnchorElement | null)?.click(), copyLink: () => void copyText((target.closest("a") as HTMLAnchorElement | null)?.href ?? ""),
+      copyMedia: () => void copyText(target.closest("[data-source-value]")?.getAttribute("data-source-value") ?? ""),
+    };
+    const commands = buildContextCommands({ surface, editable: surface === "code" || surface === "builder", hasSelection: captured.from !== captured.to || Boolean(window.getSelection()?.toString()), hasBlock: Boolean(selected) || Boolean(target.closest("details,[data-source-span]")), hasDiagnostic: analysis.diagnostics.length > 0 }, handlers);
+    if (commands.length) contextMenu.open({ x: event.clientX, y: event.clientY, commands });
+  };
 
   const saveTab = async (documentId: string, saveAs = false): Promise<boolean> => {
     if (!isTauri()) return false;
@@ -213,7 +259,7 @@ export default function App() {
     if (workspaceRef.current.tabs.length === 1) dispatchWorkspace({ type: "open", session: { document: decodeDocument(new Uint8Array()) } });
   };
   const navigate = (span: Span) => { const range = { from: byteToUtf16(document.text, span.start), to: byteToUtf16(document.text, span.end) }; setActiveRange(range); controller?.select(range, mode !== "builder"); };
-  return <main className="app">
+  return <main className="app" onContextMenu={openContextMenu}>
     <header className="toolbar">
       <div className="brand-icon">B<span>F</span></div><h1>BBForge</h1><span className="project-name">Рабочее пространство <span>⌄</span></span><span className="toolbar-divider" />
       <button onClick={() => void newDocument()} title="Новый документ">＋ Новый</button><button disabled={!isTauri()} onClick={() => void openDocument()}>Открыть</button><button disabled={!isTauri()} onClick={() => void saveCurrent()}>Сохранить</button><button className="quiet-button" disabled={!isTauri()} onClick={() => void saveCurrent(true)}>Сохранить как</button>
@@ -236,5 +282,6 @@ export default function App() {
     <StatusBar document={document} position={activeRange.from} problems={analysis.diagnostics.length} />
     {fix && <ChangePreview document={document} suggestion={fix} onApply={(command) => { run(() => command); setFix(null); }} onClose={() => setFix(null)} />}
     {spoilerDialog && <div className="modal-backdrop"><form className="dialog" role="dialog" aria-label="Создать спойлер" onSubmit={(event) => { event.preventDefault(); run(() => { const origin = spoilerOrigin.current; if (!origin || !currentSnapshot || origin.documentId !== documentRef.current.id || origin.revision !== documentRef.current.revision) throw new Error("Документ изменился. Выделите текст заново."); return createSpoiler(documentRef.current, origin, spoilerTitle, currentSnapshot); }); setSpoilerDialog(false); }}><h3>Создать спойлер</h3><label>Заголовок <input autoFocus value={spoilerTitle} onChange={(event) => setSpoilerTitle(event.target.value)} /></label><p>Выделенный текст станет содержимым спойлера.</p><button type="submit">Создать</button><button type="button" onClick={() => setSpoilerDialog(false)}>Отмена</button></form></div>}
+    {contextMenu.menu && <ContextMenu {...contextMenu.menu} onClose={contextMenu.close} />}
   </main>;
 }

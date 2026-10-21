@@ -71,3 +71,28 @@ test("does not switch tabs while the editor is composing", async ({ page }) => {
   await expect(page.getByRole("tab").nth(1)).toHaveAttribute("aria-selected", "true");
   await editor.dispatchEvent("compositionend", { data: "т" });
 });
+
+test("context menu shows only commands for the invoked surface and suppresses the native menu", async ({ page }) => {
+  const editor = page.locator(".cm-content");
+  await editor.fill("text");
+  await editor.click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "Контекстное меню" });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Жирный" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Копировать видимый текст" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  const prevented = await page.locator(".toolbar").evaluate((element) => !element.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
+  expect(prevented).toBe(true);
+});
+
+test("context menu rejects a stale edit after the document changes", async ({ page }) => {
+  const editor = page.locator(".cm-content");
+  await editor.fill("abc");
+  await editor.press("Control+a");
+  await editor.click({ button: "right" });
+  await editor.fill("changed");
+  await page.getByRole("menuitem", { name: "Жирный" }).click();
+  await expect(page.getByRole("alert")).toContainText("Документ изменился");
+  await expect(editor).toHaveText("changed");
+});
