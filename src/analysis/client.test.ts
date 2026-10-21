@@ -35,7 +35,7 @@ describe("analysis client", () => {
     await Promise.resolve();
 
     expect(received).toHaveBeenCalledTimes(1);
-    expect(received).toHaveBeenCalledWith({ value: "new" });
+    expect(received).toHaveBeenCalledWith({ value: "new" }, expect.objectContaining({ documentId: "one", revision: 2 }));
   });
 
   it("drops responses from the previous document", async () => {
@@ -80,7 +80,8 @@ describe("analysis client", () => {
       .mockRejectedValueOnce(new Error("worker stopped"))
       .mockImplementation(async (request: AnalysisRequest) => ({ ...request, analysis: { value: request.source } }));
     const received = vi.fn();
-    const client = createAnalysisClient(analyze, received);
+    const error = vi.fn();
+    const client = createAnalysisClient(analyze, received, 150, error);
 
     client.update({ source: "broken", documentId: "doc", revision: 1 });
     await vi.advanceTimersByTimeAsync(150);
@@ -89,6 +90,7 @@ describe("analysis client", () => {
     await Promise.resolve();
 
     expect(analyze).toHaveBeenCalledTimes(2);
-    expect(received).toHaveBeenCalledWith({ value: "recovered" });
+    expect(received).toHaveBeenCalledWith({ value: "recovered" }, expect.objectContaining({ revision: 2 }));
+    expect(error).toHaveBeenCalledWith(expect.any(Error));
   });
 });

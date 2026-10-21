@@ -16,7 +16,7 @@ pub fn parse(source: &str) -> Analysis {
             TokenKind::LeafTag => append(&mut roots, &mut stack, element_node(token)),
             TokenKind::OpeningTag if token.name.as_deref() == Some("*") => {
                 if stack.last().and_then(|node| node.name.as_deref()) == Some("*") {
-                    finish_top(&mut roots, &mut stack, token.span.start);
+                    finish_top(&mut roots, &mut stack, token.span.start, true);
                 }
                 stack.push(element_node(token));
             }
@@ -38,7 +38,7 @@ pub fn parse(source: &str) -> Analysis {
             TokenKind::ClosingTag => close_tag(token, &mut roots, &mut stack, &mut diagnostics),
         }
     }
-    while let Some(node) = stack.pop() {
+    while let Some(mut node) = stack.pop() {
         diagnostics.push(Diagnostic {
             code: DiagnosticCode::UnclosedTag,
             severity: Severity::Error,
@@ -47,6 +47,9 @@ pub fn parse(source: &str) -> Analysis {
             line: 0,
             column: 0,
         });
+        node.span.end = source.len();
+        node.content_span.end = source.len();
+        node.well_formed = false;
         append(&mut roots, &mut stack, node);
     }
     lint(source, &roots, &mut diagnostics);
@@ -68,7 +71,7 @@ fn close_tag(
 ) {
     let name = token.name.as_deref().unwrap_or_default();
     if name == "list" && stack.last().and_then(|node| node.name.as_deref()) == Some("*") {
-        finish_top(roots, stack, token.span.start);
+        finish_top(roots, stack, token.span.start, true);
     }
     let Some(index) = stack
         .iter()
@@ -85,7 +88,8 @@ fn close_tag(
         append(roots, stack, text_node(token.span));
         return;
     };
-    if index + 1 != stack.len() {
+    let crossed = index + 1 != stack.len();
+    if crossed {
         diagnostics.push(Diagnostic {
             code: DiagnosticCode::CrossedClosingTag,
             severity: Severity::Error,
@@ -96,10 +100,13 @@ fn close_tag(
         });
     }
     while stack.len() > index + 1 {
-        finish_top(roots, stack, token.span.start);
+        finish_top(roots, stack, token.span.start, false);
     }
     let mut node = stack.pop().expect("matching stack entry exists");
     node.span.end = token.span.end;
+    node.content_span.end = token.span.start;
+    node.closing_span = Some(token.span);
+    node.well_formed = !crossed && node.children.iter().all(|child| child.well_formed);
     append(roots, stack, node);
 }
 
@@ -115,9 +122,11 @@ fn line_column(source: &str, byte_offset: usize) -> (usize, usize) {
     (line, column)
 }
 
-fn finish_top(roots: &mut Vec<Node>, stack: &mut Vec<Node>, end: usize) {
+fn finish_top(roots: &mut Vec<Node>, stack: &mut Vec<Node>, end: usize, implicit: bool) {
     if let Some(mut node) = stack.pop() {
         node.span.end = end;
+        node.content_span.end = end;
+        node.well_formed = implicit && node.children.iter().all(|child| child.well_formed);
         append(roots, stack, node);
     }
 }
@@ -137,6 +146,10 @@ fn text_node(span: Span) -> Node {
         name: None,
         parameter: None,
         children: Vec::new(),
+        opening_span: None,
+        content_span: span,
+        closing_span: None,
+        well_formed: true,
     }
 }
 
@@ -147,5 +160,12 @@ fn element_node(token: &Token) -> Node {
         name: token.name.clone(),
         parameter: token.parameter.clone(),
         children: Vec::new(),
+        opening_span: Some(token.span),
+        content_span: Span {
+            start: token.span.end,
+            end: token.span.end,
+        },
+        closing_span: None,
+        well_formed: token.kind == TokenKind::LeafTag,
     }
 }

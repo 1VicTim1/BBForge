@@ -31,12 +31,17 @@ pub enum NodeKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Node {
     pub kind: NodeKind,
     pub span: Span,
     pub name: Option<String>,
     pub parameter: Option<String>,
     pub children: Vec<Node>,
+    pub opening_span: Option<Span>,
+    pub content_span: Span,
+    pub closing_span: Option<Span>,
+    pub well_formed: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
