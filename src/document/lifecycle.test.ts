@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { completeSave, requestDocumentAction, savedSnapshotIsCurrent } from "./lifecycle";
+import { completeSave, requestDocumentAction, requestWorkspaceClose, savedSnapshotIsCurrent } from "./lifecycle";
 import { decodeDocument, applyChanges } from "./state";
 
 describe("document lifecycle", () => {
@@ -47,5 +47,11 @@ describe("document lifecycle", () => {
     const edited = applyChanges(saving, [{ from: 5, to: 5, insert: " second" }]);
 
     expect(savedSnapshotIsCurrent(edited, saving.id, saving.revision)).toBe(false);
+  });
+
+  it("checks dirty tabs in order and stops after cancellation", async () => {
+    const request = vi.fn(async (id: string) => id !== "second");
+    expect(await requestWorkspaceClose(["first", "second", "third"], request)).toBe(false);
+    expect(request.mock.calls.map(([id]) => id)).toEqual(["first", "second"]);
   });
 });
