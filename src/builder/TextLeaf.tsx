@@ -4,6 +4,7 @@ import { normalizeInput } from "./input";
 interface Props {
   text: string; from: number; to: number;
   editable?: boolean;
+  autoFocus?: boolean;
   literal?: boolean;
   onError?(message: string): void;
   onEdit(range: SourceRange, text: string, expected: string): void;
@@ -13,6 +14,7 @@ interface Props {
 export function TextLeaf(props: Props) {
   const host = useRef<HTMLSpanElement>(null), composing = useRef(false), focused = useRef(false);
   const state = useRef({ text: props.text, from: props.from, to: props.to });
+  useLayoutEffect(() => { if (props.autoFocus) host.current?.focus(); }, [props.autoFocus]);
   useLayoutEffect(() => {
     if (composing.current) return;
     state.current = { text: props.text, from: props.from, to: props.to };
@@ -42,7 +44,7 @@ export function TextLeaf(props: Props) {
     if (host.current.textContent?.endsWith("\n") && !host.current.querySelector("[data-editor-sentinel]")) { const sentinel = window.document.createElement("br"); sentinel.dataset.editorSentinel = "true"; host.current.append(sentinel); }
     range.setStart(text, text.length); range.collapse(true); selection.removeAllRanges(); selection.addRange(range); commit();
   };
-  return <span ref={host} className="visual-text" contentEditable={props.editable !== false || focused.current} suppressContentEditableWarning role="textbox" aria-label="Текст блока" data-source-from={props.from} data-source-to={props.to} spellCheck={false}
+  return <span ref={host} className={`visual-text${props.autoFocus ? " insertion-text" : ""}`} contentEditable={props.editable !== false || focused.current} suppressContentEditableWarning role="textbox" aria-label="Текст блока" data-source-from={props.from} data-source-to={props.to} spellCheck={false}
     onFocus={() => { focused.current = true; }} onBlur={() => { commit(); focused.current = false; props.onSelect(); }}
     onMouseUp={props.onSelect} onKeyUp={props.onSelect}
     onCompositionStart={() => { composing.current = true; props.onComposition(true); }}

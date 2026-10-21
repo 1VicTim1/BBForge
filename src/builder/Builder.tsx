@@ -20,6 +20,7 @@ export interface BuilderProps {
 }
 export function Builder(props: BuilderProps) {
   const root = useRef<HTMLDivElement>(null);
+  const [insertionPath, setInsertionPath] = useState<string | null>(null);
   const retained = useRef<AnalysisSnapshot | null>(null);
   if (props.snapshot?.documentId === props.document.id) retained.current = props.snapshot;
   if (retained.current?.documentId !== props.document.id) retained.current = null;
@@ -47,14 +48,14 @@ export function Builder(props: BuilderProps) {
         else if (oldEnd <= from) { from += delta; to += delta; }
       }
       if (text.length > 65536) return <button className="opaque-block" key={path} onClick={() => props.onNavigate({ from, to })}>Большой текстовый блок · Редактировать код</button>;
-      return <TextLeaf key={path} literal={literal} onError={props.onError} editable={snapshot?.revision === props.document.revision} text={text} from={from} to={to} onEdit={(range, value, expected) => { try { props.execute(textEditCommand(props.getDocument(), range, value, expected)); } catch (error) { props.onError(String(error)); throw error; } }} onSelect={select} onComposition={props.onComposition} onPasteCode={(range, text) => setPaste({ range, text, ...identity(props.getDocument()) })} />;
+      return <TextLeaf key={path} autoFocus={path === insertionPath} literal={literal} onError={props.onError} editable={snapshot?.revision === props.document.revision} text={text} from={from} to={to} onEdit={(range, value, expected) => { try { props.execute(textEditCommand(props.getDocument(), range, value, expected)); } catch (error) { props.onError(String(error)); throw error; } }} onSelect={select} onComposition={props.onComposition} onPasteCode={(range, text) => setPaste({ range, text, ...identity(props.getDocument()) })} />;
     }
     const reference = nodeRef(snapshot!, node);
     const children = () => node.children.length ? node.children.map((child, at) => render(child, `${path}.${at}`, literal || node.name === "code")) : render({ kind: "text", name: null, parameter: null, span: node.contentSpan, contentSpan: node.contentSpan, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, `${path}.empty`, literal || node.name === "code");
     const selectNode = (event: React.MouseEvent) => { event.stopPropagation(); props.onSelect(reference); };
     const known = ["b", "i", "u", "s", "color", "background", "url", "quote", "code", "list", "*", "spoiler", "size", "font", "left", "center", "right", "sub", "sup", "img", "attachment"];
     if (!node.wellFormed || !known.includes(node.name ?? "")) return <div key={path} className="opaque-block" onClick={selectNode}><span>{node.wellFormed ? `Неизвестный тег [${node.name}]` : "Повреждённая разметка"}</span><code>{source.slice(from, to)}</code><button onClick={() => props.onNavigate({ from, to })}>Редактировать код</button></div>;
-    if (node.name === "spoiler") return <SpoilerBlock key={path} title={node.parameter ?? "Спойлер"} depth={path.split(".").length - 1} onSelect={selectNode} onInsert={() => { const at = index.byteToUtf16(node.contentSpan.end); props.onRange({ ...identity(props.document), from: at, to: at }); props.onSelect(reference); }}>{children}</SpoilerBlock>;
+    if (node.name === "spoiler") return <SpoilerBlock key={path} title={node.parameter ?? "Спойлер"} depth={path.split(".").length - 1} onSelect={selectNode} onInsert={() => { const at = index.byteToUtf16(node.contentSpan.end); props.onRange({ ...identity(props.document), from: at, to: at }); props.onSelect(reference); setInsertionPath(`${path}.insert`); }}>{() => <>{insertionPath === `${path}.insert` ? node.children.map((child, at) => render(child, `${path}.${at}`)) : children()}{insertionPath === `${path}.insert` && render({ kind: "text", name: null, parameter: null, span: { start: node.contentSpan.end, end: node.contentSpan.end }, contentSpan: { start: node.contentSpan.end, end: node.contentSpan.end }, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, `${path}.insert`)}</>}</SpoilerBlock>;
     if (node.name === "img" || node.name === "attachment") return <button key={path} className="media-placeholder" onClick={selectNode}>{node.name === "img" ? "▧ Изображение" : "▤ Вложение"} · Свойства</button>;
     if (node.name === "code") return <pre className="builder-code" key={path} onClick={selectNode}>{children()}</pre>;
     if (node.name === "quote") return <blockquote key={path} onClick={selectNode}>{children()}</blockquote>;

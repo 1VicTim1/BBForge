@@ -1,4 +1,4 @@
-import { historyKeymap, defaultKeymap } from "@codemirror/commands";
+import { historyKeymap, defaultKeymap, undo, redo } from "@codemirror/commands";
 import { searchKeymap } from "@codemirror/search";
 import { bracketMatching, foldGutter, foldKeymap, foldService } from "@codemirror/language";
 import { drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers, placeholder } from "@codemirror/view";
@@ -35,6 +35,12 @@ export function Editor(props: EditorProps) {
         return node ? { from: index.byteToUtf16(node.contentSpan.start), to: index.byteToUtf16(node.contentSpan.end) } : null;
       }),
       placeholder("Вставьте BBCode шапки…"), keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap]), EditorView.lineWrapping,
+      EditorView.domEventHandlers({ keydown(event, view) {
+        if ((event.ctrlKey || event.metaKey) && !event.altKey && event.code === "KeyZ" && event.key.toLowerCase() !== "z" && !event.isComposing && !view.composing) {
+          event.preventDefault(); if (event.shiftKey) redo(view); else undo(view); return true;
+        }
+        return false;
+      } }),
       EditorView.updateListener.of((update) => { if (update.view.hasFocus && (update.selectionSet || update.docChanged)) latest.current.onSelection?.({ from: update.state.selection.main.from, to: update.state.selection.main.to }); }),
       EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "JetBrains Mono, Consolas, monospace" } }),
     ], (text, endings) => latest.current.onChange(text, endings)) });
