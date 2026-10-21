@@ -1,4 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-export default defineConfig({ plugins: [react()], clearScreen: false });
+export default defineConfig({
+  plugins: [react()],
+  clearScreen: false,
+  test: { include: ["src/**/*.test.{ts,tsx}"] },
+});

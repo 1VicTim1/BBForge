@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
 import App from "./App";
 
 Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 Range.prototype.getBoundingClientRect = () => new DOMRect();
+afterEach(cleanup);
 
 describe("BBForge shell", () => {
   it("shows the editor, outline, preview and diagnostics regions", () => {
@@ -14,6 +15,14 @@ describe("BBForge shell", () => {
     expect(screen.getByLabelText("Редактор BBCode")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Структура" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Предпросмотр" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Проблемы" })).toBeTruthy();
+  });
+
+  it("can restore the diagnostics panel after hiding it", () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Скрыть проблемы" }));
+    expect(screen.queryByRole("heading", { name: "Проблемы" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Проблемы" }));
     expect(screen.getByRole("heading", { name: "Проблемы" })).toBeTruthy();
   });
 });
