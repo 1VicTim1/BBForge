@@ -1,5 +1,8 @@
 /* Shared desktop control geometry, imported after the base styles. */
 :root { color-scheme: dark; --ui-border: #3b3e46; --ui-muted: #969ca8; --ui-accent: #7397ff; }
+.ui-icon { width: 16px; height: 16px; display: block; flex: 0 0 auto; color: currentColor; }
+.top-document .ui-icon { width: 14px; height: 14px; }
+.tool-rail .ui-icon { width: 18px; height: 18px; }
 body { min-width: 760px; }
 button, input, select { font-family: inherit; }
 button { transition: background-color 120ms ease, border-color 120ms ease; }
