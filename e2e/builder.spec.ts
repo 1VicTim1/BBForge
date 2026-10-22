@@ -228,3 +228,31 @@ test("preview copy offers BBCode without and with surrounding formatting and sou
   await page.keyboard.type("X");
   await expect(code).toHaveText("[b]abXef[/b]");
 });
+
+test("preview context menu preserves and copies a selection across nested siblings", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:1420" });
+  const source = "[b][i][color=Green]Куратор темы [/color][url=https://example.com][color=Blue]~VicTim~[/color][/url][color=Green] по вопросам наполнения и актуализации шапки обращаться в QMS[/color][/i][/b]";
+  await page.locator(".cm-content").fill(source);
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await page.getByRole("button", { name: "Предпросмотр" }).click();
+  const preview = page.locator(".rendered-post");
+  await preview.evaluate((element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const texts: Text[] = [];
+    while (walker.nextNode()) {
+      const text = walker.currentNode as Text;
+      if (text.data.includes("Куратор темы") || text.data.includes("~VicTim~") || text.data.includes("по вопросам")) texts.push(text);
+    }
+    const range = document.createRange();
+    range.setStart(texts[0], 0);
+    range.setEnd(texts.at(-1)!, texts.at(-1)!.data.length);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    texts.at(-1)!.parentElement!.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  });
+  await preview.getByText("~VicTim~", { exact: true }).click({ button: "right" });
+  await expect.poll(() => preview.evaluate(() => window.getSelection()?.toString())).toBe("Куратор темы ~VicTim~ по вопросам наполнения и актуализации шапки обращаться в QMS");
+  await page.getByRole("menuitem", { name: "Копировать BBCode с оформлением" }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(source);
+});
