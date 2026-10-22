@@ -39,7 +39,7 @@ import { resolveActiveSelection } from "./commands/activeSelection";
 import { buildContextCommands, type MenuSurface } from "./context/commands";
 import { ContextMenu } from "./context/ContextMenu";
 import { useContextMenu } from "./context/useContextMenu";
-import { extractPreviewBbcode, type PreviewSelection } from "./components/previewSelection";
+import { extractPreviewBbcode, readPreviewSelection, type PreviewSelection } from "./components/previewSelection";
 import "./styles.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
@@ -160,9 +160,12 @@ export default function App() {
       const commands = buildContextCommands({ surface, editable: true, hasSelection: from !== to }, { undo: history("undo"), redo: history("redo"), cut: () => { void copyText(selectedValue); replace(""); }, copy: () => void copyText(selectedValue), paste: () => void navigator.clipboard.readText().then(replace).catch(() => setError("Не удалось прочитать буфер обмена")), delete: () => replace(""), selectAll: () => { field.focus(); field.select(); } });
       contextMenu.open({ x: event.clientX, y: event.clientY, commands }); return;
     }
+    const previewRoot = target.closest<HTMLElement>(".rendered-post");
+    const livePreviewRange = previewRoot ? readPreviewSelection(previewRoot, documentRef.current) : null;
+    const domSelection = previewRoot && window.getSelection()?.rangeCount ? window.getSelection()!.getRangeAt(0).cloneRange() : null;
     const sourceNode = target.closest<HTMLElement>("[data-source-from][data-source-to]");
     const nodeRange = sourceNode ? { ...identity(documentRef.current), from: Number(sourceNode.dataset.sourceFrom), to: Number(sourceNode.dataset.sourceTo) } : null;
-    const captured = surface === "preview" ? previewRange ?? nodeRange ?? commandSelection() : surface === "link" || surface === "media" ? nodeRange ?? previewRange ?? commandSelection() : commandSelection();
+    const captured = surface === "preview" || surface === "link" || surface === "media" ? livePreviewRange ?? previewRange ?? nodeRange ?? commandSelection() : commandSelection();
     const selectedText = documentRef.current.text.slice(captured.from, captured.to);
     const previewInner = currentSnapshot ? extractPreviewBbcode(documentRef.current, currentSnapshot, captured, false) : null;
     const previewWrapped = currentSnapshot ? extractPreviewBbcode(documentRef.current, currentSnapshot, captured, true) : null;
@@ -184,7 +187,14 @@ export default function App() {
       copyMedia: () => void copyText(target.closest("[data-source-value]")?.getAttribute("data-source-value") ?? ""),
     };
     const commands = buildContextCommands({ surface, editable: surface === "code" || surface === "builder", hasSelection: captured.from !== captured.to || Boolean(window.getSelection()?.toString()), hasBlock: Boolean(selected) || Boolean(target.closest("details,[data-source-span]")), hasDiagnostic: analysis.diagnostics.length > 0 }, handlers);
-    if (commands.length) contextMenu.open({ x: event.clientX, y: event.clientY, commands });
+    if (commands.length) {
+      contextMenu.open({ x: event.clientX, y: event.clientY, commands });
+      if (domSelection && previewRoot?.contains(domSelection.commonAncestorContainer)) requestAnimationFrame(() => {
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(domSelection);
+      });
+    }
   };
 
   const saveTab = async (documentId: string, saveAs = false): Promise<boolean> => {
