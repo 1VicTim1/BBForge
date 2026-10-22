@@ -4,6 +4,20 @@ import { afterEach, expect, it, vi } from "vitest";
 import { FormattingToolbar } from "./FormattingToolbar";
 afterEach(cleanup);
 
+it("focuses the link field, rejects invalid addresses and cancels with Escape", () => {
+  const format = vi.fn();
+  const view = render(<FormattingToolbar disabled={false} onFormat={format} onSpoiler={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()} />);
+  fireEvent.click(view.getByRole("button", { name: "Добавить ссылку" }));
+  const input = view.getByLabelText("Адрес ссылки");
+  expect(document.activeElement).toBe(input);
+  fireEvent.change(input, { target: { value: "javascript:alert(1)" } });
+  fireEvent.submit(input.closest("form")!);
+  expect(format).not.toHaveBeenCalled();
+  expect(view.getByRole("alert").textContent).toContain("https");
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(view.queryByLabelText("Адрес ссылки")).toBeNull();
+});
+
 it("exposes formatting state, disabled reason and every command", () => {
   const format = vi.fn();
   const view = render(<FormattingToolbar disabled={false} states={{ b: { state: "on" }, i: { state: "disabled", reason: "Небезопасное выделение" } }} onFormat={format} onSpoiler={vi.fn()} onUndo={vi.fn()} onRedo={vi.fn()} />);
