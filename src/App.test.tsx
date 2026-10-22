@@ -32,6 +32,15 @@ describe("BBForge shell", () => {
     expect(screen.getByRole("heading", { name: /Проблемы/ })).toBeTruthy();
   });
 
+  it("describes icon controls and closes panels from their headers", () => {
+    render(<App />);
+    const outlineToggle = screen.getByRole("button", { name: "Структура" });
+    expect(outlineToggle.getAttribute("aria-describedby")).toBeTruthy();
+    expect(screen.getByRole("tooltip", { name: /Показать или скрыть структуру документа/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть структуру" }));
+    expect(screen.queryByRole("heading", { name: "Структура" })).toBeNull();
+  });
+
   it("starts a new document with an empty undo history", async () => {
     render(<App />);
     fireEvent.click(screen.getByRole("button", { name: "Новый документ" }));
