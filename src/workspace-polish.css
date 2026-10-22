@@ -89,3 +89,79 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
   .properties form label { flex-wrap: wrap; gap: 6px; }
 }
 @media (prefers-reduced-motion: reduce) { button, .document-tab-move { transition: none; } }
+
+/* Figma workspace shell */
+:root { --fig-bg: #1c1f24; --fig-surface: #222329; --fig-raised: #26272e; --fig-line: #34353f; --fig-text: #dadbe3; --fig-muted: #898c9e; --fig-purple: #a394fa; }
+.app { background: var(--fig-bg); }
+.toolbar { height: 56px; padding: 12px; gap: 12px; background: var(--fig-raised); border-bottom: 0; overflow: visible; }
+.toolbar h1 { margin: 0; font-size: 15px; color: var(--fig-text); }
+.brand-icon { width: 32px; height: 32px; border-radius: 8px; padding: 0; letter-spacing: 0; background: #8270d8; font-size: 12px; }
+.app-menus { display: flex; align-items: center; gap: 2px; margin-left: 20px; }
+.app-menu { position: relative; }
+.app-menu > summary { list-style: none; cursor: pointer; padding: 7px 8px; border-radius: 5px; color: var(--fig-muted); font-size: 12px; }
+.app-menu > summary::-webkit-details-marker { display: none; }
+.app-menu > summary:hover, .app-menu[open] > summary { color: var(--fig-text); background: #30323a; }
+.app-menu-popup { position: absolute; z-index: 80; top: 34px; left: 0; display: flex; flex-direction: column; min-width: 225px; padding: 6px; background: #292b32; border: 1px solid #4a4d58; border-radius: 7px; box-shadow: 0 14px 40px #0009; }
+.app-menu-popup button { display: flex; justify-content: space-between; gap: 28px; width: 100%; min-height: 32px; padding: 7px 10px; text-align: left; }
+.app-menu-popup kbd { border: 0; font-size: 10px; color: var(--fig-muted); }
+.top-document { display: flex; align-items: center; gap: 10px; color: var(--fig-text); font-size: 12px; white-space: nowrap; }
+.top-document > span:last-child { color: var(--fig-muted); }
+.top-document .file-icon { color: var(--fig-purple); }
+.icon-button { width: 30px; height: 30px; padding: 0; color: var(--fig-muted); font-size: 18px; }
+.export-button { height: 30px; padding: 0 17px; color: var(--fig-purple); background: #373240; border: 0; border-radius: 6px; }
+.document-tabs-row, .document-tabs { height: 44px; background: var(--fig-surface); }
+.document-tabs-row { border-bottom: 0; padding-left: 48px; }
+.document-tab { border-right: 0; border-bottom: 0; background: transparent; }
+.document-tab.active { background: #1c1d22; border-bottom: 0; }
+.document-tab-activate { min-width: 0; padding: 0 8px 0 16px; }
+.document-tab.active .document-tab-activate { min-width: 150px; }
+.document-tab-move { width: 18px; }
+.new-tab-button { width: 44px; font-size: 18px; color: var(--fig-muted); }
+.mode-tabs { height: 30px; align-self: center; margin: 0 192px 0 0; padding: 0; gap: 0; background: transparent; border: 0; }
+.mode-tabs button { height: 30px; padding: 0 16px; border-radius: 6px; color: var(--fig-text); }
+.mode-tabs button.active { color: var(--fig-purple); background: #3a354c; }
+.breadcrumbs { display: none; }
+.format-toolbar { height: 44px; padding: 0 192px 0 64px; gap: 8px; background: var(--fig-surface); border: 0; }
+.format-toolbar > button { height: 30px; min-width: 30px; }
+.format-toolbar .new-spoiler { min-width: 104px; color: var(--fig-purple); background: #302d3d; border: 0; border-radius: 6px; }
+.color-control { background: #2c2d35; border: 0; border-radius: 6px; }
+.tool-rail { width: 48px; padding: 10px; gap: 14px; background: var(--fig-raised); border-right: 0; }
+.tool-rail button { width: 28px; height: 32px; font-size: 18px; }
+.tool-rail button.active { color: var(--fig-purple); background: #373240; }
+.panel.outline { width: 232px; background: var(--fig-surface); }
+.tool-heading { height: 46px; padding: 0 16px; background: var(--fig-surface); border-bottom: 0; }
+.tool-heading h2 { color: var(--fig-text); }
+.outline-tree { padding: 0; }
+.tree-row { min-height: 34px; border-radius: 0; }
+.tree-row:hover { background: #2b2c34; }
+.selected > .tree-row { background: #343044; color: var(--fig-text); }
+.outline-children { margin-left: 18px; padding-left: 0; border-left: 0; }
+.splitter.vertical { width: 1px; background: var(--fig-line); }
+.pane-heading { height: 46px; padding: 0 16px; color: var(--fig-text); background: var(--fig-bg); border-bottom: 0; }
+.code-pane { background: var(--fig-bg); }
+.builder-pane { background: #202127; border-left: 1px solid var(--fig-line); }
+.editor, .cm-editor, .cm-editor .cm-gutters { background: var(--fig-bg); }
+.cm-editor { font-size: 12px; line-height: 1.5; }
+.cm-editor .cm-gutters { min-width: 52px; }
+.builder { padding: 32px; background: #202127; }
+.builder-caption { height: 22px; margin-bottom: 22px; color: var(--fig-muted); }
+.builder-page { color: #b4b6c4; font-size: 13px; line-height: 1.55; }
+.builder-spoiler { margin: 12px 0 22px; border: 1px solid var(--fig-line); border-radius: 8px; background: #272830; }
+.builder-spoiler > summary { min-height: 44px; padding: 11px 16px; color: var(--fig-text); background: #2d2e37; }
+.builder-spoiler[open]:first-of-type { border-color: #60517c; }
+.builder-spoiler[open]:first-of-type > summary { background: #332e40; }
+.spoiler-body { padding: 20px; }
+.properties { background: #25262d; border-top-color: var(--fig-line); }
+.collapsed-problems { display: flex; align-items: center; gap: 12px; width: 100%; height: 40px; flex-shrink: 0; padding: 0 60px; border: 0; border-radius: 0; background: var(--fig-surface); color: var(--fig-text); text-align: left; }
+.collapsed-problems:hover { background: #292b32; }
+.collapsed-problems .count-badge { height: 26px; display: inline-flex; align-items: center; margin: 0; padding: 0 8px; border-radius: 6px; }
+.diagnostics { background: var(--fig-surface); }
+.statusbar { height: 28px; background: var(--fig-raised); border-top: 0; }
+.preview { background: #202127; }
+.rendered-post { background: #202127; border: 0; }
+@media (max-width: 1250px) {
+  .app-menus { margin-left: 4px; }
+  .app-menu:nth-child(4), .top-document > span:last-child { display: none; }
+  .format-toolbar { padding-right: 16px; }
+  .mode-tabs { margin-right: 16px; }
+}

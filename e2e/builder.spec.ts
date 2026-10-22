@@ -32,6 +32,7 @@ test("insert-in-spoiler focuses a real input after nested formatting", async ({ 
 });
 
 test("repairs crossed closing runs without deleting formatting", async ({ page }) => {
+  await page.locator(".collapsed-problems").click();
   const code = page.locator(".cm-content");
   for (const [source, expected] of [
     ["[size=1][color=grey]fire[/size][/color]", "[size=1][color=grey]fire[/color][/size]"],
@@ -61,6 +62,7 @@ test("does not render recovery closing tags as visual text", async ({ page }) =>
 });
 
 test("does not delete recovery tags when a crossing repair is ambiguous", async ({ page }) => {
+  await page.locator(".collapsed-problems").click();
   const code = page.locator(".cm-content");
   await code.fill("[b][i]a[/b]tail[/i]");
   await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
@@ -134,6 +136,7 @@ test("roundtrips visual text and spoiler properties through Rust and shared Undo
   await expect(code).toHaveText("[spoiler=Parent]hello[spoiler=Child]world[/spoiler][/spoiler]");
 });
 test("previews a real Rust diagnostic fix, cancels it and then applies", async ({ page }) => {
+  await page.locator(".collapsed-problems").click();
   const code = page.locator(".cm-content"); await code.fill("[b]текст");
   await expect(page.getByRole("button", { name: /Тег \[b\] не закрыт/ })).toBeVisible();
   await page.getByRole("button", { name: "Исправить…", exact: true }).click();
@@ -146,8 +149,8 @@ test("previews a real Rust diagnostic fix, cancels it and then applies", async (
 });
 test("creates an editable empty spoiler and retains its history between modes", async ({ page }) => {
   const code = page.locator(".cm-content"); await code.fill("");
-  await expect(page.getByRole("button", { name: "▣ Спойлер", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "▣ Спойлер", exact: true }).click();
+  await expect(page.getByRole("button", { name: "＋ Спойлер", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "＋ Спойлер", exact: true }).click();
   await page.getByRole("dialog", { name: "Создать спойлер" }).getByRole("textbox").fill("Новый");
   await page.getByRole("button", { name: "Создать", exact: true }).click();
   await expect(code).toHaveText("[spoiler=Новый][/spoiler]");

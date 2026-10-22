@@ -14,10 +14,11 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("edits Cyrillic BBCode, searches, undoes and updates diagnostics", async ({ page }) => {
+  await page.locator(".collapsed-problems").click();
   const editor = page.locator(".cm-content");
   await editor.fill("[b]");
   await expect(page.getByText("Тег [b] не закрыт")).toBeVisible();
-  await expect(page.getByText(/изменён/)).toBeVisible();
+  await expect(page.getByLabel("Есть несохранённые изменения")).toBeVisible();
   await page.keyboard.press("Control+f");
   await expect(page.locator(".cm-search")).toBeVisible();
   await page.keyboard.press("Escape");
