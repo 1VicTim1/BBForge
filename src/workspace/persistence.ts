@@ -1,5 +1,5 @@
 import type { DocumentState } from "../document/state";
-import type { DocumentSession, WorkspaceSession } from "./session";
+import { createDocumentSession, type DiskFingerprint, type DocumentSession, type DocumentUiState, type WorkspaceSession } from "./session";
 
 const KEY = "bbforge.workspace.v1";
 const MAX_DOCUMENT = 32 * 1024 * 1024;
@@ -33,8 +33,17 @@ export function restoreWorkspace(payload: string | null): WorkspaceSession | nul
   try {
     const value = JSON.parse(payload) as Partial<PersistedWorkspaceV1>;
     if (value.version !== 1 || typeof value.activeId !== "string" || !Array.isArray(value.tabs) || value.tabs.length === 0) return null;
-    const tabs = value.tabs.filter((tab): tab is DocumentSession => Boolean(tab && validDocument(tab.document) && tab.ui && typeof tab.ui === "object"));
-    if (tabs.length !== value.tabs.length || !tabs.some((tab) => tab.document.id === value.activeId)) return null;
+    const tabs: DocumentSession[] = [];
+    for (const raw of value.tabs) {
+      if (!raw || !validDocument(raw.document)) return null;
+      const defaults = createDocumentSession(raw.document), candidate = raw.ui as Partial<DocumentUiState> | undefined;
+      const range = (input: unknown) => input && typeof input === "object" && typeof (input as { from?: unknown }).from === "number" && typeof (input as { to?: unknown }).to === "number" ? input as { from: number; to: number } : null;
+      const codeSelection = range(candidate?.codeSelection) ?? defaults.ui.codeSelection;
+      const visualSelection = range(candidate?.visualSelection) ?? defaults.ui.visualSelection;
+      const fingerprint = raw.diskFingerprint as DiskFingerprint | null | undefined;
+      tabs.push({ document: raw.document, ui: { ...defaults.ui, codeSelection, visualSelection, selected: candidate?.selected && typeof candidate.selected === "object" ? candidate.selected : null, mode: ["code", "builder", "split"].includes(candidate?.mode ?? "") ? candidate!.mode! : defaults.ui.mode, showPreview: typeof candidate?.showPreview === "boolean" ? candidate.showPreview : false, activeSurface: candidate?.activeSurface === "builder" ? "builder" : "code" }, diskFingerprint: fingerprint && typeof fingerprint.digest === "string" && typeof fingerprint.modifiedMs === "number" && typeof fingerprint.size === "number" ? fingerprint : null });
+    }
+    if (!tabs.some((tab) => tab.document.id === value.activeId)) return null;
     return { activeId: value.activeId, tabs };
   } catch { return null; }
 }

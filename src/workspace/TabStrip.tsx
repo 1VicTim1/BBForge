@@ -5,11 +5,12 @@ function title(path: string | null): string {
   return path.split(/[\\/]/).at(-1) || "untitled.bbcode";
 }
 
-export function TabStrip({ tabs, activeId, onActivate, onClose }: {
+export function TabStrip({ tabs, activeId, onActivate, onClose, onReorder }: {
   tabs: DocumentSession[];
   activeId: string;
   onActivate(documentId: string): void;
   onClose(documentId: string): void;
+  onReorder(documentId: string, to: number): void;
 }) {
   return <div className="document-tabs" role="tablist" aria-label="Открытые документы">
     {tabs.map((tab) => {
@@ -27,6 +28,8 @@ export function TabStrip({ tabs, activeId, onActivate, onClose }: {
           <span>{name}</span>
           {dirty && <span className="dirty-dot" aria-label="Есть несохранённые изменения">●</span>}
         </button>
+        <button type="button" className="document-tab-move" disabled={tabs.indexOf(tab) === 0} aria-label={`Переместить ${name} влево`} onClick={() => onReorder(tab.document.id, tabs.indexOf(tab) - 1)}>‹</button>
+        <button type="button" className="document-tab-move" disabled={tabs.indexOf(tab) === tabs.length - 1} aria-label={`Переместить ${name} вправо`} onClick={() => onReorder(tab.document.id, tabs.indexOf(tab) + 1)}>›</button>
         <button type="button" className="document-tab-close" aria-label={`Закрыть ${name}`} onClick={() => onClose(tab.document.id)}>×</button>
       </div>;
     })}

@@ -53,9 +53,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [selection, setSelection] = useState<SelectionRequest>();
   const [layout, setLayout] = useState(() => loadLayout(localStorage));
-  const [showPreview, setShowPreview] = useState(false);
+  const [showPreview, setShowPreview] = useState(activeSession.ui.showPreview);
   const mode = layout.mode;
-  const setMode = (mode: WorkspaceMode) => { if (!composition.current && !controller?.isComposing()) { setLayout((current) => ({ ...current, mode })); setShowPreview(false); } };
+  const setMode = (mode: WorkspaceMode) => { if (!composition.current && !controller?.isComposing()) { setLayout((current) => ({ ...current, mode })); setShowPreview(false); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { mode, showPreview: false } }); } };
   useEffect(() => { saveLayout(localStorage, layout); }, [layout]);
   const [snapshots, setSnapshots] = useState<Record<string, AnalysisSnapshot>>({});
   const snapshot = snapshots[document.id] ?? null;
@@ -76,7 +76,7 @@ export default function App() {
   const [previewRange, setPreviewRange] = useState<PreviewSelection | null>(null);
   const contextMenu = useContextMenu();
   useEffect(() => { contextMenu.close(); }, [workspace.activeId, contextMenu.close]);
-  useEffect(() => { setSelected(null); setActiveRange(activeSession.ui.codeSelection); setFix(null); setSpoilerDialog(false); }, [document.id]);
+  useEffect(() => { setSelected(activeSession.ui.selected); setActiveRange(activeSession.ui.codeSelection); setLayout((current) => ({ ...current, mode: activeSession.ui.mode })); setShowPreview(activeSession.ui.showPreview); setPreviewRange(null); setFix(null); setSpoilerDialog(false); }, [document.id]);
   useEffect(() => {
     let active = true;
     void workspaceStore.load().then((restored) => {
@@ -108,6 +108,7 @@ export default function App() {
     const next = updateDocumentText(session.document, value, endings);
     if (documentId === workspaceRef.current.activeId) documentRef.current = next;
     dispatchWorkspace({ type: "updateDocument", documentId, document: next });
+    dispatchWorkspace({ type: "updateUi", documentId, ui: { selected: null } });
     if (documentId === workspaceRef.current.activeId) setSelected(null);
   };
   const execute = (command: EditCommand) => { if (composition.current || controller?.isComposing()) throw new Error("Завершите ввод текста перед изменением документа"); if (!controller) throw new Error("Редактор загружается"); controller.execute(command); };
@@ -153,13 +154,15 @@ export default function App() {
       const field = target.closest<HTMLInputElement | HTMLTextAreaElement>("input,textarea");
       if (!field) return;
       const from = field.selectionStart ?? 0, to = field.selectionEnd ?? from;
-      const action = (command: string) => () => { field.focus(); field.setSelectionRange(from, to); globalThis.document.execCommand(command); };
-      const commands = buildContextCommands({ surface, editable: true, hasSelection: from !== to }, { undo: action("undo"), redo: action("redo"), cut: action("cut"), copy: action("copy"), paste: action("paste"), delete: action("delete"), selectAll: () => { field.focus(); field.select(); } });
+      const replace = (value: string) => { field.focus(); field.setSelectionRange(from, to); field.setRangeText(value, from, to, "end"); field.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: value ? "insertFromPaste" : "deleteContent" })); };
+      const selectedValue = field.value.slice(from, to);
+      const history = (command: string) => () => { field.focus(); globalThis.document.execCommand(command); };
+      const commands = buildContextCommands({ surface, editable: true, hasSelection: from !== to }, { undo: history("undo"), redo: history("redo"), cut: () => { void copyText(selectedValue); replace(""); }, copy: () => void copyText(selectedValue), paste: () => void navigator.clipboard.readText().then(replace).catch(() => setError("Не удалось прочитать буфер обмена")), delete: () => replace(""), selectAll: () => { field.focus(); field.select(); } });
       contextMenu.open({ x: event.clientX, y: event.clientY, commands }); return;
     }
     const sourceNode = target.closest<HTMLElement>("[data-source-from][data-source-to]");
     const nodeRange = sourceNode ? { ...identity(documentRef.current), from: Number(sourceNode.dataset.sourceFrom), to: Number(sourceNode.dataset.sourceTo) } : null;
-    const captured = (surface === "preview" || surface === "link" || surface === "media") ? previewRange ?? nodeRange ?? commandSelection() : commandSelection();
+    const captured = surface === "preview" ? previewRange ?? nodeRange ?? commandSelection() : surface === "link" || surface === "media" ? nodeRange ?? previewRange ?? commandSelection() : commandSelection();
     const selectedText = documentRef.current.text.slice(captured.from, captured.to);
     const previewInner = currentSnapshot ? extractPreviewBbcode(documentRef.current, currentSnapshot, captured, false) : null;
     const previewWrapped = currentSnapshot ? extractPreviewBbcode(documentRef.current, currentSnapshot, captured, true) : null;
@@ -273,15 +276,15 @@ export default function App() {
       <button onClick={() => void newDocument()} title="Новый документ">＋ Новый</button><button disabled={!isTauri()} onClick={() => void openDocument()}>Открыть</button><button disabled={!isTauri()} onClick={() => void saveCurrent()}>Сохранить</button><button className="quiet-button" disabled={!isTauri()} onClick={() => void saveCurrent(true)}>Сохранить как</button>
       <span className="spacer" /><span className="build-badge">BBCode Studio</span><button title="Восстановить раскладку" aria-label="Восстановить раскладку" onClick={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }}>⚙</button>
     </header>
-    <div className="ide-shell"><nav className="tool-rail" aria-label="Панели"><button className={layout.showOutline ? "active" : ""} title="Структура" aria-label="Структура" onClick={() => setLayout({ ...layout, showOutline: !layout.showOutline })}>▤</button><button className={showPreview ? "active" : ""} title="Предпросмотр" aria-label="Предпросмотр" onClick={() => { if (!composition.current) setShowPreview(!showPreview); }}>◉</button><span className="spacer" /><button className={layout.showProblems ? "active" : ""} title="Проблемы" aria-label="Проблемы" onClick={() => setLayout({ ...layout, showProblems: !layout.showProblems })}>⚠</button></nav>
+    <div className="ide-shell"><nav className="tool-rail" aria-label="Панели"><button className={layout.showOutline ? "active" : ""} title="Структура" aria-label="Структура" onClick={() => setLayout({ ...layout, showOutline: !layout.showOutline })}>▤</button><button className={showPreview ? "active" : ""} title="Предпросмотр" aria-label="Предпросмотр" onClick={() => { if (!composition.current) { const value = !showPreview; setShowPreview(value); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { showPreview: value } }); } }}>◉</button><span className="spacer" /><button className={layout.showProblems ? "active" : ""} title="Проблемы" aria-label="Проблемы" onClick={() => setLayout({ ...layout, showProblems: !layout.showProblems })}>⚠</button></nav>
     <div className="ide-main">
-      <div className="document-tabs-row"><TabStrip tabs={workspace.tabs} activeId={workspace.activeId} onActivate={(documentId) => { if (!composition.current && !controller?.isComposing()) dispatchWorkspace({ type: "activate", documentId }); }} onClose={(documentId) => void closeDocument(documentId)} /><div className="mode-tabs">{(["code", "builder", "split"] as const).map((value) => <button key={value} className={!showPreview && mode === value ? "active" : ""} onClick={() => setMode(value)}>{value === "code" ? "Код" : value === "builder" ? "Конструктор" : "Рядом"}</button>)}</div></div>
+      <div className="document-tabs-row"><TabStrip tabs={workspace.tabs} activeId={workspace.activeId} onActivate={(documentId) => { if (!composition.current && !controller?.isComposing()) dispatchWorkspace({ type: "activate", documentId }); }} onClose={(documentId) => void closeDocument(documentId)} onReorder={(documentId, to) => dispatchWorkspace({ type: "reorder", documentId, to })} /><div className="mode-tabs">{(["code", "builder", "split"] as const).map((value) => <button key={value} className={!showPreview && mode === value ? "active" : ""} onClick={() => setMode(value)}>{value === "code" ? "Код" : value === "builder" ? "Конструктор" : "Рядом"}</button>)}</div></div>
       <div className="breadcrumbs"><span>{document.path ?? "Без имени"}{dirty ? " · изменён" : ""}</span><span>›</span><span>{selected ? "Выбранный блок" : "Документ"}</span><span className="spacer" /><span>Профиль 4PDA</span></div>
       <FormattingToolbar disabled={!currentSnapshot} states={formattingStates} onFormat={format} onSpoiler={() => { if (composition.current || controller?.isComposing()) return; spoilerOrigin.current = commandSelection(); setSpoilerDialog(true); }} onUndo={() => historyAction(false)} onRedo={() => historyAction(true)} />
       <Workspace layout={layout} setLayout={setLayout} showPreview={showPreview}
-        outline={<Outline identity={identity(document)} nodes={currentSnapshot?.analysis.nodes ?? []} selected={selected?.span} onNavigate={(span) => { if (currentSnapshot) setSelected({ ...identity(document), span }); navigate(span); }} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, source, { node: { ...identity(document), span: target }, placement })); }} />}
+        outline={<Outline identity={identity(document)} nodes={currentSnapshot?.analysis.nodes ?? []} selected={selected?.span} onNavigate={(span) => { if (currentSnapshot) { const reference = { ...identity(document), span }; setSelected(reference); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { selected: reference } }); } navigate(span); }} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, source, { node: { ...identity(document), span: target }, placement })); }} />}
         editor={<Editor document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} onChange={changeSource} onReady={setController} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
-        builder={<Builder key={document.id} document={document} snapshot={snapshot} execute={execute} getDocument={() => documentRef.current} onSelect={setSelected} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onError={setError} onComposition={(active) => { composition.current = active; }} />}
+        builder={<Builder key={document.id} document={document} snapshot={snapshot} execute={execute} getDocument={() => documentRef.current} onSelect={(reference) => { setSelected(reference); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { selected: reference } }); }} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onError={setError} onComposition={(active) => { composition.current = active; }} />}
         preview={<Preview document={document} source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} onSelection={setPreviewRange} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}
         properties={selected && currentSnapshot ? <Properties document={document} snapshot={currentSnapshot} selected={selected} execute={execute} onError={setError} onNavigate={() => visualNavigate(sourceRange(document, selected.span))} /> : <div className="selection-hint">Выберите текст для оформления или блок для изменения его свойств <kbd>Alt</kbd> + <kbd>Enter</kbd> — исправления</div>} />
       {layout.showProblems && <><Splitter orientation="horizontal" value={layout.problemsHeight} min={100} max={400} label="Высота панели проблем" onChange={(problemsHeight) => setLayout({ ...layout, problemsHeight })} /><section className="diagnostics" style={{ height: layout.problemsHeight }}><div className="diagnostics-header"><h2>Проблемы <span className="count-badge">{analysis.diagnostics.length}</span></h2><span className="spacer" /><button onClick={showAllFixes}>Исправить однозначные…</button><button aria-label="Скрыть проблемы" onClick={() => setLayout({ ...layout, showProblems: false })}>×</button></div><Diagnostics diagnostics={analysis.diagnostics} onNavigate={navigate} onFix={showFix} /></section></>}
