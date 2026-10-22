@@ -9,7 +9,7 @@ it("renders dirty tabs and exposes activate and close actions", () => {
   const original = decodeDocument(new TextEncoder().encode("x"), "/tmp/topic.bbcode");
   const tab = createDocumentSession(updateDocumentText(original, "changed", []));
   const activate = vi.fn(), close = vi.fn();
-  const view = render(<TabStrip tabs={[tab]} activeId={tab.document.id} onActivate={activate} onClose={close} />);
+  const view = render(<TabStrip tabs={[tab]} activeId={tab.document.id} onActivate={activate} onClose={close} onReorder={vi.fn()} />);
   expect(view.getByRole("tab", { name: /topic\.bbcode/ }).getAttribute("aria-selected")).toBe("true");
   expect(view.getByText("●")).toBeTruthy();
   fireEvent.click(view.getByRole("tab", { name: /topic\.bbcode/ }));

@@ -22,6 +22,7 @@ select:disabled { color: #747b88; opacity: .65; }
 .document-tabs-row { height: 42px; display: flex; flex-shrink: 0; min-width: 0; background: #252629; border-bottom: 1px solid #17181b; }
 .document-tabs-row > .document-tabs { flex: 1; min-width: 0; border-bottom: 0; }
 .document-tabs-row > .mode-tabs { flex-shrink: 0; }
+.document-tab-move { width: 20px; padding: 0; color: #777d87; }
 .context-menu-dismiss { position: fixed; inset: 0; z-index: 90; }
 .context-menu { position: fixed; z-index: 91; min-width: 235px; padding: 5px; border: 1px solid #50535a; border-radius: 7px; background: #2b2d30; box-shadow: 0 12px 35px #0009; }
 .context-menu button { display: flex; width: 100%; justify-content: space-between; gap: 24px; padding: 7px 10px; text-align: left; }

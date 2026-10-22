@@ -20,6 +20,12 @@ it("rejects malformed, oversized and unknown workspace snapshots", () => {
   expect(() => serializeWorkspace(state)).toThrow(/32 MiB/);
 });
 
+it("merges incomplete restored UI with safe defaults", () => {
+  const state = createWorkspace(decodeDocument(new TextEncoder().encode("text")));
+  const raw = JSON.parse(serializeWorkspace(state)); raw.tabs[0].ui = {};
+  expect(restoreWorkspace(JSON.stringify(raw))?.tabs[0].ui).toMatchObject({ codeSelection: { from: 0, to: 0 }, visualSelection: { from: 0, to: 0 }, activeSurface: "code", mode: "split", showPreview: false });
+});
+
 it("debounces writes and flushes the latest workspace", async () => {
   vi.useFakeTimers();
   const invoke = vi.fn(async (_command: string, _args: Record<string, unknown>) => null);

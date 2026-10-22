@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Node, Span } from "../analysis/types";
 import { createPositionIndex, type PositionIndex } from "../document/positions";
 import { decodeDocument, type DocumentState } from "../document/state";
@@ -17,6 +17,7 @@ export function Preview({ document, source, nodes, onNavigate, onSelection, open
   const positions = useMemo(() => createPositionIndex(source), [source]);
   const effectiveDocument = useMemo(() => document ?? decodeDocument(new TextEncoder().encode(source)), [document, source]);
   const root = useRef<HTMLDivElement>(null), [selection, setSelection] = useState<PreviewSelection | null>(null);
+  useEffect(() => setSelection(null), [effectiveDocument.id, effectiveDocument.revision]);
   const read = () => { if (!root.current) return; const range = readPreviewSelection(root.current, effectiveDocument); if (range) { setSelection(range); onSelection?.(range); } };
   return <div className="rendered-post" ref={root} onMouseUp={read}><div className="preview-actions"><button disabled={!selection} onClick={() => selection && onNavigate({ start: positions.utf16ToByte(selection.from), end: positions.utf16ToByte(selection.to) })}>К исходнику</button></div>{nodes.map((node, index) => <RenderNode key={`${node.span.start}-${index}`} node={node} source={source} positions={positions} onNavigate={onNavigate} openExternal={openExternal} />)}</div>;
 }

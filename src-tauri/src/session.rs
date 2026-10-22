@@ -17,10 +17,37 @@ fn valid(payload: &str) -> bool {
     if payload.len() > MAX_SESSION {
         return false;
     }
-    serde_json::from_str::<Value>(payload)
-        .ok()
-        .and_then(|value| value.get("version").and_then(Value::as_u64))
-        == Some(1)
+    let Ok(value) = serde_json::from_str::<Value>(payload) else {
+        return false;
+    };
+    let Some(root) = value.as_object() else {
+        return false;
+    };
+    if root.get("version").and_then(Value::as_u64) != Some(1) {
+        return false;
+    }
+    let Some(active) = root.get("activeId").and_then(Value::as_str) else {
+        return false;
+    };
+    let Some(tabs) = root.get("tabs").and_then(Value::as_array) else {
+        return false;
+    };
+    !tabs.is_empty()
+        && tabs
+            .iter()
+            .any(|tab| tab.pointer("/document/id").and_then(Value::as_str) == Some(active))
+        && tabs.iter().all(|tab| {
+            let document = tab.get("document");
+            document
+                .and_then(|item| item.get("id"))
+                .and_then(Value::as_str)
+                .is_some()
+                && document
+                    .and_then(|item| item.get("text"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|text| text.len() <= 32 * 1024 * 1024)
+                && tab.get("ui").is_some_and(Value::is_object)
+        })
 }
 
 fn atomic_write(path: &Path, payload: &[u8]) -> Result<(), String> {
