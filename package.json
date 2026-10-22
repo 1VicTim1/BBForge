@@ -2,6 +2,9 @@
   "name": "bbforge",
   "private": true,
   "version": "0.1.0",
+  "description": "Desktop BBCode editor and visual constructor for 4PDA posts",
+  "repository": "https://github.com/1VicTim1/BBForge",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
