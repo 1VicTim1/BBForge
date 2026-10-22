@@ -84,3 +84,59 @@ export function extractNode(document: DocumentState, snapshot: AnalysisSnapshot,
   if (!parent || parent.name !== "spoiler") throw new Error("Нет родительского спойлера");
   return moveNode(document, snapshot, reference, { node: nodeRef(snapshot, parent), placement: "after" });
 }
+
+const portableFormatting = new Set(["b", "i", "u", "s", "color", "background", "url", "quote", "code", "size", "font", "left", "center", "right", "sub", "sup"]);
+
+function activeFormatting(document: DocumentState, snapshot: AnalysisSnapshot, position: number, edge: "start" | "end"): Array<{ node: Node; content: SourceRange }> {
+  const index = createPositionIndex(document.text), active: Array<{ node: Node; content: SourceRange }> = [];
+  const visit = (nodes: Node[]) => {
+    for (const node of nodes) {
+      if (!node.wellFormed || !node.openingSpan || !node.closingSpan || !portableFormatting.has(node.name ?? "")) { visit(node.children); continue; }
+      const content = { from: index.byteToUtf16(node.contentSpan.start), to: index.byteToUtf16(node.contentSpan.end) };
+      const contains = edge === "start" ? content.from <= position && position < content.to : content.from < position && position <= content.to;
+      if (contains) active.push({ node, content });
+      visit(node.children);
+    }
+  };
+  visit(snapshot.analysis.nodes);
+  return active;
+}
+
+function formattedFragment(document: DocumentState, snapshot: AnalysisSnapshot, range: SourceRange) {
+  if (snapshot.documentId !== document.id || snapshot.revision !== document.revision || snapshot.source !== document.text) throw new Error("Дождитесь обновления структуры");
+  validateCommand(document, { ...identity(document), label: "range", changes: [{ ...range, insert: "" }] });
+  if (range.from === range.to) throw new Error("Сначала выделите текст");
+  const index = createPositionIndex(document.text);
+  const start = activeFormatting(document, snapshot, range.from, "start");
+  const end = activeFormatting(document, snapshot, range.to, "end");
+  const opening = (entry: { node: Node }) => document.text.slice(index.byteToUtf16(entry.node.openingSpan!.start), index.byteToUtf16(entry.node.openingSpan!.end));
+  const closing = (entry: { node: Node }) => document.text.slice(index.byteToUtf16(entry.node.closingSpan!.start), index.byteToUtf16(entry.node.closingSpan!.end));
+  const insert = start.map(opening).join("") + document.text.slice(range.from, range.to) + [...end].reverse().map(closing).join("");
+  const repair = [...start].reverse().filter((entry) => !end.some((candidate) => candidate.node === entry.node)).map(closing).join("")
+    + end.filter((entry) => !start.some((candidate) => candidate.node === entry.node)).map(opening).join("");
+  const endingFrom = (document.text.slice(0, range.from).match(/\n/g) ?? []).length;
+  const endingCount = (document.text.slice(range.from, range.to).match(/\n/g) ?? []).length;
+  return { insert, repair, endings: document.endings.slice(endingFrom, endingFrom + endingCount) };
+}
+
+export function moveVisualRange(document: DocumentState, snapshot: AnalysisSnapshot, range: SourceRange, at: number): EditCommand {
+  if (at >= range.from && at <= range.to) throw new Error("Перетащите выделение в другое место");
+  const fragment = formattedFragment(document, snapshot, range);
+  const delta = fragment.repair.length - (range.to - range.from);
+  const selectionFrom = at > range.to ? at + delta : at;
+  return {
+    ...identity(document), label: "Переместить форматированный текст",
+    changes: [{ ...range, insert: fragment.repair }, { from: at, to: at, insert: fragment.insert, endings: fragment.endings }],
+    selection: { from: selectionFrom, to: selectionFrom + fragment.insert.length },
+  };
+}
+
+export function copyVisualRange(document: DocumentState, snapshot: AnalysisSnapshot, range: SourceRange, at: number): EditCommand {
+  if (at > document.text.length) throw new Error("Неверное место вставки");
+  const fragment = formattedFragment(document, snapshot, range);
+  return {
+    ...identity(document), label: "Копировать форматированный текст",
+    changes: [{ from: at, to: at, insert: fragment.insert, endings: fragment.endings }],
+    selection: { from: at, to: at + fragment.insert.length },
+  };
+}

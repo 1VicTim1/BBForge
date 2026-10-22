@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { createSpoiler, extractNode, moveNode, nestedSpoilerRange, renameSpoiler, unwrapNode } from "./structure";
+import { copyVisualRange, createSpoiler, extractNode, moveNode, moveVisualRange, nestedSpoilerRange, renameSpoiler, unwrapNode } from "./structure";
 import { applyChanges, decodeDocument, serializeDocument } from "./state";
 import { snapshotFixture, refFor } from "../test/structureFixture";
 
@@ -45,4 +45,26 @@ it("rejects spoiler ranges cutting tags or literal code", () => {
     const document = decodeDocument(new TextEncoder().encode(text));
     expect(() => createSpoiler(document, { from, to }, "X", snapshotFixture(document))).toThrow();
   }
+});
+
+it("moves part of formatted text with its effective wrappers", () => {
+  const document = decodeDocument(new TextEncoder().encode("[b]very long[/b] plain"));
+  const from = document.text.indexOf("long"), to = from + 4;
+  const command = moveVisualRange(document, snapshotFixture(document), { from, to }, document.text.length);
+  expect(applyChanges(document, command.changes).text).toBe("[b]very [/b] plain[b]long[/b]");
+});
+
+it("balances both sides when a visual selection crosses formatting", () => {
+  const document = decodeDocument(new TextEncoder().encode("[b]foo[/b] x [i]bar[/i]"));
+  const from = document.text.indexOf("oo"), to = document.text.indexOf("r[/i]");
+  const command = moveVisualRange(document, snapshotFixture(document), { from, to }, document.text.length);
+  expect(applyChanges(document, command.changes).text).toBe("[b]f[/b][i]r[/i][b]oo[/b] x [i]ba[/i]");
+});
+
+it("copies a formatted visual range without changing its source", () => {
+  const document = decodeDocument(new TextEncoder().encode("[color=red]abc[/color] "));
+  const content = document.text.indexOf("abc");
+  const range = { from: content + 1, to: content + 3 };
+  const command = copyVisualRange(document, snapshotFixture(document), range, document.text.length);
+  expect(applyChanges(document, command.changes).text).toBe("[color=red]abc[/color] [color=red]bc[/color]");
 });
