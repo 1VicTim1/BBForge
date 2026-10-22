@@ -10,9 +10,10 @@
 .control-tooltip > span { grid-column: 1 / -1; color: #a7a9b2; }
 .control-tooltip kbd { grid-column: 2; grid-row: 1; color: #aaa3ca; background: transparent; border: 0; padding: 0; }
 .tooltip-control:hover > .control-tooltip, .tooltip-control:focus-within > .control-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition-delay: 350ms; }
-.tool-rail .control-tooltip { width: 28px; }
-.tool-rail .control-tooltip > button { width: 28px; height: 32px; }
+.tool-rail .tooltip-control { width: 28px; }
+.tool-rail .tooltip-control > button { width: 28px; height: 32px; }
 .tool-rail .tooltip-control > .control-tooltip { left: calc(100% + 10px); top: 50%; transform: translate(0, -50%); }
+.tool-rail .tooltip-control:last-child > .control-tooltip { top: auto; bottom: 0; transform: none; }
 .tool-rail .tooltip-control.active > button { color: var(--fig-purple); background: #373240; }
 .top-tooltip > button { width: 30px; height: 30px; padding: 0; color: var(--fig-muted); }
 .panel-close { margin-left: auto; width: 26px; height: 26px; padding: 0; color: #858995; font-size: 16px; }
