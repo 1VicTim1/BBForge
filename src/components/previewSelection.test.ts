@@ -15,3 +15,8 @@ it("copies a full spoiler byte-for-byte", () => {
   const source = "[spoiler=S][b]x[/b][/spoiler]";
   expect(extract(source, 0, source.length)).toEqual([source, source]);
 });
+it("copies a colored link block without changing tag order", () => {
+  const source = '[url="https://4pda.to"][color=Blue]QMS[/color][/url]';
+  const from = source.indexOf("QMS"), to = from + 3;
+  expect(extract(source, from, to)).toEqual(["QMS", source]);
+});
