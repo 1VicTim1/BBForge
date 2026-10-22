@@ -41,6 +41,7 @@ import { ContextMenu } from "./context/ContextMenu";
 import { useContextMenu } from "./context/useContextMenu";
 import { extractPreviewBbcode, readPreviewSelection, type PreviewSelection } from "./components/previewSelection";
 import "./styles.css";
+import "./workspace-polish.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
 
