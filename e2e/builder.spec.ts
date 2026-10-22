@@ -163,6 +163,67 @@ test("creates an editable empty spoiler and retains its history between modes", 
   await page.getByRole("button", { name: "Рядом", exact: true }).click();
   await expect(code).toHaveText("[spoiler=Новый][/spoiler]");
 });
+test("creates a child spoiler inside the selected spoiler", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("[spoiler=Parent]text[/spoiler]");
+  const parent = page.locator(".builder-spoiler").filter({ hasText: "Parent" });
+  await parent.locator("summary").click();
+  await page.locator("button.new-spoiler").click();
+  await page.getByRole("dialog", { name: "Создать спойлер" }).getByRole("textbox").fill("Child");
+  await page.getByRole("button", { name: "Создать", exact: true }).click();
+  await expect(code).toHaveText("[spoiler=Parent]text[spoiler=Child][/spoiler][/spoiler]");
+});
+test("keeps a selected spoiler while toggling formatting and toggles a tag beside the code cursor", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("[b][spoiler=S]text[/spoiler][/b]");
+  await page.locator(".builder-spoiler summary").click();
+  const bold = page.getByRole("button", { name: "Жирный" });
+  await expect(bold).toHaveAttribute("aria-pressed", "true");
+  await bold.click();
+  await expect(code).toHaveText("[spoiler=S]text[/spoiler]");
+
+  await code.fill("[i]word[/i]");
+  await code.click();
+  await page.keyboard.press("Home");
+  const italic = page.getByRole("button", { name: "Курсив" });
+  await expect(italic).toHaveAttribute("aria-pressed", "true");
+  await italic.click();
+  await expect(code).toHaveText("word");
+});
+
+test("drags visual spoilers after and inside one another", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("[spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
+  const handleA = page.getByRole("button", { name: "Перетащить спойлер A" });
+  const blockB = page.locator(".builder-spoiler").filter({ hasText: "B" });
+  const moveAfter = await handleA.evaluate((element) => { const data = new DataTransfer(); element.dispatchEvent(new DragEvent("dragstart", { dataTransfer: data, clientX: 20, bubbles: true })); return data.getData("application/bbforge-node"); });
+  await blockB.evaluate((element, payload) => { const data = new DataTransfer(); data.setData("application/bbforge-node", payload); element.dispatchEvent(new DragEvent("dragover", { dataTransfer: data, clientX: 20, clientY: element.getBoundingClientRect().bottom - 2, bubbles: true, cancelable: true })); element.dispatchEvent(new DragEvent("drop", { dataTransfer: data, clientX: 20, clientY: element.getBoundingClientRect().bottom - 2, bubbles: true, cancelable: true })); }, moveAfter);
+  await expect(code).toHaveText("[spoiler=B]b[/spoiler][spoiler=A]a[/spoiler]");
+
+  await page.reload();
+  const freshCode = page.locator(".cm-content");
+  await freshCode.fill("[spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
+  await expect(page.locator(".builder-spoiler").first()).toContainText("A");
+  const nestedPayload = await page.getByRole("button", { name: "Перетащить спойлер A" }).evaluate((element) => { const data = new DataTransfer(); element.dispatchEvent(new DragEvent("dragstart", { dataTransfer: data, clientX: 20, bubbles: true })); return data.getData("application/bbforge-node"); });
+  await page.locator(".builder-spoiler").filter({ hasText: "B" }).evaluate((element, payload) => { const data = new DataTransfer(); data.setData("application/bbforge-node", payload); element.dispatchEvent(new DragEvent("dragover", { dataTransfer: data, clientX: 100, clientY: element.getBoundingClientRect().top + 5, bubbles: true, cancelable: true })); element.dispatchEvent(new DragEvent("drop", { dataTransfer: data, clientX: 100, clientY: element.getBoundingClientRect().top + 5, bubbles: true, cancelable: true })); }, nestedPayload);
+  await expect(freshCode).toHaveText("[spoiler=B]b[spoiler=A]a[/spoiler][/spoiler]");
+});
+
+test("selects visual text across separate formatted fragments", async ({ page }) => {
+  await page.locator(".cm-content").fill("[url=https://example.com]AFH[/url] и [b]дальше[/b] конец");
+  const leaves = page.getByRole("textbox", { name: "Текст блока" });
+  await expect(leaves).toHaveCount(4);
+  const first = await leaves.nth(0).boundingBox(), last = await leaves.nth(3).boundingBox();
+  if (!first || !last) throw new Error("visual leaves are not visible");
+  await page.mouse.move(first.x + 2, first.y + first.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(last.x + last.width - 2, last.y + last.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => CSS.highlights.has("bbforge-selection"))).toBe(true);
+  await page.getByRole("button", { name: "Жирный" }).click();
+  await page.getByRole("button", { name: "Применить исправление", exact: true }).click();
+  await expect(page.locator(".cm-content")).toHaveText("[b][url=https://example.com]AFH[/url] и [b]дальше[/b] конец[/b]");
+});
 test("shows the IDE workspace with real structure and saves a design capture", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page.getByRole("treeitem", { name: /Важная информация/ })).toBeVisible();

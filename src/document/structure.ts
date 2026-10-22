@@ -28,6 +28,18 @@ export function createSpoiler(document: DocumentState, range: SourceRange, title
   const opening = `[spoiler=${title}]`;
   return { ...identity(document), label: "Создать спойлер", changes: range.from === range.to ? [{ from: range.from, to: range.to, insert: `${opening}[/spoiler]` }] : [{ from: range.from, to: range.from, insert: opening }, { from: range.to, to: range.to, insert: "[/spoiler]" }], selection: { from: range.from + opening.length, to: range.to + opening.length } };
 }
+export function nestedSpoilerRange(document: DocumentState, snapshot: AnalysisSnapshot, range: SourceRange, selected: NodeRef | null): SourceRange {
+  if (!selected) return range;
+  try {
+    const { node } = resolveNode(document, snapshot, selected);
+    const span = sourceRange(document, node.span);
+    if (node.name !== "spoiler" || range.from !== span.from || range.to !== span.to) return range;
+    const content = sourceRange(document, node.contentSpan);
+    return { from: content.to, to: content.to };
+  } catch {
+    return range;
+  }
+}
 export function validateWrap(document: DocumentState, snapshot: AnalysisSnapshot, range: SourceRange): void {
   if (!snapshot || snapshot.documentId !== document.id || snapshot.revision !== document.revision || snapshot.source !== document.text) throw new Error("Дождитесь обновления структуры");
   validateCommand(document, { ...identity(document), label: "range", changes: [{ ...range, insert: "" }] });

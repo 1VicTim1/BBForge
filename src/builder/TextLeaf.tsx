@@ -60,7 +60,7 @@ export function TextLeaf(props: Props) {
     if (host.current.textContent?.endsWith("\n") && !host.current.querySelector("[data-editor-sentinel]")) { const sentinel = window.document.createElement("br"); sentinel.dataset.editorSentinel = "true"; host.current.append(sentinel); }
     range.setStart(text, text.length); range.collapse(true); selection.removeAllRanges(); selection.addRange(range); commit();
   };
-  return <span ref={host} className={`visual-text${props.autoFocus ? " insertion-text" : ""}`} contentEditable={props.editable !== false || focused.current} suppressContentEditableWarning role="textbox" aria-label="Текст блока" data-source-from={props.from} data-source-to={props.to} spellCheck={false}
+  return <span ref={host} className={`visual-text${props.autoFocus ? " insertion-text" : ""}`} contentEditable={props.editable !== false || focused.current} suppressContentEditableWarning role="textbox" aria-label="Текст блока" data-source-from={props.from} data-source-to={props.to} data-visual-editable={props.editable === false ? "false" : "true"} spellCheck={false}
     onFocus={() => { focused.current = true; }} onBlur={() => { commit(); focused.current = false; props.onSelect(); }}
     onMouseUp={props.onSelect} onKeyUp={props.onSelect}
     onCompositionStart={() => { composing.current = true; props.onComposition(true); }}
