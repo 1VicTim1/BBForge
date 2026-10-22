@@ -25,8 +25,6 @@ export function formattingActionState(document: DocumentState, snapshot: Analysi
 export function applyFormat(document: DocumentState, snapshot: AnalysisSnapshot, range: VisualRange, tag: FormatTag, parameter?: string): EditCommand {
   validateCommand(document, { ...range, label: "format", changes: [] });
   if (snapshot.documentId !== document.id || snapshot.revision !== document.revision || snapshot.source !== document.text) throw new Error("Дождитесь обновления структуры");
-  if ((tag === "color" || tag === "background") && !/^(#[\da-f]{3,8}|[a-z]{1,20})$/i.test(parameter ?? "")) throw new Error("Введите корректный цвет");
-  if (tag === "url" && !safeExternalUrl(parameter ?? "")) throw new Error("Допустимы только ссылки http, https и mailto");
   const index = createPositionIndex(document.text); let from = index.utf16ToByte(range.from), to = index.utf16ToByte(range.to);
   const nodes = allNodes(snapshot.analysis.nodes);
   let expanded = true;
@@ -46,6 +44,8 @@ export function applyFormat(document: DocumentState, snapshot: AnalysisSnapshot,
     if (parameter !== undefined) return { ...identity(document), label: "Изменить оформление", changes: [{ ...sourceRange(document, existing.openingSpan), insert: opening }] };
     return { ...identity(document), label: "Снять оформление", changes: [existing.openingSpan, existing.closingSpan!].map((span) => ({ ...sourceRange(document, span), insert: "" })) };
   }
+  if ((tag === "color" || tag === "background") && !/^(#[\da-f]{3,8}|[a-z]{1,20})$/i.test(parameter ?? "")) throw new Error("Введите корректный цвет");
+  if (tag === "url" && !safeExternalUrl(parameter ?? "")) throw new Error("Допустимы только ссылки http, https и mailto");
   for (const node of nodes.filter((item) => item.kind === "element")) {
     for (const span of [node.openingSpan, node.closingSpan]) {
       if (span && ((from > span.start && from < span.end) || (to > span.start && to < span.end))) throw new Error("Выделение разрезает тег. Выделите целый блок.");

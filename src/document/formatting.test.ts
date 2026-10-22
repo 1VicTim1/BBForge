@@ -28,3 +28,14 @@ it("inserts paired tags around an empty cursor and toggles an exact formatted ra
   expect(applyChanges(bold, applyFormat(bold, boldSnapshot, { ...identity(bold), from: 0, to: 0 }, "b").changes).text).toBe("ab");
   expect(applyChanges(bold, applyFormat(bold, boldSnapshot, { ...identity(bold), from: 0, to: bold.text.length }, "b").changes).text).toBe("ab");
 });
+it("detects and removes every enclosing modifier anywhere inside long nested content", () => {
+  const text = "[b][i][u][s][color=red][background=black][url=https://example.com][quote]ОЧЕНЬ ДЛИННЫЙ ТЕКСТ[/quote][/url][/background][/color][/s][/u][/i][/b]";
+  const document = decodeDocument(new TextEncoder().encode(text)), snapshot = snapshotFixture(document);
+  const cursor = text.indexOf("ДЛИННЫЙ") + 3, range = { ...identity(document), from: cursor, to: cursor };
+  for (const tag of ["b", "i", "u", "s", "color", "background", "url", "quote"] as const) {
+    expect(formatState(snapshot, range, tag)).toBe("on");
+    const result = applyChanges(document, applyFormat(document, snapshot, range, tag).changes).text;
+    expect(result).not.toContain(`[${tag}${tag === "color" ? "=red" : tag === "background" ? "=black" : tag === "url" ? "=https://example.com" : ""}]`);
+    expect(result).toContain("ОЧЕНЬ ДЛИННЫЙ ТЕКСТ");
+  }
+});
