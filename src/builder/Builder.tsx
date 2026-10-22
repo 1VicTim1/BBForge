@@ -10,6 +10,7 @@ import { literalPaste, textEditCommand } from "./input";
 import { readVisualSelection, restoreVisualSelection, type VisualRange } from "./selection";
 import { safeExternalUrl } from "../components/Preview";
 import { LazyBlockGroup, SpoilerBlock } from "./Block";
+import { InsertionDraft } from "./InsertionDraft";
 import type { ScrollPosition } from "../workspace/session";
 
 export interface BuilderProps {
@@ -165,7 +166,11 @@ export function Builder(props: BuilderProps) {
     const selectNode = (event: React.MouseEvent) => { event.stopPropagation(); const range = { from, to }; setSelectedRange(range); props.onRange({ ...identity(props.document), ...range }); props.onSelect(reference); };
     const known = ["b", "i", "u", "s", "color", "background", "url", "quote", "code", "list", "*", "spoiler", "size", "font", "left", "center", "right", "sub", "sup", "img", "attachment"];
     if (!node.wellFormed || !known.includes(node.name ?? "")) return <div key={path} className="opaque-block" onClick={selectNode}><span>{node.wellFormed ? `Неизвестный тег [${node.name}]` : "Повреждённая разметка"}</span><code>{source.slice(from, to)}</code><button onClick={() => props.onNavigate({ from, to })}>Редактировать код</button></div>;
-    if (node.name === "spoiler") return <SpoilerBlock key={path} title={node.parameter ?? "Спойлер"} depth={path.split(".").length - 1} dragHandle={dragHandle(reference, `спойлер ${node.parameter ?? ""}`)} dragTarget={dropTarget(reference, node)} onSelect={selectNode} onInsert={() => { const at = index.byteToUtf16(node.contentSpan.end); props.onRange({ ...identity(props.document), from: at, to: at }); props.onSelect(reference); setInsertionPath(`${path}.insert`); }}>{() => <>{insertionPath === `${path}.insert` ? node.children.map((child, at) => render(child, `${path}.${at}`)) : children()}{insertionPath === `${path}.insert` && render({ kind: "text", name: null, parameter: null, span: { start: node.contentSpan.end, end: node.contentSpan.end }, contentSpan: { start: node.contentSpan.end, end: node.contentSpan.end }, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, `${path}.insert`)}</>}</SpoilerBlock>;
+    if (node.name === "spoiler") {
+      const insertPath = `${path}.insert`;
+      const insertAt = index.byteToUtf16(node.contentSpan.end);
+      return <SpoilerBlock key={path} title={node.parameter ?? "Спойлер"} depth={path.split(".").length - 1} dragHandle={dragHandle(reference, `спойлер ${node.parameter ?? ""}`)} dragTarget={dropTarget(reference, node)} onSelect={selectNode} onInsert={() => { props.onRange({ ...identity(props.document), from: insertAt, to: insertAt }); props.onSelect(reference); setInsertionPath(insertPath); }}>{() => <>{children()}{insertionPath === insertPath && <InsertionDraft onCommit={(value) => { setInsertionPath(null); run(() => textEditCommand(props.getDocument(), { from: insertAt, to: insertAt }, value, "")); }} onCancel={() => setInsertionPath(null)} />}</>}</SpoilerBlock>;
+    }
     if (node.name === "img" || node.name === "attachment") return <button key={path} className="media-placeholder" onClick={selectNode}>{node.name === "img" ? "▧ Изображение" : "▤ Вложение"} · Свойства</button>;
     if (node.name === "code") return <pre className="builder-code" key={path} onClick={selectNode}>{children()}</pre>;
     if (node.name === "quote") return <blockquote key={path} onClick={selectNode}>{children()}</blockquote>;

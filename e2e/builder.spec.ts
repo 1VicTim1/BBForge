@@ -20,14 +20,18 @@ test("code Undo uses the physical key in Russian layout", async ({ page }) => {
   await expect(code).toHaveText("hello");
 });
 
-test("insert-in-spoiler focuses a real input after nested formatting", async ({ page }) => {
+test("insert-in-spoiler keeps a draft until Enter or blur", async ({ page }) => {
   const code = page.locator(".cm-content"); await code.fill("[spoiler=S][b]hello[/b][/spoiler]");
   await page.getByRole("button", { name: "+ Вставить в спойлер", exact: true }).click();
   await page.keyboard.type("tail");
+  await expect(code).toHaveText("[spoiler=S][b]hello[/b][/spoiler]");
+  await page.keyboard.press("Enter");
   await expect(code).toHaveText("[spoiler=S][b]hello[/b]tail[/spoiler]");
   await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
   await page.getByRole("button", { name: "+ Вставить в спойлер", exact: true }).click();
   await page.keyboard.type("more");
+  await expect(code).toHaveText("[spoiler=S][b]hello[/b]tail[/spoiler]");
+  await page.locator(".builder-caption").click();
   await expect(code).toHaveText("[spoiler=S][b]hello[/b]tailmore[/spoiler]");
 });
 
