@@ -30,6 +30,41 @@ const VALUE_TAGS: &[&str] = &["size", "color", "font", "background"];
 pub(crate) fn lint(source: &str, nodes: &[Node], diagnostics: &mut Vec<Diagnostic>) {
     let mut links = HashSet::new();
     visit(source, nodes, diagnostics, &mut links);
+    escaped_tags(source, diagnostics);
+}
+
+fn escaped_tags(source: &str, diagnostics: &mut Vec<Diagnostic>) {
+    let mut cursor = 0;
+    while let Some(relative_start) = source[cursor..].find("&#91;") {
+        let start = cursor + relative_start;
+        let content_start = start + "&#91;".len();
+        let Some(relative_end) = source[content_start..].find("&#93;") else {
+            break;
+        };
+        let end = content_start + relative_end + "&#93;".len();
+        let content = &source[content_start..content_start + relative_end];
+        let name = content
+            .strip_prefix('/')
+            .unwrap_or(content)
+            .split(['=', ' '])
+            .next()
+            .unwrap_or_default();
+        if !name.is_empty()
+            && name.chars().all(|character| {
+                character.is_ascii_alphanumeric() || character == '*' || character == '-'
+            })
+        {
+            diagnostics.push(Diagnostic {
+                code: DiagnosticCode::EscapedBbcodeTag,
+                severity: Severity::Warning,
+                message: format!("Экранированный BBCode-тег будет показан как текст: [{content}]"),
+                span: crate::Span { start, end },
+                line: 0,
+                column: 0,
+            });
+        }
+        cursor = end;
+    }
 }
 
 fn visit(

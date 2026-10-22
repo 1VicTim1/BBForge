@@ -60,3 +60,20 @@ fn warns_about_duplicate_links() {
         1
     );
 }
+
+#[test]
+fn warns_about_html_escaped_bbcode_tags() {
+    let analysis = parse("[color=Blue]&#91;url=\"https://4pda.to\"&#93;QMS[/color]");
+    let diagnostic = analysis
+        .diagnostics
+        .iter()
+        .find(|item| item.code == DiagnosticCode::EscapedBbcodeTag)
+        .expect("escaped BBCode must not silently render as text");
+
+    assert_eq!(diagnostic.severity, Severity::Warning);
+    assert_eq!(
+        &"[color=Blue]&#91;url=\"https://4pda.to\"&#93;QMS[/color]"
+            [diagnostic.span.start..diagnostic.span.end],
+        "&#91;url=\"https://4pda.to\"&#93;"
+    );
+}
