@@ -52,6 +52,21 @@ export function suggestFixes(document: DocumentState, snapshot: AnalysisSnapshot
       return [{ id: `parameter-${node.span.start}`, title: "Указать параметр тега", needsParameter: node.name === "url" ? "url" : node.name === "spoiler" ? "title" : node.name === "size" ? "size" : node.name === "font" ? "font" : "color", command: { ...base, changes: [{ ...sourceRange(document, node.openingSpan), insert: `[${node.name}=$VALUE]` }] } }];
     }
   }
+  if (diagnostic.code === "escapedBbcodeTag") {
+    const range = sourceRange(document, diagnostic.span), escaped = document.text.slice(range.from, range.to);
+    const opening = escaped.match(/^&#91;([a-z][a-z\d-]*)(?:=[\s\S]*?)?&#93;$/i);
+    const closing = escaped.match(/^&#91;\/[a-z][a-z\d-]*&#93;$/i);
+    if (!opening && !closing) return [];
+    const decoded = escaped.replace(/^&#91;/, "[").replace(/&#93;$/, "]");
+    const changes = [{ ...range, insert: decoded }];
+    if (opening) {
+      const tail = document.text.slice(range.to), nextClosing = tail.match(/\[\/[a-z][a-z\d-]*\]/i);
+      const content = nextClosing ? tail.slice(0, nextClosing.index) : "";
+      if (!nextClosing || content.includes("[") || content.includes("&#91;")) return [];
+      changes.push({ from: range.to + nextClosing.index!, to: range.to + nextClosing.index!, insert: `[/${opening[1]}]` });
+    }
+    return [{ id: `decode-${diagnostic.span.start}`, title: "Восстановить экранированный BBCode-тег", command: { ...base, changes } }];
+  }
   return [];
 }
 export function combineFixes(document: DocumentState, fixes: FixSuggestion[]): EditCommand {

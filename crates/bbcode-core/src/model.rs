@@ -61,6 +61,7 @@ pub enum DiagnosticCode {
     UnknownTag,
     MissingParameter,
     DuplicateLink,
+    EscapedBbcodeTag,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
