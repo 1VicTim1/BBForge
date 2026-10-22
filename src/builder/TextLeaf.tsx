@@ -14,9 +14,24 @@ interface Props {
 export function TextLeaf(props: Props) {
   const host = useRef<HTMLSpanElement>(null), composing = useRef(false), focused = useRef(false);
   const state = useRef({ text: props.text, from: props.from, to: props.to });
+  const confirmedText = useRef(props.text), pendingTexts = useRef(new Set<string>());
   useLayoutEffect(() => { if (props.autoFocus) host.current?.focus(); }, [props.autoFocus]);
   useLayoutEffect(() => {
     if (composing.current) return;
+    if (focused.current && pendingTexts.current.size > 0) {
+      if (props.text === state.current.text) {
+        pendingTexts.current.clear();
+        confirmedText.current = props.text;
+        state.current = { text: props.text, from: props.from, to: props.to };
+        return;
+      }
+      if (props.text === confirmedText.current || pendingTexts.current.has(props.text)) {
+        confirmedText.current = props.text;
+        return;
+      }
+      pendingTexts.current.clear();
+    }
+    confirmedText.current = props.text;
     state.current = { text: props.text, from: props.from, to: props.to };
     if (host.current && host.current.textContent !== props.text) {
       host.current.textContent = props.text;
@@ -30,6 +45,7 @@ export function TextLeaf(props: Props) {
     try {
       if (props.literal && /\[\/code\]/i.test(text)) throw new Error("Текст содержит [/code]. Измените его в режиме кода.");
       props.onEdit({ from: current.from, to: current.to }, text, current.text);
+      pendingTexts.current.add(text);
       state.current = { ...current, to: current.from + text.length, text };
       if (host.current) host.current.dataset.sourceTo = String(state.current.to);
       props.onSelect();
