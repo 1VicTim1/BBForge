@@ -3,6 +3,23 @@
 .ui-icon { width: 16px; height: 16px; display: block; flex: 0 0 auto; color: currentColor; }
 .top-document .ui-icon { width: 14px; height: 14px; }
 .tool-rail .ui-icon { width: 18px; height: 18px; }
+.tooltip-control { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+.tooltip-control > button { display: inline-flex; align-items: center; justify-content: center; }
+.control-tooltip { position: absolute; z-index: 80; left: 50%; top: calc(100% + 9px); width: max-content; max-width: 240px; padding: 8px 10px; display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; color: #d8d9df; background: #292a31; border: 1px solid #484a55; border-radius: 6px; box-shadow: 0 8px 24px #0009; font-size: 11px; line-height: 1.35; pointer-events: none; opacity: 0; visibility: hidden; transform: translate(-50%, -3px); transition: opacity 100ms ease 350ms, transform 100ms ease 350ms, visibility 0s linear 450ms; }
+.control-tooltip strong { font-size: 11px; font-weight: 600; color: #f0f0f3; }
+.control-tooltip > span { grid-column: 1 / -1; color: #a7a9b2; }
+.control-tooltip kbd { grid-column: 2; grid-row: 1; color: #aaa3ca; background: transparent; border: 0; padding: 0; }
+.tooltip-control:hover > .control-tooltip, .tooltip-control:focus-within > .control-tooltip { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition-delay: 350ms; }
+.tool-rail .control-tooltip { width: 28px; }
+.tool-rail .control-tooltip > button { width: 28px; height: 32px; }
+.tool-rail .tooltip-control > .control-tooltip { left: calc(100% + 10px); top: 50%; transform: translate(0, -50%); }
+.tool-rail .tooltip-control.active > button { color: var(--fig-purple); background: #373240; }
+.top-tooltip > button { width: 30px; height: 30px; padding: 0; color: var(--fig-muted); }
+.panel-close { margin-left: auto; width: 26px; height: 26px; padding: 0; color: #858995; font-size: 16px; }
+.panel-close:hover { color: #e5e6ea; background: #353740; }
+.format-toolbar > .tooltip-control > button { width: 30px; height: 30px; padding: 0; }
+.tool-heading h2 { margin-right: auto; }
+.tool-heading .panel-close { margin-left: 8px; }
 body { min-width: 760px; }
 button, input, select { font-family: inherit; }
 button { transition: background-color 120ms ease, border-color 120ms ease; }
@@ -140,6 +157,10 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .selected > .tree-row { background: #343044; color: var(--fig-text); }
 .outline-children { margin-left: 18px; padding-left: 0; border-left: 0; }
 .splitter.vertical { width: 1px; background: var(--fig-line); }
+.splitter::before { content: ""; position: absolute; z-index: -1; }
+.splitter.vertical::before { inset: 0 -4px; }
+.splitter.horizontal::before { inset: -4px 0; }
+.splitter:hover, .splitter:focus-visible { background: var(--fig-purple); box-shadow: 0 0 0 1px var(--fig-purple); }
 .pane-heading { height: 46px; padding: 0 16px; color: var(--fig-text); background: var(--fig-bg); border-bottom: 0; }
 .code-pane { background: var(--fig-bg); }
 .builder-pane { background: #202127; border-left: 1px solid var(--fig-line); }

@@ -1,6 +1,6 @@
-export function Splitter({ orientation = "vertical", value, min, max, onChange, label, ratio = false }: { orientation?: "vertical" | "horizontal"; value: number; min: number; max: number; onChange(value: number): void; label: string; ratio?: boolean }) {
+export function Splitter({ orientation = "vertical", value, min, max, onChange, label, ratio = false, resetValue }: { orientation?: "vertical" | "horizontal"; value: number; min: number; max: number; onChange(value: number): void; label: string; ratio?: boolean; resetValue?: number }) {
   const clamp = (next: number) => Math.max(min, Math.min(max, next));
-  return <div className={`splitter ${orientation}`} role="separator" tabIndex={0} aria-label={label} aria-orientation={orientation} aria-valuenow={Math.round(value * (ratio ? 100 : 1))} aria-valuemin={min * (ratio ? 100 : 1)} aria-valuemax={max * (ratio ? 100 : 1)} onKeyDown={(event) => {
+  return <div className={`splitter ${orientation}`} role="separator" tabIndex={0} aria-label={label} title="Перетащите для изменения размера · двойной щелчок сбрасывает размер" aria-orientation={orientation} aria-valuenow={Math.round(value * (ratio ? 100 : 1))} aria-valuemin={min * (ratio ? 100 : 1)} aria-valuemax={max * (ratio ? 100 : 1)} onDoubleClick={() => onChange(clamp(resetValue ?? (min + max) / 2))} onKeyDown={(event) => {
     const step = ratio ? .025 : 10;
     if (["ArrowLeft", "ArrowUp", "ArrowRight", "ArrowDown", "Home", "End"].includes(event.key)) {
       event.preventDefault(); onChange(clamp(event.key === "Home" ? min : event.key === "End" ? max : value + (["ArrowLeft", "ArrowUp"].includes(event.key) ? -step : step)));
