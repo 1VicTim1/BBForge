@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Node, Span } from "../analysis/types";
 import { createPositionIndex, type PositionIndex } from "../document/positions";
 import { decodeDocument, type DocumentState } from "../document/state";
 import { readPreviewSelection, type PreviewSelection } from "./previewSelection";
+import type { ScrollPosition } from "../workspace/session";
 
-interface PreviewProps { document?: DocumentState; source: string; nodes: Node[]; onNavigate(span: Span): void; onSelection?(range: PreviewSelection): void; openExternal?(url: string): void }
+interface PreviewProps { document?: DocumentState; source: string; nodes: Node[]; scroll?: ScrollPosition; onScrollPosition?(position: ScrollPosition): void; onNavigate(span: Span): void; onSelection?(range: PreviewSelection): void; openExternal?(url: string): void }
 
 export function safeExternalUrl(value: string): string | null {
   try {
@@ -13,13 +14,14 @@ export function safeExternalUrl(value: string): string | null {
   } catch { return null; }
 }
 
-export function Preview({ document, source, nodes, onNavigate, onSelection, openExternal }: PreviewProps) {
+export function Preview({ document, source, nodes, scroll, onScrollPosition, onNavigate, onSelection, openExternal }: PreviewProps) {
   const positions = useMemo(() => createPositionIndex(source), [source]);
   const effectiveDocument = useMemo(() => document ?? decodeDocument(new TextEncoder().encode(source)), [document, source]);
   const root = useRef<HTMLDivElement>(null), [selection, setSelection] = useState<PreviewSelection | null>(null);
   useEffect(() => setSelection(null), [effectiveDocument.id, effectiveDocument.revision]);
+  useLayoutEffect(() => { if (root.current) { root.current.scrollLeft = scroll?.left ?? 0; root.current.scrollTop = scroll?.top ?? 0; } }, [effectiveDocument.id]);
   const read = () => { if (!root.current) return; const range = readPreviewSelection(root.current, effectiveDocument); if (range) { setSelection(range); onSelection?.(range); } };
-  return <div className="rendered-post" ref={root} onMouseUp={read}><div className="preview-actions"><button disabled={!selection} onClick={() => selection && onNavigate({ start: positions.utf16ToByte(selection.from), end: positions.utf16ToByte(selection.to) })}>К исходнику</button></div>{nodes.map((node, index) => <RenderNode key={`${node.span.start}-${index}`} node={node} source={source} positions={positions} onNavigate={onNavigate} openExternal={openExternal} />)}</div>;
+  return <div className="rendered-post" ref={root} onMouseUp={read} onScroll={(event) => onScrollPosition?.({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}><div className="preview-actions"><button disabled={!selection} onClick={() => selection && onNavigate({ start: positions.utf16ToByte(selection.from), end: positions.utf16ToByte(selection.to) })}>К исходнику</button></div>{nodes.map((node, index) => <RenderNode key={`${node.span.start}-${index}`} node={node} source={source} positions={positions} onNavigate={onNavigate} openExternal={openExternal} />)}</div>;
 }
 
 function RenderNode({ node, source, positions, onNavigate, openExternal }: { node: Node; source: string; positions: PositionIndex; onNavigate(span: Span): void; openExternal?: (url: string) => void }): ReactNode {

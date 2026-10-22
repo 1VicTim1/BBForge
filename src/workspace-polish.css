@@ -182,8 +182,8 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .collapsed-problems .count-badge { height: 26px; display: inline-flex; align-items: center; margin: 0; padding: 0 8px; border-radius: 6px; }
 .diagnostics { background: var(--fig-surface); }
 .statusbar { height: 28px; background: var(--fig-raised); border-top: 0; }
-.preview { background: #202127; }
-.rendered-post { background: #202127; border: 0; }
+.preview { background: #202127; padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.rendered-post { background: #202127; border: 0; border-radius: 0; flex: 1; min-height: 0; overflow: auto; }
 @media (max-width: 1250px) {
   .app-menus { margin-left: 4px; }
   .app-menu:nth-child(4), .top-document > span:last-child { display: none; }
