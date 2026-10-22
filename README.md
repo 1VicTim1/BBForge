@@ -1,5 +1,9 @@
 # BBForge
 
+[![CI](https://github.com/1VicTim1/BBForge/actions/workflows/ci.yml/badge.svg)](https://github.com/1VicTim1/BBForge/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-0.1.0-8b7cf6)](https://github.com/1VicTim1/BBForge/releases/tag/v0.1.0)
+[![License: MIT](https://img.shields.io/badge/license-MIT-6f7682)](LICENSE)
+
 BBForge — настольный редактор и визуальный конструктор BBCode-постов и шапок 4PDA для Linux и Windows. Исходный BBCode остаётся главным документом: действия в конструкторе применяют точечные изменения и используют общую с редактором историю Undo/Redo.
 
 ## Возможности первой версии
