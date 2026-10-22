@@ -13,9 +13,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::analyze,
             commands::read_document,
-            commands::write_document
-            ,commands::read_workspace_session
-            ,commands::write_workspace_session
+            commands::write_document,
+            commands::read_workspace_session,
+            commands::write_workspace_session
         ])
         .run(tauri::generate_context!())
         .expect("ошибка запуска BBForge");

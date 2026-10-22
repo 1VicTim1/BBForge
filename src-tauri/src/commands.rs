@@ -41,20 +41,33 @@ pub fn read_document(path: String) -> Result<crate::files::OpenedDocument, Strin
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
-pub fn write_document(path: String, bytes: Vec<u8>, expected_fingerprint: Option<crate::files::DiskFingerprint>) -> Result<crate::files::SavedDocument, String> {
-    crate::files::save_document_info(&PathBuf::from(path), &bytes, expected_fingerprint.as_ref()).map_err(|error| error.to_string())
+pub fn write_document(
+    path: String,
+    bytes: Vec<u8>,
+    expected_fingerprint: Option<crate::files::DiskFingerprint>,
+) -> Result<crate::files::SavedDocument, String> {
+    crate::files::save_document_info(&PathBuf::from(path), &bytes, expected_fingerprint.as_ref())
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn read_workspace_session(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("workspace-v1.json");
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("workspace-v1.json");
     crate::session::read(&path)
 }
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
 pub fn write_workspace_session(app: tauri::AppHandle, payload: String) -> Result<(), String> {
-    let path = app.path().app_data_dir().map_err(|error| error.to_string())?.join("workspace-v1.json");
+    let path = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?
+        .join("workspace-v1.json");
     crate::session::write(&path, &payload)
 }
