@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import App from "./App";
 import { decodeDocument, updateDocumentText } from "./document/state";
@@ -11,19 +11,22 @@ Range.prototype.getBoundingClientRect = () => new DOMRect();
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("BBForge shell", () => {
-  it("shows the editor, outline, preview and diagnostics regions", () => {
+  it("shows the editor, outline, preview and collapsed diagnostics regions", () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "BBForge" })).toBeTruthy();
     expect(screen.getByLabelText("Редактор BBCode")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Структура" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Конструктор" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: /Проблемы/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Проблемы.*Ошибок не найдено/ })).toBeTruthy();
   });
 
-  it("can restore the diagnostics panel after hiding it", () => {
+  it("can open, hide and restore the diagnostics panel", () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: "Скрыть проблемы" }));
+    fireEvent.click(screen.getByRole("button", { name: /Проблемы.*Ошибок не найдено/ }));
+    expect(screen.getByRole("heading", { name: /Проблемы/ })).toBeTruthy();
+    const diagnostics = screen.getByRole("heading", { name: /Проблемы/ }).closest("section");
+    fireEvent.click(within(diagnostics as HTMLElement).getByRole("button", { name: "Скрыть проблемы" }));
     expect(screen.queryByRole("heading", { name: /Проблемы/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Проблемы" }));
     expect(screen.getByRole("heading", { name: /Проблемы/ })).toBeTruthy();
@@ -31,7 +34,7 @@ describe("BBForge shell", () => {
 
   it("starts a new document with an empty undo history", async () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: /Новый/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Новый документ" }));
     await waitFor(() => expect(document.querySelector(".cm-placeholder")).not.toBeNull());
     const content = document.querySelector(".cm-content") as HTMLElement;
 
