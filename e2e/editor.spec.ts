@@ -29,7 +29,7 @@ test("edits Cyrillic BBCode, searches, undoes and updates diagnostics", async ({
 test("toggles structure and preview panels", async ({ page }) => {
   await page.getByRole("button", { name: "Структура" }).click();
   await expect(page.getByRole("heading", { name: "Структура" })).toBeHidden();
-  await page.getByRole("button", { name: "Предпросмотр" }).click();
+  await page.getByRole("button", { name: "Предпросмотр", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Предпросмотр" })).toBeVisible();
 });
 
@@ -114,4 +114,37 @@ test("workspace recovery restores multiple unsaved tabs and their active documen
   await expect(editor).toHaveText("second unsaved");
   await page.keyboard.press("Control+z");
   await expect(editor).toHaveText("second unsaved");
+});
+
+test("restores cursor and scroll positions independently for every document surface", async ({ page }) => {
+  const source = Array.from({ length: 90 }, (_, index) => `[spoiler=Раздел ${index}]Строка ${index}[/spoiler]`).join("\n");
+  const editor = page.locator(".cm-content");
+  await editor.fill(source);
+  await page.locator(".builder-caption").getByText("Синхронизирован с кодом").waitFor();
+  await editor.click();
+  await page.keyboard.press("Control+End");
+  const codeScroller = page.locator(".cm-scroller");
+  await codeScroller.evaluate((node) => { node.scrollTop = 420; node.dispatchEvent(new Event("scroll")); });
+  const builder = page.locator(".builder");
+  await builder.evaluate((node) => { node.scrollTop = 360; node.dispatchEvent(new Event("scroll")); });
+  await page.getByRole("textbox", { name: "Текст блока" }).last().click();
+  await page.keyboard.press("End");
+
+  await page.getByRole("button", { name: "Предпросмотр", exact: true }).click();
+  const preview = page.locator(".rendered-post");
+  await preview.evaluate((node) => { node.scrollTop = 280; node.dispatchEvent(new Event("scroll")); });
+  const previewTop = await preview.evaluate((node) => node.scrollTop);
+  await page.getByRole("button", { name: "Предпросмотр", exact: true }).click();
+  const codeTop = await codeScroller.evaluate((node) => node.scrollTop);
+  const builderTop = await builder.evaluate((node) => node.scrollTop);
+
+  await page.getByRole("button", { name: "Новый документ", exact: true }).click();
+  await page.getByRole("tab").first().click();
+
+  await expect.poll(() => codeScroller.evaluate((node) => node.scrollTop)).toBe(codeTop);
+  await expect.poll(() => builder.evaluate((node) => node.scrollTop)).toBe(builderTop);
+  await expect(page.locator(".statusbar")).toContainText("90:");
+  await expect(page.locator(".visual-text:focus")).toBeVisible();
+  await page.getByRole("button", { name: "Предпросмотр", exact: true }).click();
+  await expect.poll(() => preview.evaluate((node) => node.scrollTop)).toBe(previewTop);
 });

@@ -13,11 +13,15 @@ export interface DiskFingerprint {
 export interface DocumentUiState {
   codeSelection: SourceRange;
   visualSelection: SourceRange;
+  codeScroll: ScrollPosition;
+  builderScroll: ScrollPosition;
+  previewScroll: ScrollPosition;
   selected: NodeRef | null;
   mode: WorkspaceMode;
   showPreview: boolean;
   activeSurface: ActiveSurface;
 }
+export interface ScrollPosition { top: number; left: number }
 
 export interface DocumentSession {
   document: DocumentState;
@@ -49,6 +53,9 @@ export function createDocumentSession(document: DocumentState): DocumentSession 
     ui: {
       codeSelection: emptyRange(),
       visualSelection: emptyRange(),
+      codeScroll: { top: 0, left: 0 },
+      builderScroll: { top: 0, left: 0 },
+      previewScroll: { top: 0, left: 0 },
       selected: null,
       mode: "split",
       showPreview: false,

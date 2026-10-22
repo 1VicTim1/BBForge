@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AnalysisSnapshot, Node } from "../analysis/types";
 import type { DocumentState } from "../document/state";
 import type { EditCommand, SourceRange } from "../document/commands";
@@ -7,9 +7,10 @@ import { createPositionIndex } from "../document/positions";
 import { nodeRef, type NodeRef } from "../document/structure";
 import { TextLeaf } from "./TextLeaf";
 import { literalPaste, textEditCommand } from "./input";
-import { readVisualSelection, type VisualRange } from "./selection";
+import { readVisualSelection, restoreVisualSelection, type VisualRange } from "./selection";
 import { safeExternalUrl } from "../components/Preview";
 import { LazyBlockGroup, SpoilerBlock } from "./Block";
+import type { ScrollPosition } from "../workspace/session";
 
 export interface BuilderProps {
   document: DocumentState; snapshot: AnalysisSnapshot | null;
@@ -17,10 +18,14 @@ export interface BuilderProps {
   onSelect(ref: NodeRef | null): void; onRange(range: VisualRange): void;
   onNavigate(range: SourceRange): void; onError(message: string): void;
   onComposition(active: boolean): void;
+  scroll?: ScrollPosition; onScrollPosition?(position: ScrollPosition): void;
+  storedSelection?: SourceRange; restoreFocus?: boolean;
 }
 export function Builder(props: BuilderProps) {
   const root = useRef<HTMLDivElement>(null);
   const [insertionPath, setInsertionPath] = useState<string | null>(null);
+  useLayoutEffect(() => { if (root.current) { root.current.scrollLeft = props.scroll?.left ?? 0; root.current.scrollTop = props.scroll?.top ?? 0; } }, [props.document.id]);
+  useLayoutEffect(() => { if (root.current && props.storedSelection) restoreVisualSelection(root.current, props.storedSelection, props.restoreFocus); }, [props.document.id]);
   const [selectedRange, setSelectedRange] = useState<SourceRange | null>(null);
   const retained = useRef<AnalysisSnapshot | null>(null);
   if (props.snapshot?.documentId === props.document.id) retained.current = props.snapshot;
@@ -76,7 +81,7 @@ export function Builder(props: BuilderProps) {
     if (node.name === "url") return <span key={path} className={safeExternalUrl(node.parameter ?? "") ? "builder-link" : ""} title={node.parameter ?? ""} onClick={selectNode}>{children()}</span>;
     return <span key={path} style={style} onClick={selectNode}>{children()}</span>;
   };
-  return <div className="builder" ref={root} onMouseUp={select}>
+  return <div className="builder" ref={root} onMouseUp={select} onScroll={(event) => props.onScrollPosition?.({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}>
     <div className="builder-caption"><span>ВИЗУАЛЬНЫЙ ДОКУМЕНТ</span><small>{snapshot?.revision === props.document.revision ? "Синхронизирован с кодом" : "Обновление структуры…"}</small><button disabled={!selectedRange} onClick={() => selectedRange && props.onNavigate(selectedRange)}>К исходнику</button></div>
     <div className="builder-page">{snapshot ? Array.from({ length: Math.ceil(snapshot.analysis.nodes.length / 30) }, (_, group) => <LazyBlockGroup key={`${props.document.id}-${group}`} eager={group === 0} count={Math.min(30, snapshot.analysis.nodes.length - group * 30)}>{() => snapshot.analysis.nodes.slice(group * 30, group * 30 + 30).map((node, at) => render(node, String(group * 30 + at)))}</LazyBlockGroup>) : <p>Анализ документа…</p>}{snapshot?.analysis.nodes.length === 0 && render({ kind: "text", name: null, parameter: null, span: { start: 0, end: 0 }, contentSpan: { start: 0, end: 0 }, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, "empty")}</div>
     {paste && <div className="modal-backdrop"><section className="dialog" role="dialog" aria-label="Вставить текст"><h3>В тексте найдены BBCode-теги</h3><pre>{paste.text}</pre><button onClick={() => { run(() => ({ ...paste, label: "Вставить BBCode", changes: [{ ...paste.range, insert: paste.text }] })); setPaste(null); }}>Вставить как BBCode</button><button onClick={() => { run(() => ({ ...paste, label: "Вставить буквальный текст", changes: [{ ...paste.range, insert: literalPaste(paste.text) }] })); setPaste(null); }}>Буквально в code</button><button onClick={() => setPaste(null)}>Отмена</button></section></div>}

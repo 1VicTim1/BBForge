@@ -6,15 +6,17 @@ import { validateCommand, type EditCommand, type SourceRange } from "../document
 import { lineEndingExtensions, setEditorEndings } from "./lineEndings";
 import { EditorSessionCache } from "./sessionCache";
 export interface EditorController {
+  readonly view: EditorView;
   execute(command: EditCommand): void; undo(): boolean; redo(): boolean;
   getSelection(): SourceRange; isComposing(): boolean; finishComposition(): Promise<void>;
   select(range: SourceRange, focus?: boolean): void;
-  activate(documentId: string, document: DocumentState): boolean;
+  activate(documentId: string, document: DocumentState, viewport?: { top: number; left: number }): boolean;
   discard(documentId: string): void;
 }
-export function createEditorState(document: DocumentState, extensions: Extension[], onChange: (text: string, endings: LineEnding[]) => void): EditorState {
+export function createEditorState(document: DocumentState, extensions: Extension[], onChange: (text: string, endings: LineEnding[]) => void, selection?: SourceRange): EditorState {
   const endings = lineEndingExtensions(document);
-  return EditorState.create({ doc: document.text, extensions: [history(), ...endings.extensions, ...extensions, EditorView.updateListener.of((update) => {
+  const from = Math.min(document.text.length, Math.max(0, selection?.from ?? 0)), to = Math.min(document.text.length, Math.max(0, selection?.to ?? from));
+  return EditorState.create({ doc: document.text, selection: { anchor: from, head: to }, extensions: [history(), ...endings.extensions, ...extensions, EditorView.updateListener.of((update) => {
     if (update.docChanged) onChange(update.state.doc.toString(), update.state.field(endings.field));
   })] });
 }
@@ -22,6 +24,7 @@ export function createEditorController(view: EditorView, getDocument: (documentI
   const cache = new EditorSessionCache();
   let activeId = getDocument().id;
   return {
+    view,
     execute(command) {
       const current = getDocument(); validateCommand(current, command);
       if (view.state.doc.toString() !== current.text) throw new Error("Редактор ещё не синхронизирован");
@@ -37,14 +40,20 @@ export function createEditorController(view: EditorView, getDocument: (documentI
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
       if (view.composing) throw new Error("Завершите ввод текста перед файловым действием");
     },
-    activate(documentId, document) {
-      if (documentId === activeId) return true;
+    activate(documentId, document, viewport) {
+      if (documentId === activeId) {
+        if (viewport) requestAnimationFrame(() => requestAnimationFrame(() => { view.scrollDOM.scrollLeft = viewport.left; view.scrollDOM.scrollTop = viewport.top; }));
+        return true;
+      }
       if (view.composing || getComposing()) return false;
       cache.save(activeId, view.state);
+      cache.saveViewport(activeId, { top: view.scrollDOM.scrollTop, left: view.scrollDOM.scrollLeft });
       const state = cache.restore(documentId) ?? createState?.(document);
       if (!state) throw new Error("Редактор не умеет создать состояние документа");
       activeId = documentId;
       view.setState(state);
+      const target = cache.restoreViewport(documentId) ?? viewport;
+      if (target) requestAnimationFrame(() => requestAnimationFrame(() => { view.scrollDOM.scrollLeft = target.left; view.scrollDOM.scrollTop = target.top; }));
       return true;
     },
     discard(documentId) {
