@@ -96,3 +96,21 @@ test("context menu rejects a stale edit after the document changes", async ({ pa
   await expect(page.getByRole("alert")).toContainText("Документ изменился");
   await expect(editor).toHaveText("changed");
 });
+
+test("workspace recovery restores multiple unsaved tabs and their active document", async ({ page }) => {
+  const editor = page.locator(".cm-content");
+  await editor.fill("first unsaved");
+  await page.getByRole("button", { name: /Новый/ }).click();
+  await editor.fill("second unsaved");
+  await page.getByRole("tab").nth(0).click();
+  await expect(editor).toHaveText("first unsaved");
+  await page.waitForTimeout(550);
+
+  await page.reload();
+  await expect(page.getByRole("tab")).toHaveCount(2);
+  await expect(editor).toHaveText("first unsaved");
+  await page.getByRole("tab").nth(1).click();
+  await expect(editor).toHaveText("second unsaved");
+  await page.keyboard.press("Control+z");
+  await expect(editor).toHaveText("second unsaved");
+});

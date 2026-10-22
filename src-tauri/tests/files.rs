@@ -1,6 +1,8 @@
 use std::fs;
 
-use bbforge_app::files::{FileError, read_document, read_document_info, write_document, write_document_checked};
+use bbforge_app::files::{
+    FileError, read_document, read_document_info, write_document, write_document_checked,
+};
 
 #[test]
 fn reads_valid_utf8_with_bom_unchanged() {
@@ -41,7 +43,10 @@ fn detects_an_external_change_without_overwriting_it() {
     let opened = read_document_info(&path).unwrap();
     fs::write(&path, b"external").unwrap();
 
-    assert!(matches!(write_document_checked(&path, b"ours", Some(&opened.fingerprint)), Err(FileError::Conflict)));
+    assert!(matches!(
+        write_document_checked(&path, b"ours", Some(&opened.fingerprint)),
+        Err(FileError::Conflict)
+    ));
     assert_eq!(fs::read(&path).unwrap(), b"external");
 }
 
@@ -52,5 +57,8 @@ fn returns_a_new_fingerprint_after_a_checked_write() {
     fs::write(&path, b"old").unwrap();
     let opened = read_document_info(&path).unwrap();
     let fingerprint = write_document_checked(&path, b"new", Some(&opened.fingerprint)).unwrap();
-    assert_eq!(fingerprint.digest, read_document_info(&path).unwrap().fingerprint.digest);
+    assert_eq!(
+        fingerprint.digest,
+        read_document_info(&path).unwrap().fingerprint.digest
+    );
 }
