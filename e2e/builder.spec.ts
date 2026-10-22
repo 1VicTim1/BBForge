@@ -205,3 +205,26 @@ test("inserts a newline as source text without browser block markup", async ({ p
   await expect(code).toHaveText("[spoiler=S]line\nnext[/spoiler]", { useInnerText: true });
   expect(await leaf.locator("div,br:not([data-editor-sentinel]),p").count()).toBe(0);
 });
+
+test("preview copy offers BBCode without and with surrounding formatting and source navigation", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:1420" });
+  const code = page.locator(".cm-content"); await code.fill("[b]abcdef[/b]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await page.getByRole("button", { name: "Предпросмотр" }).click();
+  const leaf = page.locator(".rendered-post [data-source-from='3'][data-source-to='9']");
+  await leaf.evaluate((element) => {
+    const text = element.firstChild!; const range = document.createRange(); range.setStart(text, 2); range.setEnd(text, 4);
+    const selection = window.getSelection()!; selection.removeAllRanges(); selection.addRange(range);
+    element.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+  });
+  await leaf.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Копировать BBCode без внешнего оформления" }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("cd");
+  await leaf.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Копировать BBCode с оформлением" }).click();
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("[b]cd[/b]");
+
+  await page.getByRole("button", { name: "К исходнику" }).click();
+  await page.keyboard.type("X");
+  await expect(code).toHaveText("[b]abXef[/b]");
+});

@@ -39,6 +39,7 @@ import { resolveActiveSelection } from "./commands/activeSelection";
 import { buildContextCommands, type MenuSurface } from "./context/commands";
 import { ContextMenu } from "./context/ContextMenu";
 import { useContextMenu } from "./context/useContextMenu";
+import { extractPreviewBbcode, type PreviewSelection } from "./components/previewSelection";
 import "./styles.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
@@ -72,6 +73,7 @@ export default function App() {
   workspaceRef.current = workspace;
   const workspaceStore = useMemo(() => createWorkspaceStore(isTauri() ? invoke : null, localStorage), []);
   const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [previewRange, setPreviewRange] = useState<PreviewSelection | null>(null);
   const contextMenu = useContextMenu();
   useEffect(() => { contextMenu.close(); }, [workspace.activeId, contextMenu.close]);
   useEffect(() => { setSelected(null); setActiveRange(activeSession.ui.codeSelection); setFix(null); setSpoilerDialog(false); }, [document.id]);
@@ -135,7 +137,7 @@ export default function App() {
   } catch (reason) { setError(String(reason)); } };
   const visualNavigate = (range: SourceRange) => { setMode("split"); setSelection({ ...range, nonce: Date.now() }); };
   const copyText = async (value: string) => { try { await navigator.clipboard.writeText(value); } catch { setError("Не удалось скопировать текст"); } };
-  const contextEdit = (captured: ReturnType<typeof commandSelection>, insert: string) => run(() => ({ ...captured, label: "Контекстное редактирование", changes: [{ from: captured.from, to: captured.to, insert }] }));
+  const contextEdit = (captured: VisualRange, insert: string) => run(() => ({ ...captured, label: "Контекстное редактирование", changes: [{ from: captured.from, to: captured.to, insert }] }));
   const openContextMenu = (event: React.MouseEvent) => {
     event.preventDefault(); contextMenu.close();
     const target = event.target as HTMLElement;
@@ -155,8 +157,12 @@ export default function App() {
       const commands = buildContextCommands({ surface, editable: true, hasSelection: from !== to }, { undo: action("undo"), redo: action("redo"), cut: action("cut"), copy: action("copy"), paste: action("paste"), delete: action("delete"), selectAll: () => { field.focus(); field.select(); } });
       contextMenu.open({ x: event.clientX, y: event.clientY, commands }); return;
     }
-    const captured = commandSelection();
+    const sourceNode = target.closest<HTMLElement>("[data-source-from][data-source-to]");
+    const nodeRange = sourceNode ? { ...identity(documentRef.current), from: Number(sourceNode.dataset.sourceFrom), to: Number(sourceNode.dataset.sourceTo) } : null;
+    const captured = (surface === "preview" || surface === "link" || surface === "media") ? previewRange ?? nodeRange ?? commandSelection() : commandSelection();
     const selectedText = documentRef.current.text.slice(captured.from, captured.to);
+    const previewInner = currentSnapshot ? extractPreviewBbcode(documentRef.current, currentSnapshot, captured, false) : null;
+    const previewWrapped = currentSnapshot ? extractPreviewBbcode(documentRef.current, currentSnapshot, captured, true) : null;
     const checked = (action: () => void) => () => { const current = documentRef.current; if (current.id !== captured.documentId || current.revision !== captured.revision) { setError("Документ изменился. Откройте меню заново."); return; } action(); };
     const formatCaptured = (tag: FormatTag) => checked(() => { if (currentSnapshot) run(() => applyFormat(documentRef.current, currentSnapshot, captured, tag)); });
     const handlers: Partial<Record<string, () => void>> = {
@@ -168,7 +174,9 @@ export default function App() {
       spoiler: checked(() => { spoilerOrigin.current = captured; setSpoilerDialog(true); }), fix: () => showFix(),
       unwrap: checked(() => { if (selected && currentSnapshot) run(() => unwrapNode(documentRef.current, currentSnapshot, selected)); }),
       source: () => visualNavigate(captured), copyText: () => void copyText(window.getSelection()?.toString() || selectedText),
-      copyInner: () => void copyText(selectedText), copyWrapped: () => void copyText(selectedText), copyBlock: () => void copyText(selectedText),
+      copyInner: previewInner === null ? undefined : () => void copyText(previewInner),
+      copyWrapped: previewWrapped === null ? undefined : () => void copyText(previewWrapped),
+      copyBlock: () => void copyText(nodeRange ? documentRef.current.text.slice(nodeRange.from, nodeRange.to) : selectedText),
       openLink: () => (target.closest("a") as HTMLAnchorElement | null)?.click(), copyLink: () => void copyText((target.closest("a") as HTMLAnchorElement | null)?.href ?? ""),
       copyMedia: () => void copyText(target.closest("[data-source-value]")?.getAttribute("data-source-value") ?? ""),
     };
@@ -258,7 +266,7 @@ export default function App() {
     dispatchWorkspace({ type: "close", documentId });
     if (workspaceRef.current.tabs.length === 1) dispatchWorkspace({ type: "open", session: { document: decodeDocument(new Uint8Array()) } });
   };
-  const navigate = (span: Span) => { const range = { from: byteToUtf16(document.text, span.start), to: byteToUtf16(document.text, span.end) }; setActiveRange(range); controller?.select(range, mode !== "builder"); };
+  const navigate = (span: Span) => { const range = { from: byteToUtf16(document.text, span.start), to: byteToUtf16(document.text, span.end) }; setActiveRange(range); visualNavigate(range); };
   return <main className="app" onContextMenu={openContextMenu}>
     <header className="toolbar">
       <div className="brand-icon">B<span>F</span></div><h1>BBForge</h1><span className="project-name">Рабочее пространство <span>⌄</span></span><span className="toolbar-divider" />
@@ -274,7 +282,7 @@ export default function App() {
         outline={<Outline identity={identity(document)} nodes={currentSnapshot?.analysis.nodes ?? []} selected={selected?.span} onNavigate={(span) => { if (currentSnapshot) setSelected({ ...identity(document), span }); navigate(span); }} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, source, { node: { ...identity(document), span: target }, placement })); }} />}
         editor={<Editor document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} onChange={changeSource} onReady={setController} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
         builder={<Builder key={document.id} document={document} snapshot={snapshot} execute={execute} getDocument={() => documentRef.current} onSelect={setSelected} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onError={setError} onComposition={(active) => { composition.current = active; }} />}
-        preview={<Preview source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}
+        preview={<Preview document={document} source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} onSelection={setPreviewRange} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}
         properties={selected && currentSnapshot ? <Properties document={document} snapshot={currentSnapshot} selected={selected} execute={execute} onError={setError} onNavigate={() => visualNavigate(sourceRange(document, selected.span))} /> : <div className="selection-hint">Выберите текст для оформления или блок для изменения его свойств <kbd>Alt</kbd> + <kbd>Enter</kbd> — исправления</div>} />
       {layout.showProblems && <><Splitter orientation="horizontal" value={layout.problemsHeight} min={100} max={400} label="Высота панели проблем" onChange={(problemsHeight) => setLayout({ ...layout, problemsHeight })} /><section className="diagnostics" style={{ height: layout.problemsHeight }}><div className="diagnostics-header"><h2>Проблемы <span className="count-badge">{analysis.diagnostics.length}</span></h2><span className="spacer" /><button onClick={showAllFixes}>Исправить однозначные…</button><button aria-label="Скрыть проблемы" onClick={() => setLayout({ ...layout, showProblems: false })}>×</button></div><Diagnostics diagnostics={analysis.diagnostics} onNavigate={navigate} onFix={showFix} /></section></>}
       {error && <div role="alert" className="error-banner"><span>{error}</span><button aria-label="Закрыть сообщение" onClick={() => setError(null)}>×</button></div>}

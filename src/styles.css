@@ -27,3 +27,6 @@ select:disabled { color: #747b88; opacity: .65; }
 .context-menu button { display: flex; width: 100%; justify-content: space-between; gap: 24px; padding: 7px 10px; text-align: left; }
 .context-menu button:focus { outline: none; background: #3d5f99; color: #fff; }
 .context-menu kbd { border: 0; color: #858b95; }
+.preview-source-node { display: contents; }
+.preview-actions { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.preview-actions button { border-color: #454951; font-size: 11px; }
