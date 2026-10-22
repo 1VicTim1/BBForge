@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { createSpoiler, extractNode, moveNode, renameSpoiler, unwrapNode } from "./structure";
+import { createSpoiler, extractNode, moveNode, nestedSpoilerRange, renameSpoiler, unwrapNode } from "./structure";
 import { applyChanges, decodeDocument, serializeDocument } from "./state";
 import { snapshotFixture, refFor } from "../test/structureFixture";
 
@@ -10,6 +10,15 @@ it("wraps and renames without adding whitespace or losing title markup", () => {
   expect(wrapped.text).toBe("[spoiler=[b]Важно[/b]]hello[/spoiler]");
   const snapshot = snapshotFixture(wrapped);
   expect(applyChanges(wrapped, renameSpoiler(wrapped, snapshot, refFor(snapshot, 0), "Новое").changes).text).toBe("[spoiler=Новое]hello[/spoiler]");
+});
+
+it("creates a child at the end of a selected spoiler instead of wrapping its parent", () => {
+  const document = decodeDocument(new TextEncoder().encode("[spoiler=Parent]text[/spoiler]"));
+  const snapshot = snapshotFixture(document);
+  const selected = refFor(snapshot, 0);
+  const range = nestedSpoilerRange(document, snapshot, { from: 0, to: document.text.length }, selected);
+  expect(applyChanges(document, createSpoiler(document, range, "Child", snapshot).changes).text)
+    .toBe("[spoiler=Parent]text[spoiler=Child][/spoiler][/spoiler]");
 });
 
 it("extracts the last child preserving source bytes and mixed endings", () => {

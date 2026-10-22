@@ -24,4 +24,7 @@ it("inserts paired tags around an empty cursor and toggles an exact formatted ra
 
   const bold = decodeDocument(new TextEncoder().encode("[b]ab[/b]")), boldSnapshot = snapshotFixture(bold);
   expect(applyChanges(bold, applyFormat(bold, boldSnapshot, { ...identity(bold), from: 3, to: 5 }, "b").changes).text).toBe("ab");
+  expect(formatState(boldSnapshot, { ...identity(bold), from: 0, to: 0 }, "b")).toBe("on");
+  expect(applyChanges(bold, applyFormat(bold, boldSnapshot, { ...identity(bold), from: 0, to: 0 }, "b").changes).text).toBe("ab");
+  expect(applyChanges(bold, applyFormat(bold, boldSnapshot, { ...identity(bold), from: 0, to: bold.text.length }, "b").changes).text).toBe("ab");
 });

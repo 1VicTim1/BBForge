@@ -10,7 +10,7 @@ export function FormattingToolbar(props: Props) {
   const blocked = (tag: FormatTag) => props.disabled || props.states?.[tag]?.state === "disabled";
   const reason = (tag: FormatTag, fallback: string) => props.states?.[tag]?.reason ?? fallback;
   const active = (tag: FormatTag) => props.states?.[tag]?.state === "on";
-  return <div className="format-toolbar" role="toolbar" aria-label="Оформление текста" onMouseDown={(event) => { if ((event.target as HTMLElement).tagName === "BUTTON") event.preventDefault(); }}>
+  return <div className="format-toolbar" role="toolbar" aria-label="Оформление текста" onMouseDown={(event) => { if ((event.target as HTMLElement).closest("button")) event.preventDefault(); }}>
     <TooltipButton label="Отменить" description="Отменить последнее изменение" shortcut="Ctrl+Z" onClick={props.onUndo}>↶</TooltipButton><TooltipButton label="Повторить" description="Вернуть отменённое изменение" shortcut="Ctrl+Shift+Z" onClick={props.onRedo}>↷</TooltipButton><span className="toolbar-divider" />
     {([['b', 'Жирный', 'B'], ['i', 'Курсив', 'I'], ['u', 'Подчёркнутый', 'U'], ['s', 'Зачёркнутый', 'S']] as const).map(([tag, title, text]) => { const action = props.states?.[tag]; return <button disabled={props.disabled || action?.state === "disabled"} key={tag} title={action?.reason ?? title} aria-label={title} aria-pressed={action?.state === "on"} data-state={action?.state} className={`format-${tag}`} onClick={() => props.onFormat(tag)}>{text}</button>; })}
     <span className="toolbar-divider" />
