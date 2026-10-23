@@ -13,7 +13,8 @@
     "tauri:dev": "tauri dev --features desktop-runtime",
     "tauri:build": "tauri build --features desktop",
     "test": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "release": "bash scripts/release.sh"
   },
   "dependencies": {
     "@codemirror/commands": "6.10.0",
