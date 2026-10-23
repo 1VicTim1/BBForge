@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { safeExternalUrl } from "../components/Preview";
 import { Icon } from "../components/Icon";
 import { TooltipButton } from "../components/TooltipButton";
@@ -7,6 +7,7 @@ interface Props { disabled: boolean; states?: Partial<Record<FormatTag, Formatti
 export function FormattingToolbar(props: Props) {
   const [color, setColor] = useState("#a9b7ff"), [background, setBackground] = useState("#3b4252"), [link, setLink] = useState(false), [url, setUrl] = useState("https://");
   const [linkError, setLinkError] = useState("");
+  useEffect(() => { const open = () => { if (!props.disabled) setLink(true); }; window.addEventListener("bbforge:link", open); return () => window.removeEventListener("bbforge:link", open); }, [props.disabled]);
   const blocked = (tag: FormatTag) => props.disabled || props.states?.[tag]?.state === "disabled";
   const reason = (tag: FormatTag, fallback: string) => props.states?.[tag]?.reason ?? fallback;
   const active = (tag: FormatTag) => props.states?.[tag]?.state === "on";

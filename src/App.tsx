@@ -36,6 +36,8 @@ import { Splitter } from "./layout/Splitter";
 import { StatusBar } from "./layout/StatusBar";
 import { SettingsDialog } from "./settings/SettingsDialog";
 import { useMenuDismiss } from "./components/menuDismiss";
+import { buildKeymap, chordFromEvent, shortcutLabel, type ActionId } from "./keymap/keymap";
+import { CommandPalette } from "./keymap/CommandPalette";
 import type { DocumentState } from "./document/state";
 import { lowercaseTagNames, mergeAdjacentTags, removeEmptyTags, removeEscapedTags, removeRedundantNesting, trimTrailingWhitespace } from "./document/refactor";
 import { loadPreferences, preferenceStyle, PreferencesContext, savePreferences } from "./settings/preferences";
@@ -79,8 +81,10 @@ export default function App() {
   const setMode = (mode: WorkspaceMode) => { if (!composition.current && !controller?.isComposing()) { setLayout((current) => ({ ...current, mode })); setShowPreview(false); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { mode, showPreview: false } }); } };
   useEffect(() => { saveLayout(localStorage, layout); }, [layout]);
   const menus = useRef<HTMLElement>(null); useMenuDismiss(menus);
+  const actionsRef = useRef<Partial<Record<ActionId, () => void>>>({}), keyRecording = useRef(false), [paletteOpen, setPaletteOpen] = useState(false);
   const [preferences, setPreferences] = useState(() => loadPreferences(localStorage)), [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => { savePreferences(localStorage, preferences); }, [preferences]);
+  const keyMap = useMemo(() => buildKeymap(preferences.keymap), [preferences.keymap]);
   const restoreSession = useRef(preferences.restoreSession);
   const [snapshots, setSnapshots] = useState<Record<string, AnalysisSnapshot>>({});
   const snapshot = snapshots[document.id] ?? null;
@@ -269,16 +273,20 @@ export default function App() {
 
   useEffect(() => {
     const shortcuts = (event: KeyboardEvent) => {
-      if (event.altKey && event.key === "Enter") { event.preventDefault(); showFix(); return; }
-      if (!(event.ctrlKey || event.metaKey)) return;
-      if (event.altKey && event.code === "KeyS") { event.preventDefault(); setSettingsOpen(true); return; }
-      if (["b", "i", "u"].includes(event.key.toLowerCase()) && (event.target as HTMLElement).closest(".visual-text") && !composition.current) { event.preventDefault(); format(event.key.toLowerCase() as FormatTag); return; }
-      if ((event.code === "KeyZ" || event.key.toLowerCase() === "z") && !(event.target as HTMLElement).closest(".cm-editor, input, textarea") && !composition.current) { event.preventDefault(); historyAction(event.shiftKey); }
-      if (event.key.toLowerCase() === "s") { event.preventDefault(); void saveCurrent(event.shiftKey); }
-      if (event.key.toLowerCase() === "o") { event.preventDefault(); void openDocument(); }
+      if (event.defaultPrevented || keyRecording.current || (event as KeyboardEvent & { bbforgeInternal?: boolean }).bbforgeInternal) return;
+      const chord = chordFromEvent(event), id = chord ? keyMap.get(chord) : undefined;
+      if (!id) return;
+      const target = event.target as HTMLElement, inCode = !!target.closest(".cm-editor"), inField = !!target.closest("input, textarea, select") && !inCode;
+      const editing = id.startsWith("edit.") || id.startsWith("format.");
+      if (inField && (editing || id === "tab.next" || id === "tab.previous")) return;
+      // CodeMirror owns undo/redo inside the code editor (including the Russian-layout physical keys).
+      if (inCode && (id === "edit.undo" || id === "edit.redo")) return;
+      if (composition.current || controller?.isComposing()) return;
+      event.preventDefault(); event.stopPropagation();
+      actionsRef.current[id]?.();
     };
-    window.addEventListener("keydown", shortcuts);
-    return () => window.removeEventListener("keydown", shortcuts);
+    window.addEventListener("keydown", shortcuts, true);
+    return () => window.removeEventListener("keydown", shortcuts, true);
   });
 
   useEffect(() => {
@@ -309,7 +317,7 @@ export default function App() {
   };
   const navigate = (span: Span) => { const range = { from: byteToUtf16(document.text, span.start), to: byteToUtf16(document.text, span.end) }; setActiveRange(range); visualNavigate(range); };
   const closeAppMenu = (event: React.MouseEvent<HTMLElement>) => event.currentTarget.closest("details")?.removeAttribute("open");
-  const focusSearch = () => { setMode("code"); requestAnimationFrame(() => { controller?.select(activeRange); globalThis.document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "f", code: "KeyF", ctrlKey: true, bubbles: true })); }); };
+  const focusSearch = () => { setMode("code"); requestAnimationFrame(() => { controller?.select(activeRange); const search = Object.assign(new KeyboardEvent("keydown", { key: "f", code: "KeyF", ctrlKey: true, bubbles: true }), { bbforgeInternal: true }); globalThis.document.activeElement?.dispatchEvent(search); }); };
   const refactor = (item: Refactoring) => { if (!currentSnapshot) return; run(() => { const command = item.build(documentRef.current, currentSnapshot, selected ?? null); if (!command) throw new Error(`${item.title}: изменять нечего`); return command; }); };
   // Scrolling must not re-render the app on every frame: remember the position and store it once scrolling settles.
   const pendingScroll = useRef<{ documentId: string; ui: Record<string, unknown> } | null>(null), scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -325,13 +333,33 @@ export default function App() {
     scrollTimer.current = setTimeout(flushScroll, 250);
   }, [flushScroll]);
   useEffect(() => () => flushScroll(), [document.id, flushScroll]);
+  const openSpoilerDialog = () => { if (composition.current || controller?.isComposing()) return; spoilerOrigin.current = { ...identity(documentRef.current), ...spoilerSelection() }; setSpoilerDialog(true); };
+  const togglePreview = () => { if (composition.current) return; const value = !showPreview; setShowPreview(value); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { showPreview: value } }); };
+  const switchTab = (step: number) => { const tabs = workspaceRef.current.tabs, at = tabs.findIndex((tab) => tab.document.id === workspaceRef.current.activeId); const next = tabs[(at + step + tabs.length) % tabs.length]; if (next) dispatchWorkspace({ type: "activate", documentId: next.document.id }); };
+  const refactorById = (title: string) => { const item = refactorings.find((entry) => entry?.title === title); if (item) refactor(item); };
+  const actions: Record<ActionId, () => void> = {
+    "file.new": () => void newDocument(), "file.open": () => void openDocument(), "file.save": () => void saveCurrent(), "file.saveAs": () => void saveCurrent(true),
+    "file.close": () => void closeDocument(workspaceRef.current.activeId),
+    "file.closeAll": () => void (async () => { for (const tab of [...workspaceRef.current.tabs]) await closeDocument(tab.document.id); })(),
+    "tab.next": () => switchTab(1), "tab.previous": () => switchTab(-1),
+    "edit.undo": () => historyAction(false), "edit.redo": () => historyAction(true), "edit.find": focusSearch, "edit.fix": () => showFix(), "edit.fixAll": showAllFixes,
+    "format.bold": () => format("b"), "format.italic": () => format("i"), "format.underline": () => format("u"), "format.strike": () => format("s"),
+    "format.link": () => window.dispatchEvent(new Event("bbforge:link")), "format.quote": () => format("quote"), "format.code": () => format("code"), "format.list": () => format("list"), "format.spoiler": openSpoilerDialog,
+    "view.code": () => setMode("code"), "view.split": () => setMode("split"), "view.builder": () => setMode("builder"), "view.preview": togglePreview,
+    "view.structure": () => setLayout((current) => ({ ...current, showOutline: !current.showOutline })), "view.problems": () => setLayout((current) => ({ ...current, showProblems: !current.showProblems })),
+    "refactor.tidyDocument": () => refactorById("Убрать пустые строки в документе"), "refactor.trimTrailing": () => refactorById("Убрать пробелы в конце строк"),
+    "refactor.removeEmpty": () => refactorById("Удалить пустые теги"), "refactor.merge": () => refactorById("Склеить соседние одинаковые теги"),
+    "app.settings": () => setSettingsOpen(true), "app.findAction": () => setPaletteOpen(true),
+  };
+  actionsRef.current = actions;
+  const key = (id: ActionId) => shortcutLabel(id, preferences.keymap);
   const appearance = preferenceStyle(preferences);
   return <PreferencesContext.Provider value={preferences}><main className={`app ${appearance.className}`} style={appearance.style as React.CSSProperties} onContextMenu={openContextMenu}>
     <header className="toolbar">
       <div className="brand-icon">BF</div><h1>BBForge</h1>
       <nav className="app-menus" aria-label="Главное меню" ref={menus}>
-        <details className="app-menu"><summary>Файл</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); setSettingsOpen(true); }}>Настройки… <kbd>Ctrl+Alt+S</kbd></button><button onClick={(event) => { closeAppMenu(event); void newDocument(); }}>Новый документ <kbd>Ctrl+N</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void openDocument(); }}>Открыть… <kbd>Ctrl+O</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void saveCurrent(); }}>Сохранить <kbd>Ctrl+S</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void saveCurrent(true); }}>Сохранить как…</button></div></details>
-        <details className="app-menu"><summary>Правка</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); historyAction(false); }}>Отменить <kbd>Ctrl+Z</kbd></button><button onClick={(event) => { closeAppMenu(event); historyAction(true); }}>Повторить <kbd>Ctrl+Shift+Z</kbd></button><button onClick={(event) => { closeAppMenu(event); showFix(); }}>Исправить в позиции… <kbd>Alt+Enter</kbd></button></div></details>
+        <details className="app-menu"><summary>Файл</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); setSettingsOpen(true); }}>Настройки… {key("app.settings") && <kbd>{key("app.settings")}</kbd>}</button><button onClick={(event) => { closeAppMenu(event); void newDocument(); }}>Новый документ {key("file.new") && <kbd>{key("file.new")}</kbd>}</button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void openDocument(); }}>Открыть… {key("file.open") && <kbd>{key("file.open")}</kbd>}</button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void saveCurrent(); }}>Сохранить {key("file.save") && <kbd>{key("file.save")}</kbd>}</button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void saveCurrent(true); }}>Сохранить как… {key("file.saveAs") && <kbd>{key("file.saveAs")}</kbd>}</button><button onClick={(event) => { closeAppMenu(event); void closeDocument(workspaceRef.current.activeId); }}>Закрыть документ {key("file.close") && <kbd>{key("file.close")}</kbd>}</button></div></details>
+        <details className="app-menu"><summary>Правка</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); historyAction(false); }}>Отменить {key("edit.undo") && <kbd>{key("edit.undo")}</kbd>}</button><button onClick={(event) => { closeAppMenu(event); historyAction(true); }}>Повторить {key("edit.redo") && <kbd>{key("edit.redo")}</kbd>}</button><button onClick={(event) => { closeAppMenu(event); showFix(); }}>Исправить в позиции… {key("edit.fix") && <kbd>{key("edit.fix")}</kbd>}</button><span className="menu-separator" /><button onClick={(event) => { closeAppMenu(event); setPaletteOpen(true); }}>Найти действие… {key("app.findAction") && <kbd>{key("app.findAction")}</kbd>}</button></div></details>
         <details className="app-menu"><summary>Вид</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); setLayout({ ...layout, showOutline: !layout.showOutline }); }}>{layout.showOutline ? "Скрыть" : "Показать"} структуру</button><button onClick={(event) => { closeAppMenu(event); setLayout({ ...layout, showProblems: !layout.showProblems }); }}>{layout.showProblems ? "Скрыть" : "Показать"} проблемы</button><button onClick={(event) => { closeAppMenu(event); const value = !showPreview; setShowPreview(value); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { showPreview: value } }); }}>{showPreview ? "Закрыть" : "Открыть"} предпросмотр</button></div></details>
         <details className="app-menu"><summary>Рефакторинг</summary><div className="app-menu-popup">{refactorings.map((item, at) => item === null ? <span key={at} className="menu-separator" /> : <button key={item.title} title={item.hint} disabled={!currentSnapshot || (item.needsSpoiler && !selected)} onClick={(event) => { closeAppMenu(event); refactor(item); }}>{item.title}</button>)}</div></details>
         <details className="app-menu"><summary>Инструменты</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); setLayout({ ...defaultLayout }); setShowPreview(false); }}>Восстановить раскладку</button><button onClick={(event) => { closeAppMenu(event); showAllFixes(); }}>Исправить однозначные ошибки</button></div></details>
@@ -342,7 +370,7 @@ export default function App() {
     <div className="ide-shell"><nav className="tool-rail" aria-label="Панели"><TooltipButton className={layout.showOutline ? "active" : ""} label="Структура" description="Показать или скрыть структуру документа" onClick={() => setLayout({ ...layout, showOutline: !layout.showOutline })}><Icon name="outline" /></TooltipButton><TooltipButton className={showPreview ? "active" : ""} label="Предпросмотр" description="Открыть результат разметки" onClick={() => { if (!composition.current) { const value = !showPreview; setShowPreview(value); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { showPreview: value } }); } }}><Icon name="preview" /></TooltipButton><span className="spacer" /><TooltipButton className={layout.showProblems ? "active" : ""} label="Проблемы" description="Показать найденные ошибки и предупреждения" onClick={() => setLayout({ ...layout, showProblems: !layout.showProblems })}><Icon name="warning" /></TooltipButton></nav>
     <div className="ide-main">
       <div className="document-tabs-row"><TabStrip tabs={workspace.tabs} activeId={workspace.activeId} onActivate={(documentId) => { if (!composition.current && !controller?.isComposing()) dispatchWorkspace({ type: "activate", documentId }); }} onClose={(documentId) => void closeDocument(documentId)} onReorder={(documentId, to) => dispatchWorkspace({ type: "reorder", documentId, to })} /><button className="new-tab-button" aria-label="Новый документ" title="Новый документ" onClick={() => void newDocument()}>＋</button><div className="mode-tabs">{(["code", "builder", "split"] as const).map((value) => <button key={value} className={!showPreview && mode === value ? "active" : ""} onClick={() => setMode(value)}>{value === "code" ? "Код" : value === "builder" ? "Конструктор" : "Рядом"}</button>)}</div></div>
-      <FormattingToolbar disabled={!currentSnapshot} states={formattingStates} onFormat={format} onSpoiler={() => { if (composition.current || controller?.isComposing()) return; spoilerOrigin.current = { ...identity(documentRef.current), ...spoilerSelection() }; setSpoilerDialog(true); }} onUndo={() => historyAction(false)} onRedo={() => historyAction(true)} />
+      <FormattingToolbar disabled={!currentSnapshot} states={formattingStates} onFormat={format} onSpoiler={openSpoilerDialog} onUndo={() => historyAction(false)} onRedo={() => historyAction(true)} />
       <Workspace layout={layout} setLayout={setLayout} showPreview={showPreview} onClosePreview={() => { setShowPreview(false); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { showPreview: false } }); }}
         outline={<Outline identity={identity(document)} nodes={currentSnapshot?.analysis.nodes ?? []} selected={selected?.span} onNavigate={(span) => { if (currentSnapshot) { const reference = { ...identity(document), span }; setSelected(reference); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { selected: reference } }); } navigate(span); }} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, source, { node: { ...identity(document), span: target }, placement })); }} />}
         editor={<Editor document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} storedSelection={activeSession.ui.codeSelection} scroll={activeSession.ui.codeScroll} onScrollPosition={(codeScroll) => deferScroll(document.id, { codeScroll })} onChange={changeSource} onReady={setController} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
@@ -356,6 +384,7 @@ export default function App() {
     {fix && <ChangePreview key={fix.id} document={document} suggestion={fix} options={fixOptions} onApply={(command) => { run(() => command); setFix(null); setFixOptions(undefined); }} onClose={() => { setFix(null); setFixOptions(undefined); }} />}
     {spoilerDialog && <div className="modal-backdrop"><form className="dialog" role="dialog" aria-label="Создать спойлер" onSubmit={(event) => { event.preventDefault(); run(() => { const origin = spoilerOrigin.current; if (!origin || !currentSnapshot || origin.documentId !== documentRef.current.id || origin.revision !== documentRef.current.revision) throw new Error("Документ изменился. Выделите текст заново."); return createSpoiler(documentRef.current, origin, spoilerTitle, currentSnapshot); }); setSpoilerDialog(false); }}><h3>Создать спойлер</h3><label>Заголовок <input autoFocus value={spoilerTitle} onChange={(event) => setSpoilerTitle(event.target.value)} /></label><p>Выделенный текст станет содержимым спойлера.</p><button type="submit">Создать</button><button type="button" onClick={() => setSpoilerDialog(false)}>Отмена</button></form></div>}
     {contextMenu.menu && <ContextMenu {...contextMenu.menu} onClose={contextMenu.close} />}
-    {settingsOpen && <SettingsDialog value={preferences} onApply={setPreferences} onClose={() => setSettingsOpen(false)} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} />}
+    {paletteOpen && <CommandPalette keymap={preferences.keymap} onRun={(id) => { setPaletteOpen(false); requestAnimationFrame(() => actionsRef.current[id]?.()); }} onClose={() => setPaletteOpen(false)} />}
+    {settingsOpen && <SettingsDialog onRecording={(active) => { keyRecording.current = active; }} value={preferences} onApply={setPreferences} onClose={() => setSettingsOpen(false)} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} />}
   </main></PreferencesContext.Provider>;
 }

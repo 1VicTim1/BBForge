@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import { validateOverrides, type KeymapOverrides } from "../keymap/keymap";
 
 export interface Preferences {
   tooltips: boolean;
@@ -14,13 +15,14 @@ export interface Preferences {
   tagLabels: boolean;
   restoreSession: boolean;
   analysisDelay: number;
+  keymap: KeymapOverrides;
 }
 
 export const defaultPreferences: Preferences = {
   tooltips: true, animations: true,
   codeFontSize: 13, codeLineHeight: 1.6, codeWrap: true, codeLineNumbers: true, codeActiveLine: true,
   builderFontSize: 14, builderWidth: "medium", spoilerOpenDepth: 2, tagLabels: true,
-  restoreSession: true, analysisDelay: 150,
+  restoreSession: true, analysisDelay: 150, keymap: {},
 };
 
 const KEY = "bbforge.preferences";
@@ -37,6 +39,7 @@ export function validatePreferences(value: Partial<Preferences>): Preferences {
     builderWidth: value.builderWidth === "narrow" || value.builderWidth === "full" || value.builderWidth === "medium" ? value.builderWidth : d.builderWidth,
     spoilerOpenDepth: number(value.spoilerOpenDepth, 0, 99, d.spoilerOpenDepth), tagLabels: flag(value.tagLabels, d.tagLabels),
     restoreSession: flag(value.restoreSession, d.restoreSession), analysisDelay: number(value.analysisDelay, 50, 2000, d.analysisDelay),
+    keymap: validateOverrides(value.keymap),
   };
 }
 
