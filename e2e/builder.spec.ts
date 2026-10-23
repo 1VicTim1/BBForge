@@ -208,18 +208,52 @@ test("drags visual spoilers by their surface without handles", async ({ page }) 
     await page.mouse.up();
     if (ctrl) await page.keyboard.up("Control");
   };
-  const box = async (title: string, part = "summary") => { const result = await page.locator(`.builder-spoiler:has(> summary:text("${title}")) ${part === "summary" ? "> summary" : ""}`).first().boundingBox(); if (!result) throw new Error(`no spoiler ${title}`); return result; };
+  const box = async (title: string, part = "summary") => { const head = page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^▣\\s*${title}\\s*spoiler$`) }); const result = await (part === "summary" ? head : page.locator(".builder-spoiler").filter({ has: page.locator(":scope > summary").filter({ hasText: new RegExp(`^▣\\s*${title}\\s*spoiler$`) }) })).first().boundingBox(); if (!result) throw new Error(`no spoiler ${title}`); return result; };
   let a = await box("A"), b = await box("B", "block");
-  await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: b.x + 40, y: b.y + b.height - 2 });
+  await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: b.x + 40, y: b.y + b.height + 90 });
   await expect(code).toHaveText("[spoiler=B]b[/spoiler][spoiler=A]a[/spoiler]");
   await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
-  a = await box("A"); b = await box("B");
-  await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: b.x + 40, y: b.y + b.height / 2 });
+  a = await box("A");
+  const insertB = (await page.locator(".builder-spoiler").filter({ hasText: "B" }).getByRole("button", { name: "+ Вставить в спойлер" }).boundingBox())!;
+  await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: insertB.x + insertB.width + 30, y: insertB.y + insertB.height / 2 });
   await expect(code).toHaveText("[spoiler=B]b[spoiler=A]a[/spoiler][/spoiler]");
   await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
   a = await box("A"); b = await box("B");
   await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: b.x + 40, y: b.y + 2 }, true);
   await expect(code).toHaveText("[spoiler=A]a[/spoiler][spoiler=B]b[spoiler=A]a[/spoiler][/spoiler]");
+});
+
+test("drops a spoiler between siblings, out of its parent and into text with a ghost", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1600 });
+  const code = page.locator(".cm-content");
+  await code.fill("[spoiler=P][spoiler=A]a[/spoiler][spoiler=B]b[/spoiler][spoiler=C]c[/spoiler][/spoiler]hello world");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  const summary = async (title: string) => (await page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^▣\\s*${title}\\s*spoiler$`) }).first().boundingBox())!;
+  const grab = async (title: string) => { const c = await summary(title); await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2); await page.mouse.down(); };
+  await grab("C");
+  const b = await summary("B");
+  await page.mouse.move(b.x + 60, b.y + 4, { steps: 10 });
+  await expect(page.locator(".visual-drop-ghost")).toBeVisible();
+  await expect(page.locator(".visual-drag-preview")).toBeVisible();
+  await page.mouse.up();
+  await expect(code).toHaveText("[spoiler=P][spoiler=A]a[/spoiler][spoiler=C]c[/spoiler][spoiler=B]b[/spoiler][/spoiler]hello world");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".visual-drop-ghost")).toHaveCount(0);
+  await grab("A");
+  const p = await summary("P");
+  await page.mouse.move(p.x + 60, p.y + 3, { steps: 10 });
+  await page.mouse.up();
+  await expect(code).toHaveText("[spoiler=A]a[/spoiler][spoiler=P][spoiler=C]c[/spoiler][spoiler=B]b[/spoiler][/spoiler]hello world");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await grab("B");
+  const leaf = page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "hello world" });
+  let text = (await leaf.boundingBox())!;
+  await page.mouse.move(text.x + text.width * 5.5 / 11, text.y + text.height / 2, { steps: 10 });
+  text = (await leaf.boundingBox())!;
+  await page.mouse.move(text.x + text.width * 5.5 / 11, text.y + text.height / 2, { steps: 2 });
+  await expect(page.locator(".visual-drop-caret")).toBeVisible();
+  await page.mouse.up();
+  await expect(code).toHaveText(/^\[spoiler=A\]a\[\/spoiler\]\[spoiler=P\]\[spoiler=C\]c\[\/spoiler\]\[\/spoiler\]hello ?\[spoiler=B\]b\[\/spoiler\] ?world$/);
 });
 
 test("drags a partially selected formatted fragment and copies it with Ctrl", async ({ page }) => {
