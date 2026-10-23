@@ -27,7 +27,7 @@ function OutlineNode({ node, depth, ...props }: OutlineProps & { node: Node; dep
       setDrop(null);
     }}>
       <button className="tree-toggle" aria-label={`${expanded ? "Свернуть" : "Развернуть"} ${title}`} disabled={!children.length} onClick={() => setExpanded(!expanded)}>{children.length ? expanded ? "▾" : "▸" : "·"}</button>
-      <button role="treeitem" aria-selected={selected} className="tree-item" onClick={() => props.onNavigate(node.span)}><span className={`node-icon ${node.name === "spoiler" ? "spoiler-icon" : ""}`}>{node.name === "spoiler" ? "▣" : "◇"}</span>{title}<small>{!node.wellFormed ? "!" : node.name === "spoiler" ? "spoiler" : ""}</small></button>
+      <button role="treeitem" aria-selected={selected} className="tree-item" onClick={() => props.onNavigate(node.span)}>{node.name !== "spoiler" && <span className="node-icon">◇</span>}{title}<small>{!node.wellFormed ? "!" : node.name === "spoiler" ? "spoiler" : ""}</small></button>
     </div>
     {expanded && children.length > 0 && <div role="group" className="outline-children">{children.map((child, index) => <OutlineNode {...props} key={`${child.span.start}-${index}`} node={child} depth={depth + 1} />)}</div>}
   </div>;

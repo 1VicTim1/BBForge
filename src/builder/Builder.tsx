@@ -4,7 +4,7 @@ import type { DocumentState } from "../document/state";
 import type { EditCommand, SourceRange } from "../document/commands";
 import { identity } from "../document/commands";
 import { createPositionIndex } from "../document/positions";
-import { copyVisualRange, moveVisualRange, nodeRef, placeNodeAt, type NodeRef } from "../document/structure";
+import { copyVisualRange, moveVisualRange, nodeRef, placeNodeAt, renameSpoiler, type NodeRef } from "../document/structure";
 import { EdgeAutoScroller } from "../drag/edgeAutoScroll";
 import { TextLeaf } from "./TextLeaf";
 import { literalPaste, textEditCommand } from "./input";
@@ -341,7 +341,7 @@ export function Builder(props: BuilderProps) {
     if (node.name === "spoiler") {
       const insertPath = `${path}.insert`;
       const insertAt = index.byteToUtf16(node.contentSpan.end);
-      return <SpoilerBlock key={path} title={node.parameter ?? "Спойлер"} depth={path.split(".").length - 1} dragTarget={dragTarget(reference, "spoiler", from, to)} contentEnd={insertAt} onSelect={selectNode} onInsert={() => { props.onRange({ ...identity(props.document), from: insertAt, to: insertAt }); props.onSelect(reference); setInsertionPath(insertPath); }}>{() => <>{children()}{insertionPath === insertPath && <InsertionDraft onCommit={(value) => { setInsertionPath(null); run(() => textEditCommand(props.getDocument(), { from: insertAt, to: insertAt }, value, "")); }} onCancel={() => setInsertionPath(null)} />}</>}</SpoilerBlock>;
+      return <SpoilerBlock key={path} title={node.parameter ?? "Спойлер"} onRename={node.parameter !== null ? (title) => run(() => renameSpoiler(props.getDocument(), snapshotRef.current!, reference, title)) : undefined} depth={path.split(".").length - 1} dragTarget={dragTarget(reference, "spoiler", from, to)} contentEnd={insertAt} onSelect={selectNode} onInsert={() => { props.onRange({ ...identity(props.document), from: insertAt, to: insertAt }); props.onSelect(reference); setInsertionPath(insertPath); }}>{() => <>{children()}{insertionPath === insertPath && <InsertionDraft onCommit={(value) => { setInsertionPath(null); run(() => textEditCommand(props.getDocument(), { from: insertAt, to: insertAt }, value, "")); }} onCancel={() => setInsertionPath(null)} />}</>}</SpoilerBlock>;
     }
     if (node.name === "img" || node.name === "attachment") return <button key={path} className="media-placeholder" data-at-from={from} data-at-to={to} onClick={selectNode}>{node.name === "img" ? "▧ Изображение" : "▤ Вложение"} · Свойства</button>;
     if (node.name === "code") return <pre className="builder-code" key={path} data-at-from={from} data-at-to={to} onClick={selectNode}>{children()}</pre>;

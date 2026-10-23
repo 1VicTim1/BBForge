@@ -208,7 +208,7 @@ test("drags visual spoilers by their surface without handles", async ({ page }) 
     await page.mouse.up();
     if (ctrl) await page.keyboard.up("Control");
   };
-  const box = async (title: string, part = "summary") => { const head = page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^▣\\s*${title}\\s*spoiler$`) }); const result = await (part === "summary" ? head : page.locator(".builder-spoiler").filter({ has: page.locator(":scope > summary").filter({ hasText: new RegExp(`^▣\\s*${title}\\s*spoiler$`) }) })).first().boundingBox(); if (!result) throw new Error(`no spoiler ${title}`); return result; };
+  const box = async (title: string, part = "summary") => { const head = page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^\\s*${title}\\s*spoiler$`) }); const result = await (part === "summary" ? head : page.locator(".builder-spoiler").filter({ has: page.locator(":scope > summary").filter({ hasText: new RegExp(`^\\s*${title}\\s*spoiler$`) }) })).first().boundingBox(); if (!result) throw new Error(`no spoiler ${title}`); return result; };
   let a = await box("A"), b = await box("B", "block");
   await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: b.x + 40, y: b.y + b.height + 90 });
   await expect(code).toHaveText("[spoiler=B]b[/spoiler][spoiler=A]a[/spoiler]");
@@ -228,7 +228,7 @@ test("drops a spoiler between siblings, out of its parent and into text with a g
   const code = page.locator(".cm-content");
   await code.fill("[spoiler=P][spoiler=A]a[/spoiler][spoiler=B]b[/spoiler][spoiler=C]c[/spoiler][/spoiler]hello world");
   await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
-  const summary = async (title: string) => (await page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^▣\\s*${title}\\s*spoiler$`) }).first().boundingBox())!;
+  const summary = async (title: string) => (await page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^\\s*${title}\\s*spoiler$`) }).first().boundingBox())!;
   const grab = async (title: string) => { const c = await summary(title); await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2); await page.mouse.down(); };
   await grab("C");
   const b = await summary("B");
@@ -404,7 +404,7 @@ test("a selected spoiler is not dragged as text, and an unchanged drop shows no 
   const code = page.locator(".cm-content");
   await code.fill("[spoiler=P][spoiler=A]alpha[/spoiler][spoiler=B]beta[/spoiler][/spoiler]");
   await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
-  const head = (title: string) => page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^▣\\s*${title}\\s*spoiler$`) });
+  const head = (title: string) => page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^\\s*${title}\\s*spoiler$`) });
   await head("P").click();
   await head("P").click();
   const alpha = (await page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "alpha" }).boundingBox())!;
@@ -430,4 +430,45 @@ test("clicking the empty area of a spoiler starts typing there", async ({ page }
   await page.keyboard.type("hi");
   await page.keyboard.press("Enter");
   await expect(code).toHaveText("[spoiler=E]hi[/spoiler]");
+});
+
+test("renames a spoiler by double-clicking its header and tidies its blank lines", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("[spoiler=Old]\n\n\ntext\n\n[/spoiler]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  const summary = page.locator(".builder-spoiler > summary").first();
+  await expect(summary).not.toContainText("▣");
+  await summary.dblclick();
+  const input = page.getByRole("textbox", { name: "Изменить заголовок спойлера" });
+  await input.fill("New title");
+  await input.press("Enter");
+  await expect(code).toHaveText("[spoiler=New title]\n\n\ntext\n\n[/spoiler]".replace(/\n/g, ""));
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await page.locator(".builder-spoiler > summary").first().click();
+  await page.getByRole("button", { name: "Убрать пустые строки" }).click();
+  await expect(page.locator(".cm-line")).toHaveCount(1);
+  await expect(code).toHaveText("[spoiler=New title]text[/spoiler]");
+});
+
+test("opens settings from the gear and applies them", async ({ page }) => {
+  await page.getByRole("button", { name: "Настройки" }).click();
+  const dialog = page.getByRole("dialog", { name: "Настройки" });
+  await dialog.getByRole("button", { name: "Редактор кода" }).click();
+  await dialog.getByRole("checkbox", { name: "Показывать номера строк" }).uncheck();
+  await dialog.getByRole("button", { name: "ОК" }).click();
+  await expect(page.locator(".cm-lineNumbers")).toBeHidden();
+  await page.keyboard.press("Control+Alt+KeyS");
+  await expect(page.getByRole("dialog", { name: "Настройки" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Настройки" }).getByRole("button", { name: "Сбросить по умолчанию" }).click();
+  await page.getByRole("dialog", { name: "Настройки" }).getByRole("button", { name: "ОК" }).click();
+  await expect(page.locator(".cm-lineNumbers")).toBeVisible();
+});
+
+test("refactoring removes blank lines between and inside spoilers", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("[spoiler=A]\n\na\n\n[/spoiler]\n\n\n[spoiler=B]b[/spoiler]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await page.locator(".app-menu > summary", { hasText: "Рефакторинг" }).click();
+  await page.getByRole("button", { name: "Убрать пустые строки в документе" }).click();
+  await expect(code).toHaveText("[spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
 });

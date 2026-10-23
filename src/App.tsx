@@ -10,7 +10,7 @@ import { emptyAnalysis, type Analysis, type AnalysisSnapshot } from "./analysis/
 import { Builder } from "./builder/Builder";
 import type { EditorController } from "./editor/controller";
 import type { EditCommand, SourceRange } from "./document/commands";
-import { createSpoiler, moveNode, nestedSpoilerRange, sourceRange, unwrapNode, type NodeRef } from "./document/structure";
+import { createSpoiler, moveNode, nestedSpoilerRange, sourceRange, tidyBlankLines, tidyDocumentBlankLines, unwrapNode, type NodeRef } from "./document/structure";
 import { identity } from "./document/commands";
 import { applyFormat, formatState, formattingActionState, type FormatTag } from "./document/formatting";
 import { FormattingToolbar } from "./builder/FormattingToolbar";
@@ -34,6 +34,8 @@ import { defaultLayout, loadLayout, saveLayout, type WorkspaceMode } from "./lay
 import { Workspace } from "./layout/Workspace";
 import { Splitter } from "./layout/Splitter";
 import { StatusBar } from "./layout/StatusBar";
+import { SettingsDialog } from "./settings/SettingsDialog";
+import { loadPreferences, preferenceStyle, PreferencesContext, savePreferences } from "./settings/preferences";
 import { TabStrip } from "./workspace/TabStrip";
 import { createWorkspace, workspaceReducer } from "./workspace/session";
 import { createWorkspaceStore } from "./workspace/persistence";
@@ -59,6 +61,9 @@ export default function App() {
   const mode = layout.mode;
   const setMode = (mode: WorkspaceMode) => { if (!composition.current && !controller?.isComposing()) { setLayout((current) => ({ ...current, mode })); setShowPreview(false); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { mode, showPreview: false } }); } };
   useEffect(() => { saveLayout(localStorage, layout); }, [layout]);
+  const [preferences, setPreferences] = useState(() => loadPreferences(localStorage)), [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => { savePreferences(localStorage, preferences); }, [preferences]);
+  const restoreSession = useRef(preferences.restoreSession);
   const [snapshots, setSnapshots] = useState<Record<string, AnalysisSnapshot>>({});
   const snapshot = snapshots[document.id] ?? null;
   const [controller, setController] = useState<EditorController | null>(null);
@@ -81,6 +86,7 @@ export default function App() {
   useEffect(() => { setSelected(activeSession.ui.selected); setActiveRange(activeSession.ui.codeSelection); setLayout((current) => ({ ...current, mode: activeSession.ui.mode })); setShowPreview(activeSession.ui.showPreview); setPreviewRange(null); setFix(null); setSpoilerDialog(false); }, [document.id]);
   useEffect(() => {
     let active = true;
+    if (!restoreSession.current) { setWorkspaceReady(true); return; }
     void workspaceStore.load().then((restored) => {
       if (active && restored) dispatchWorkspace({ type: "restore", workspace: restored });
     }).catch((reason) => setError(`Не удалось восстановить сеанс: ${String(reason)}`)).finally(() => { if (active) setWorkspaceReady(true); });
@@ -93,7 +99,7 @@ export default function App() {
   const client = useMemo(() => createAnalysisClient(analyze, (result, response) => {
     setAnalyses((current) => ({ ...current, [response.documentId]: result }));
     setSnapshots((current) => ({ ...current, [response.documentId]: response }));
-  }, 150, (reason) => setError(`Ошибка анализа: ${String(reason)}`)), [analyze]);
+  }, preferences.analysisDelay, (reason) => setError(`Ошибка анализа: ${String(reason)}`)), [analyze, preferences.analysisDelay]);
   const files = useMemo(() => createDesktopFiles(
     invoke,
     async () => await openDialog({ multiple: false, filters: [{ name: "BBCode", extensions: ["bbcode", "txt"] }] }) as string | null,
@@ -247,6 +253,7 @@ export default function App() {
     const shortcuts = (event: KeyboardEvent) => {
       if (event.altKey && event.key === "Enter") { event.preventDefault(); showFix(); return; }
       if (!(event.ctrlKey || event.metaKey)) return;
+      if (event.altKey && event.code === "KeyS") { event.preventDefault(); setSettingsOpen(true); return; }
       if (["b", "i", "u"].includes(event.key.toLowerCase()) && (event.target as HTMLElement).closest(".visual-text") && !composition.current) { event.preventDefault(); format(event.key.toLowerCase() as FormatTag); return; }
       if ((event.code === "KeyZ" || event.key.toLowerCase() === "z") && !(event.target as HTMLElement).closest(".cm-editor, input, textarea") && !composition.current) { event.preventDefault(); historyAction(event.shiftKey); }
       if (event.key.toLowerCase() === "s") { event.preventDefault(); void saveCurrent(event.shiftKey); }
@@ -285,17 +292,19 @@ export default function App() {
   const navigate = (span: Span) => { const range = { from: byteToUtf16(document.text, span.start), to: byteToUtf16(document.text, span.end) }; setActiveRange(range); visualNavigate(range); };
   const closeAppMenu = (event: React.MouseEvent<HTMLElement>) => event.currentTarget.closest("details")?.removeAttribute("open");
   const focusSearch = () => { setMode("code"); requestAnimationFrame(() => { controller?.select(activeRange); globalThis.document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "f", code: "KeyF", ctrlKey: true, bubbles: true })); }); };
-  return <main className="app" onContextMenu={openContextMenu}>
+  const appearance = preferenceStyle(preferences);
+  return <PreferencesContext.Provider value={preferences}><main className={`app ${appearance.className}`} style={appearance.style as React.CSSProperties} onContextMenu={openContextMenu}>
     <header className="toolbar">
       <div className="brand-icon">BF</div><h1>BBForge</h1>
       <nav className="app-menus" aria-label="Главное меню">
-        <details className="app-menu"><summary>Файл</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); void newDocument(); }}>Новый документ <kbd>Ctrl+N</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void openDocument(); }}>Открыть… <kbd>Ctrl+O</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void saveCurrent(); }}>Сохранить <kbd>Ctrl+S</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void saveCurrent(true); }}>Сохранить как…</button></div></details>
+        <details className="app-menu"><summary>Файл</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); setSettingsOpen(true); }}>Настройки… <kbd>Ctrl+Alt+S</kbd></button><button onClick={(event) => { closeAppMenu(event); void newDocument(); }}>Новый документ <kbd>Ctrl+N</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void openDocument(); }}>Открыть… <kbd>Ctrl+O</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void saveCurrent(); }}>Сохранить <kbd>Ctrl+S</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void saveCurrent(true); }}>Сохранить как…</button></div></details>
         <details className="app-menu"><summary>Правка</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); historyAction(false); }}>Отменить <kbd>Ctrl+Z</kbd></button><button onClick={(event) => { closeAppMenu(event); historyAction(true); }}>Повторить <kbd>Ctrl+Shift+Z</kbd></button><button onClick={(event) => { closeAppMenu(event); showFix(); }}>Исправить в позиции… <kbd>Alt+Enter</kbd></button></div></details>
         <details className="app-menu"><summary>Вид</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); setLayout({ ...layout, showOutline: !layout.showOutline }); }}>{layout.showOutline ? "Скрыть" : "Показать"} структуру</button><button onClick={(event) => { closeAppMenu(event); setLayout({ ...layout, showProblems: !layout.showProblems }); }}>{layout.showProblems ? "Скрыть" : "Показать"} проблемы</button><button onClick={(event) => { closeAppMenu(event); const value = !showPreview; setShowPreview(value); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { showPreview: value } }); }}>{showPreview ? "Закрыть" : "Открыть"} предпросмотр</button></div></details>
+        <details className="app-menu"><summary>Рефакторинг</summary><div className="app-menu-popup"><button disabled={!currentSnapshot} onClick={(event) => { closeAppMenu(event); if (currentSnapshot) run(() => { const command = tidyDocumentBlankLines(documentRef.current, currentSnapshot); if (!command) throw new Error("Лишних пустых строк нет"); return command; }); }}>Убрать пустые строки в документе</button><button disabled={!currentSnapshot || !selected} title="Выберите спойлер в конструкторе или структуре" onClick={(event) => { closeAppMenu(event); if (currentSnapshot && selected) run(() => { const command = tidyBlankLines(documentRef.current, currentSnapshot, selected); if (!command) throw new Error("Лишних пустых строк нет"); return command; }); }}>Убрать пустые строки в спойлере</button></div></details>
         <details className="app-menu"><summary>Инструменты</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); setLayout({ ...defaultLayout }); setShowPreview(false); }}>Восстановить раскладку</button><button onClick={(event) => { closeAppMenu(event); showAllFixes(); }}>Исправить однозначные ошибки</button></div></details>
       </nav>
       <span className="spacer" /><span className="top-document"><Icon name="file" />{document.path?.split(/[\\/]/).at(-1) ?? "Без имени"}<span>/ Рабочее пространство</span></span><span className="spacer" />
-      <TooltipButton className="top-tooltip" label="Поиск в коде" description="Найти текст в исходном BBCode" shortcut="Ctrl+F" onClick={focusSearch}><Icon name="search" /></TooltipButton><button className="export-button" disabled={!isTauri()} onClick={() => void saveCurrent(true)}>Экспорт</button><TooltipButton className="top-tooltip" label="Восстановить раскладку" description="Вернуть стандартные панели и размеры" onClick={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }}><Icon name="settings" /></TooltipButton>
+      <TooltipButton className="top-tooltip" label="Поиск в коде" description="Найти текст в исходном BBCode" shortcut="Ctrl+F" onClick={focusSearch}><Icon name="search" /></TooltipButton><button className="export-button" disabled={!isTauri()} onClick={() => void saveCurrent(true)}>Экспорт</button><TooltipButton className="top-tooltip" label="Настройки" description="Внешний вид, редактор кода, конструктор и поведение" shortcut="Ctrl+Alt+S" onClick={() => setSettingsOpen(true)}><Icon name="settings" /></TooltipButton>
     </header>
     <div className="ide-shell"><nav className="tool-rail" aria-label="Панели"><TooltipButton className={layout.showOutline ? "active" : ""} label="Структура" description="Показать или скрыть структуру документа" onClick={() => setLayout({ ...layout, showOutline: !layout.showOutline })}><Icon name="outline" /></TooltipButton><TooltipButton className={showPreview ? "active" : ""} label="Предпросмотр" description="Открыть результат разметки" onClick={() => { if (!composition.current) { const value = !showPreview; setShowPreview(value); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { showPreview: value } }); } }}><Icon name="preview" /></TooltipButton><span className="spacer" /><TooltipButton className={layout.showProblems ? "active" : ""} label="Проблемы" description="Показать найденные ошибки и предупреждения" onClick={() => setLayout({ ...layout, showProblems: !layout.showProblems })}><Icon name="warning" /></TooltipButton></nav>
     <div className="ide-main">
@@ -314,5 +323,6 @@ export default function App() {
     {fix && <ChangePreview key={fix.id} document={document} suggestion={fix} options={fixOptions} onApply={(command) => { run(() => command); setFix(null); setFixOptions(undefined); }} onClose={() => { setFix(null); setFixOptions(undefined); }} />}
     {spoilerDialog && <div className="modal-backdrop"><form className="dialog" role="dialog" aria-label="Создать спойлер" onSubmit={(event) => { event.preventDefault(); run(() => { const origin = spoilerOrigin.current; if (!origin || !currentSnapshot || origin.documentId !== documentRef.current.id || origin.revision !== documentRef.current.revision) throw new Error("Документ изменился. Выделите текст заново."); return createSpoiler(documentRef.current, origin, spoilerTitle, currentSnapshot); }); setSpoilerDialog(false); }}><h3>Создать спойлер</h3><label>Заголовок <input autoFocus value={spoilerTitle} onChange={(event) => setSpoilerTitle(event.target.value)} /></label><p>Выделенный текст станет содержимым спойлера.</p><button type="submit">Создать</button><button type="button" onClick={() => setSpoilerDialog(false)}>Отмена</button></form></div>}
     {contextMenu.menu && <ContextMenu {...contextMenu.menu} onClose={contextMenu.close} />}
-  </main>;
+    {settingsOpen && <SettingsDialog value={preferences} onApply={setPreferences} onClose={() => setSettingsOpen(false)} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} />}
+  </main></PreferencesContext.Provider>;
 }
