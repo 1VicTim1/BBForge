@@ -1,7 +1,8 @@
 import type { ReactNode, SVGProps } from "react";
 
-type IconName = "code" | "external" | "file" | "list" | "outline" | "preview" | "quote" | "search" | "settings" | "warning";
+type IconName = "builder" | "code" | "external" | "file" | "list" | "outline" | "preview" | "quote" | "search" | "settings" | "warning";
 const paths: Record<IconName, ReactNode> = {
+  builder: <><rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M3.5 9h17"/><path d="M7 13h6M7 16h9"/></>,
   code: <><path d="m8 9-3 3 3 3"/><path d="m16 9 3 3-3 3"/><path d="m14 5-4 14"/></>,
   external: <><path d="M14 5h5v5"/><path d="m10 14 9-9"/><path d="M19 13v6H5V5h6"/></>,
   file: <><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v5h5"/></>,

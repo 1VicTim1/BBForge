@@ -414,3 +414,5 @@ select { padding-right: 24px; background-image: url("data:image/svg+xml,%3Csvg x
 p.fix-impact { margin: -6px 0 10px; padding: 0; }
 .fix-impact.better { color: var(--success); }
 .fix-impact.worse { color: var(--warning); }
+.pane-title { display: inline-flex; align-items: center; gap: 6px; }
+.pane-title .ui-icon { width: 14px; height: 14px; color: var(--text-muted); }
