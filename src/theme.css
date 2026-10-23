@@ -1,2 +1,25 @@
-.cm-editor { background: #1e1f22; color: #bcbec4; font-size: 13px; line-height: 1.65; } .cm-editor .cm-gutters { background: #1e1f22; color: #626775; border-right: 0; padding-right: 8px; } .cm-editor .cm-activeLineGutter { background: transparent; color: #bbc4d4; } .cm-editor .cm-activeLine { background: #292c33; } .cm-editor .cm-cursor { border-left-color: #e1e7f2; } .cm-editor .cm-content { padding: 15px 0; } .cm-editor .cm-line { padding: 0 8px; } .cm-editor .cm-selectionBackground, .cm-editor.cm-focused .cm-selectionBackground, .cm-editor .cm-content ::selection { background: #36558b !important; } .cm-editor .cm-panels { background: #2b2d30; color: #c1c8d4; } .cm-editor .cm-textfield { background: #1e1f22; color: #c1c8d4; border: 1px solid #515663; } .cm-editor .cm-button { background: #3b3e46; color: #c6cdd8; border: 1px solid #555a65; } .cm-editor .cm-tooltip { background: #303238; color: #c9cfd9; border-color: #505663; } .cm-editor .cm-foldPlaceholder { background: #383b46; border-color: #53586a; color: #b1bbd0; } .cm-editor .cm-placeholder { color: #6c7483; } .cm-editor .bb-bracket { color: #8f98a9; } .cm-editor .bb-name { color: #c397d8; font-weight: 500; } .cm-editor .bb-parameter { color: #86b58f; }
-.properties select { background: #1e1f22; color: #c3cad5; border: 1px solid #4d535f; border-radius: 4px; padding: 4px 7px; max-width: 260px; } .properties .move-form { margin: 7px 0 0; } .properties .move-form button { border-color: #454951; font-size: 11px; }
+/* CodeMirror colours matching the JetBrains New UI dark editor scheme. */
+.cm-editor { height: 100%; color: #bcbec4; background: #1e1f22; font-size: 13px; line-height: 1.6; }
+.cm-editor .cm-scroller { font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace; }
+.cm-editor .cm-gutters { min-width: 48px; padding-right: 6px; color: #4b5059; background: #1e1f22; border-right: 0; }
+.cm-editor .cm-activeLineGutter { color: #a1a3ab; background: transparent; }
+.cm-editor .cm-activeLine { background: #26282e; }
+.cm-editor .cm-cursor { border-left: 2px solid #ced0d6; }
+.cm-editor .cm-content { padding: 8px 0; }
+.cm-editor .cm-line { padding: 0 12px; }
+.cm-editor .cm-selectionBackground, .cm-editor.cm-focused .cm-selectionBackground, .cm-editor .cm-content ::selection { background: #214283 !important; }
+.cm-editor .cm-selectionMatch { background: #373b39; }
+.cm-editor .cm-searchMatch { background: #32593d; outline: 1px solid #3c704b; }
+.cm-editor .cm-searchMatch-selected { background: #214283; }
+.cm-editor .cm-panels { color: #dfe1e5; background: #2b2d30; }
+.cm-editor .cm-panels.cm-panels-top { border-bottom: 1px solid #1e1f22; }
+.cm-editor .cm-panel.cm-search { padding: 6px 10px; }
+.cm-editor .cm-panel.cm-search label { color: #868a91; font-size: 12px; }
+.cm-editor .cm-textfield { padding: 2px 6px; color: #dfe1e5; background: #1e1f22; border: 1px solid #4e5157; border-radius: 4px; }
+.cm-editor .cm-button { padding: 2px 10px; color: #dfe1e5; background: #2b2d30; background-image: none; border: 1px solid #4e5157; border-radius: 4px; }
+.cm-editor .cm-tooltip { color: #dfe1e5; background: #2b2d30; border: 1px solid #393b40; border-radius: 4px; }
+.cm-editor .cm-foldPlaceholder { color: #868a91; background: #393b40; border: 0; }
+.cm-editor .cm-placeholder { color: #5a5d63; }
+.cm-editor .bb-bracket { color: #bcbec4; }
+.cm-editor .bb-name { color: #d5b778; }
+.cm-editor .bb-parameter { color: #6aab73; }
