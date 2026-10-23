@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev --features desktop-runtime",
     "tauri:build": "tauri build --features desktop",
     "test": "vitest",
     "typecheck": "tsc --noEmit"

@@ -1,8 +1,8 @@
 use bbcode_core::{Analysis, parse};
 use serde::Serialize;
-#[cfg(feature = "desktop")]
+#[cfg(feature = "desktop-runtime")]
 use std::path::PathBuf;
-#[cfg(feature = "desktop")]
+#[cfg(feature = "desktop-runtime")]
 use tauri::Manager;
 
 #[derive(Debug, Serialize)]
@@ -21,7 +21,7 @@ pub fn analyze_document(source: String, document_id: String, revision: u64) -> A
     }
 }
 
-#[cfg(feature = "desktop")]
+#[cfg(feature = "desktop-runtime")]
 #[tauri::command]
 pub async fn analyze(
     source: String,
@@ -33,13 +33,13 @@ pub async fn analyze(
         .map_err(|error| format!("Не удалось проанализировать документ: {error}"))
 }
 
-#[cfg(feature = "desktop")]
+#[cfg(feature = "desktop-runtime")]
 #[tauri::command]
 pub fn read_document(path: String) -> Result<crate::files::OpenedDocument, String> {
     crate::files::read_document_info(&PathBuf::from(path)).map_err(|error| error.to_string())
 }
 
-#[cfg(feature = "desktop")]
+#[cfg(feature = "desktop-runtime")]
 #[tauri::command]
 pub fn write_document(
     path: String,
@@ -50,7 +50,7 @@ pub fn write_document(
         .map_err(|error| error.to_string())
 }
 
-#[cfg(feature = "desktop")]
+#[cfg(feature = "desktop-runtime")]
 #[tauri::command]
 pub fn read_workspace_session(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let path = app
@@ -61,7 +61,7 @@ pub fn read_workspace_session(app: tauri::AppHandle) -> Result<Option<String>, S
     crate::session::read(&path)
 }
 
-#[cfg(feature = "desktop")]
+#[cfg(feature = "desktop-runtime")]
 #[tauri::command]
 pub fn write_workspace_session(app: tauri::AppHandle, payload: String) -> Result<(), String> {
     let path = app
