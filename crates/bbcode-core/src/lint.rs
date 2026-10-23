@@ -56,9 +56,9 @@ fn escaped_tags(source: &str, diagnostics: &mut Vec<Diagnostic>) {
         {
             diagnostics.push(Diagnostic {
                 code: DiagnosticCode::EscapedBbcodeTag,
-                severity: Severity::Warning,
+                severity: Severity::Info,
                 message: format!(
-                    "Форум преобразовал нераспознанный BBCode в текст: [{content}]. Проверьте исходную вложенность тегов"
+                    "Форум преобразовал BBCode в текст: [{content}]. Такой тег отображается буквально"
                 ),
                 span: crate::Span { start, end },
                 line: 0,
