@@ -398,3 +398,36 @@ test("reports forum-escaped tags as info and lets the user remove them", async (
   await page.getByRole("button", { name: "Применить исправление", exact: true }).click();
   await expect(code).toHaveText("a b&#91;/LIST&#93;");
 });
+
+test("a selected spoiler is not dragged as text, and an unchanged drop shows no ghost", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  const code = page.locator(".cm-content");
+  await code.fill("[spoiler=P][spoiler=A]alpha[/spoiler][spoiler=B]beta[/spoiler][/spoiler]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  const head = (title: string) => page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^▣\\s*${title}\\s*spoiler$`) });
+  await head("P").click();
+  await head("P").click();
+  const alpha = (await page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "alpha" }).boundingBox())!;
+  await page.mouse.move(alpha.x + 3, alpha.y + alpha.height / 2); await page.mouse.down();
+  await page.mouse.move(alpha.x + alpha.width + 120, alpha.y + 60, { steps: 8 });
+  await expect(page.locator(".visual-drag-preview")).toBeHidden();
+  await page.mouse.up();
+  await expect(code).toHaveText("[spoiler=P][spoiler=A]alpha[/spoiler][spoiler=B]beta[/spoiler][/spoiler]");
+  const a = (await head("A").boundingBox())!, b = (await head("B").boundingBox())!;
+  await page.mouse.move(a.x + 80, a.y + a.height / 2); await page.mouse.down();
+  await page.mouse.move(b.x + 80, b.y + 4, { steps: 8 });
+  await expect(page.locator(".visual-drop-ghost")).toHaveCount(0);
+  await page.mouse.up();
+  await expect(code).toHaveText("[spoiler=P][spoiler=A]alpha[/spoiler][spoiler=B]beta[/spoiler][/spoiler]");
+});
+
+test("clicking the empty area of a spoiler starts typing there", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("[spoiler=E][/spoiler]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  const body = (await page.locator(".spoiler-body").first().boundingBox())!;
+  await page.mouse.click(body.x + body.width - 20, body.y + 6);
+  await page.keyboard.type("hi");
+  await page.keyboard.press("Enter");
+  await expect(code).toHaveText("[spoiler=E]hi[/spoiler]");
+});
