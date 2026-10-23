@@ -23,3 +23,5 @@
 .cm-editor .bb-bracket { color: #bcbec4; }
 .cm-editor .bb-name { color: #d5b778; }
 .cm-editor .bb-parameter { color: #6aab73; }
+.cm-editor .cm-matchingTag { background: #3b4f6b; border-radius: 2px; }
+.cm-editor .cm-matchingTag .bb-name { color: #f0d9a0; }
