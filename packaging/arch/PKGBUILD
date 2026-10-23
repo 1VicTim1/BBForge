@@ -1,0 +1,22 @@
+# Maintainer: 1VicTim1 <184650295+1VicTim1@users.noreply.github.com>
+# Arch Linux / CachyOS package built from the release .deb produced by `npm run tauri:build`.
+# Usage: npm run tauri:build -- --bundles deb && cd packaging/arch && makepkg -f
+pkgname=bbforge
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Desktop BBCode editor and visual constructor for 4PDA posts"
+arch=('x86_64')
+url="https://github.com/1VicTim1/BBForge"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'libsoup3' 'glib2' 'cairo' 'pango' 'gdk-pixbuf2' 'hicolor-icon-theme')
+options=('!strip' '!debug')
+source=("BBForge_${pkgver}_amd64.deb::file://$(realpath ../../target/release/bundle/deb/BBForge_${pkgver}_amd64.deb)"
+        "LICENSE::file://$(realpath ../../LICENSE)")
+sha256sums=('SKIP' 'SKIP')
+noextract=("BBForge_${pkgver}_amd64.deb")
+
+package() {
+  bsdtar -xf "BBForge_${pkgver}_amd64.deb" data.tar.gz 2>/dev/null || bsdtar -xf "BBForge_${pkgver}_amd64.deb"
+  bsdtar -xf data.tar.* -C "$pkgdir"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
