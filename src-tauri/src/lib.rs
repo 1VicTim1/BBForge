@@ -5,7 +5,7 @@ pub mod session;
 #[cfg(all(target_os = "linux", feature = "legacy-webkit"))]
 mod webkit_compat;
 
-#[cfg(feature = "desktop")]
+#[cfg(feature = "desktop-runtime")]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -21,7 +21,7 @@ pub fn run() {
         .expect("ошибка запуска BBForge");
 }
 
-#[cfg(not(feature = "desktop"))]
+#[cfg(not(feature = "desktop-runtime"))]
 pub fn run() {
     panic!("BBForge desktop runtime requires the `desktop` Cargo feature");
 }

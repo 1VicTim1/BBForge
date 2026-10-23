@@ -8,13 +8,15 @@ build = "build.rs"
 [features]
 default = []
 legacy-webkit = ["desktop"]
-desktop = [
+# Runtime without bundled assets: `tauri dev` loads the Vite dev server with HMR.
+desktop-runtime = [
   "dep:tauri",
   "dep:tauri-plugin-dialog",
   "dep:tauri-plugin-opener",
-  "tauri/custom-protocol",
   "tauri/wry",
 ]
+# Release build: embeds the frontend from dist via the custom protocol.
+desktop = ["desktop-runtime", "tauri/custom-protocol"]
 
 [dependencies]
 atomic-write-file = "0.3"
