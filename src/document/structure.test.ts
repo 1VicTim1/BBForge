@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { copyNode, copyVisualRange, createSpoiler, placeNodeAt, extractNode, moveNode, moveVisualRange, nestedSpoilerRange, renameSpoiler, unwrapNode } from "./structure";
+import { copyNode, copyVisualRange, createSpoiler, placeNodeAt, tidyBlankLines, tidyDocumentBlankLines, extractNode, moveNode, moveVisualRange, nestedSpoilerRange, renameSpoiler, unwrapNode } from "./structure";
 import { applyChanges, decodeDocument, serializeDocument } from "./state";
 import { snapshotFixture, refFor } from "../test/structureFixture";
 
@@ -89,4 +89,18 @@ it("places a block at an exact position between siblings, outside its parent or 
   expect(apply(document.text.length - 2)).toBe("[spoiler=P][spoiler=A]a[/spoiler][spoiler=B]b[/spoiler][/spoiler]te[spoiler=C]c[/spoiler]xt");
   expect(placeNodeAt(document, snapshot, c, document.text.indexOf("[spoiler=C]"), false)).toBeNull();
   expect(() => placeNodeAt(document, snapshot, c, 3, false)).toThrow();
+});
+
+it("tidies blank lines inside a spoiler without touching nested blocks", () => {
+  const document = decodeDocument(new TextEncoder().encode("[spoiler=S]\n\n\n[quote]a\n\n\n[/quote]\n\n\n\ntext\n\n[/spoiler]"));
+  const snapshot = snapshotFixture(document);
+  const command = tidyBlankLines(document, snapshot, refFor(snapshot, 0))!;
+  expect(applyChanges(document, command.changes).text).toBe("[spoiler=S][quote]a\n\n\n[/quote]\n\ntext[/spoiler]");
+  expect(tidyBlankLines(applyChanges(document, command.changes), snapshotFixture(applyChanges(document, command.changes)), refFor(snapshotFixture(applyChanges(document, command.changes)), 0))).toBeNull();
+});
+
+it("removes blank lines between spoilers across the whole document", () => {
+  const document = decodeDocument(new TextEncoder().encode("intro\n\n\n\nmore\n[spoiler=A]\na\n[/spoiler]\n\n\n[spoiler=B]\n\n[spoiler=C]c[/spoiler]\n\n[spoiler=D]d[/spoiler]\n[/spoiler]\n"));
+  const command = tidyDocumentBlankLines(document, snapshotFixture(document))!;
+  expect(applyChanges(document, command.changes).text).toBe("intro\n\nmore\n[spoiler=A]a[/spoiler][spoiler=B][spoiler=C]c[/spoiler][spoiler=D]d[/spoiler][/spoiler]\n");
 });

@@ -164,3 +164,46 @@ export function copyVisualRange(document: DocumentState, snapshot: AnalysisSnaps
     selection: { from: at, to: at + fragment.insert.length },
   };
 }
+
+function tidyContainer(document: DocumentState, index: ReturnType<typeof createPositionIndex>, children: Node[], edges: boolean, changes: EditCommand["changes"]) {
+  children.forEach((child, at) => {
+    if (child.kind !== "text") return;
+    const from = index.byteToUtf16(child.span.start), to = index.byteToUtf16(child.span.end), text = document.text.slice(from, to);
+    const before = children[at - 1], after = children[at + 1];
+    const blockOrEdge = (node: Node | undefined) => node ? node.name === "spoiler" : edges;
+    let next: string;
+    if (!text.trim() && blockOrEdge(before) && blockOrEdge(after) && (before?.name === "spoiler" || after?.name === "spoiler")) next = "";
+    else {
+      next = text.replace(/\n(?:[ \t]*\n)+/g, "\n\n");
+      if (edges && at === 0) next = next.replace(/^\s*\n/, "");
+      if (edges && at === children.length - 1) next = next.replace(/\n\s*$/, "");
+    }
+    if (next !== text) changes.push({ from, to, insert: next });
+  });
+}
+function tidyNested(document: DocumentState, index: ReturnType<typeof createPositionIndex>, nodes: Node[], changes: EditCommand["changes"]) {
+  for (const node of nodes) {
+    if (node.kind === "text" || !node.wellFormed || node.name === "code") continue;
+    if (node.name === "spoiler") tidyContainer(document, index, node.children, true, changes);
+    tidyNested(document, index, node.children, changes);
+  }
+}
+
+/** Removes blank lines at the edges of a spoiler, between its nested spoilers, and collapses runs of blank lines. */
+export function tidyBlankLines(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef): EditCommand | null {
+  const { node } = resolveNode(document, snapshot, reference);
+  if (node.name !== "spoiler") throw new Error("Выберите спойлер");
+  const index = createPositionIndex(document.text), changes: EditCommand["changes"] = [];
+  tidyContainer(document, index, node.children, true, changes);
+  tidyNested(document, index, node.children, changes);
+  return changes.length ? { ...identity(document), label: "Убрать пустые строки", changes } : null;
+}
+
+/** Document-wide variant: also removes blank lines between top-level spoilers. */
+export function tidyDocumentBlankLines(document: DocumentState, snapshot: AnalysisSnapshot): EditCommand | null {
+  if (snapshot.documentId !== document.id || snapshot.revision !== document.revision || snapshot.source !== document.text) throw new Error("Дождитесь обновления структуры");
+  const index = createPositionIndex(document.text), changes: EditCommand["changes"] = [];
+  tidyContainer(document, index, snapshot.analysis.nodes, false, changes);
+  tidyNested(document, index, snapshot.analysis.nodes, changes);
+  return changes.length ? { ...identity(document), label: "Убрать пустые строки в документе", changes } : null;
+}

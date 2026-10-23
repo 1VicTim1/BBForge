@@ -24,7 +24,7 @@ export function TabStrip({ tabs, activeId, onActivate, onClose, onReorder }: {
           className="document-tab-activate"
           onClick={() => onActivate(tab.document.id)}
         >
-          <span className="file-icon">[ ]</span>
+          <span className="file-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16"><path d="M6.5 4.5h-2v7h2M9.5 4.5h2v7h-2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
           <span>{name}</span>
           {dirty && <span className="dirty-dot" aria-label="Есть несохранённые изменения">●</span>}
         </button>

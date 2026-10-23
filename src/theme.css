@@ -1,5 +1,5 @@
 /* CodeMirror colours matching the JetBrains New UI dark editor scheme. */
-.cm-editor { height: 100%; color: #bcbec4; background: #1e1f22; font-size: 13px; line-height: 1.6; }
+.cm-editor { height: 100%; color: #bcbec4; background: #1e1f22; font-size: var(--code-font-size, 13px); line-height: var(--code-line-height, 1.6); }
 .cm-editor .cm-scroller { font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace; }
 .cm-editor .cm-gutters { min-width: 48px; padding-right: 6px; color: #4b5059; background: #1e1f22; border-right: 0; }
 .cm-editor .cm-activeLineGutter { color: #a1a3ab; background: transparent; }
