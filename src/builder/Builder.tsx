@@ -32,7 +32,8 @@ export function Builder(props: BuilderProps) {
   useLayoutEffect(() => { if (root.current) { root.current.scrollLeft = props.scroll?.left ?? 0; root.current.scrollTop = props.scroll?.top ?? 0; } }, [props.document.id]);
   useLayoutEffect(() => { if (root.current && props.storedSelection) restoreVisualSelection(root.current, props.storedSelection, props.restoreFocus); }, [props.document.id]);
   const [selectedRange, setSelectedRangeState] = useState<SourceRange | null>(null);
-  const setSelectedRange = (range: SourceRange | null) => { selectionRef.current = range; setSelectedRangeState(range); };
+  // Only a real text selection can be dragged as text; selecting a whole block must not turn into a text drag.
+  const setSelectedRange = (range: SourceRange | null, text = false) => { selectionRef.current = text && range && range.from < range.to ? range : null; setSelectedRangeState(range); };
   useEffect(() => {
     const host = root.current;
     if (!host) return;
@@ -102,7 +103,7 @@ export function Builder(props: BuilderProps) {
         requestAnimationFrame(() => {
           if (anchor !== null && head !== null && head !== anchor) {
             const range = { from: Math.min(anchor, head), to: Math.max(anchor, head) };
-            highlightSelection(range.from, range.to); setSelectedRange(range); latest.current.onRange({ ...identity(latest.current.getDocument()), ...range });
+            highlightSelection(range.from, range.to); setSelectedRange(range, true); latest.current.onRange({ ...identity(latest.current.getDocument()), ...range });
           }
           else if (anchor !== null) placeCaret(leaf, anchor);
         });
@@ -203,7 +204,9 @@ export function Builder(props: BuilderProps) {
     const fillPreview = (payload: Payload) => {
       preview.replaceChildren();
       ghostLabel = null;
-      if (payload.kind === "text") { ghostLabel = latest.current.getDocument().text.slice(payload.range.from, payload.range.to).replace(/\[[^\]]*\]/g, "").replace(/\s+/g, " ").slice(0, 80); preview.textContent = ghostLabel; }
+      if (payload.kind === "text") { let label = latest.current.getDocument().text.slice(payload.range.from, payload.range.to);
+        for (let previous = ""; previous !== label;) { previous = label; label = label.replace(/\[[^[\]]*\]/g, ""); }
+        ghostLabel = label.replace(/\s+/g, " ").trim().slice(0, 80); preview.textContent = ghostLabel; }
       else {
         const head = payload.element.querySelector(":scope > summary") ?? payload.element;
         const copy = head.cloneNode(true) as HTMLElement; copy.removeAttribute("data-at-from");
@@ -217,7 +220,12 @@ export function Builder(props: BuilderProps) {
     const gesture = (event: PointerEvent, payload: Payload, onClick: () => void) => {
       const startX = event.clientX, startY = event.clientY;
       let dragging = false, drop: Drop | null = null, lastX = startX, lastY = startY;
-      const update = (copy: boolean) => { host.dataset.dragCopy = String(copy); preview.dataset.copy = String(copy); drop = locate(payload, lastX, lastY); paint(drop); };
+      const update = (copy: boolean) => {
+        host.dataset.dragCopy = String(copy); preview.dataset.copy = String(copy);
+        drop = locate(payload, lastX, lastY);
+        if (!copy && drop?.kind === "block" && payload.kind === "node" && (drop.at === atFrom(payload.element) || drop.at === Number(payload.element.dataset.atTo))) drop = null;
+        paint(drop);
+      };
       const move = (next: PointerEvent) => {
         if (!(next.buttons & 1)) return;
         lastX = next.clientX; lastY = next.clientY;
@@ -252,6 +260,19 @@ export function Builder(props: BuilderProps) {
       window.addEventListener("pointermove", move, true); window.addEventListener("pointerup", up, true);
       window.addEventListener("keydown", key, true); window.addEventListener("keyup", key, true); host.addEventListener("scroll", onScroll);
     };
+    const focusEmptyArea = (body: HTMLElement, x: number, y: number) => {
+      const leaves = Array.from(body.querySelectorAll<HTMLElement>(".visual-text")).filter((leaf) => leaf.closest(".spoiler-body") === body && leaf.dataset.visualEditable !== "false");
+      let best: { leaf: HTMLElement; distance: number; rect: DOMRect } | null = null;
+      for (const leaf of leaves) for (const rect of Array.from(leaf.getClientRects())) {
+        const distance = y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0;
+        if (!best || distance < best.distance) best = { leaf, distance, rect };
+      }
+      if (best && best.distance < 24) {
+        const offset = sourceOffsetAt(Math.max(best.rect.left + 1, Math.min(x, best.rect.right - 1)), best.rect.top + best.rect.height / 2);
+        if (offset !== null) { placeCaret(best.leaf, offset); return; }
+      }
+      body.querySelector<HTMLButtonElement>(":scope > .empty-insert")?.click();
+    };
     const down = (event: PointerEvent) => {
       const target = event.target as Element;
       if (event.button !== 0 || target.closest("button,input,textarea,.insertion-text")) return;
@@ -268,7 +289,12 @@ export function Builder(props: BuilderProps) {
       }
       const summary = target.closest("summary");
       const element = (summary ? summary.parentElement : target.matches(".spoiler-body, .builder-spoiler") ? target.closest(".builder-spoiler") : null) as HTMLElement | null;
-      if (element?.dataset.dragKind === "spoiler" && host.contains(element)) { window.getSelection()?.removeAllRanges(); gesture(event, { kind: "node", element }, () => undefined); }
+      if (element?.dataset.dragKind === "spoiler" && host.contains(element)) {
+        window.getSelection()?.removeAllRanges();
+        const body = summary ? null : element.querySelector<HTMLElement>(":scope > .spoiler-body");
+        const x = event.clientX, y = event.clientY;
+        gesture(event, { kind: "node", element }, () => { if (body) focusEmptyArea(body, x, y); });
+      }
     };
     host.append(caret, textGhost); document.body.append(preview);
     host.addEventListener("pointerdown", down, true);
@@ -290,7 +316,7 @@ export function Builder(props: BuilderProps) {
     return { start, oldEnd, delta: end - oldEnd };
   }, [source, props.document.text]);
   const [paste, setPaste] = useState<{ range: SourceRange; text: string; documentId: string; revision: number } | null>(null);
-  const select = () => { if (root.current) { const range = readVisualSelection(root.current, props.getDocument()); if (range) { setSelectedRange(range); props.onRange(range); } } };
+  const select = () => { if (root.current) { const range = readVisualSelection(root.current, props.getDocument()); if (range) { setSelectedRange(range, true); props.onRange(range); } } };
   const run = (build: () => EditCommand) => { try { props.execute(build()); } catch (error) { props.onError(String(error)); } };
   const dragTarget = (reference: NodeRef, kind: "spoiler" | "list" | "item" | "text", from: number, to: number) => ({ "data-drag-kind": kind, "data-drag-start": reference.span.start, "data-drag-end": reference.span.end, "data-at-from": from, "data-at-to": to });
   const render = (node: Node, path: string, literal = false, movable?: NodeRef): React.ReactNode => {
