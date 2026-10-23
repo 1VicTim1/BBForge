@@ -4,7 +4,7 @@ import type { DocumentState } from "../document/state";
 import type { EditCommand, SourceRange } from "../document/commands";
 import { identity } from "../document/commands";
 import { createPositionIndex } from "../document/positions";
-import { copyNode, copyVisualRange, moveNode, moveVisualRange, nodeRef, placeNodeAt, type NodeRef } from "../document/structure";
+import { copyVisualRange, moveVisualRange, nodeRef, placeNodeAt, type NodeRef } from "../document/structure";
 import { EdgeAutoScroller } from "../drag/edgeAutoScroll";
 import { TextLeaf } from "./TextLeaf";
 import { literalPaste, textEditCommand } from "./input";
@@ -112,7 +112,7 @@ export function Builder(props: BuilderProps) {
     };
     type Payload = { kind: "text"; range: SourceRange } | { kind: "node"; element: HTMLElement };
     type Slot = { parent: Element; before: Element | null };
-    type Drop = { kind: "text"; at: number } | { kind: "item"; element: HTMLElement; placement: "before" | "after" } | { kind: "block"; at: number; slot: Slot | null };
+    type Drop = { kind: "text"; at: number } | { kind: "block"; at: number; slot: Slot | null };
     const caret = document.createElement("div"); caret.className = "visual-drop-caret"; caret.hidden = true;
     const ghost = document.createElement("div"); ghost.className = "visual-drop-ghost"; ghost.setAttribute("aria-hidden", "true");
     const preview = document.createElement("div"); preview.className = "visual-drag-preview"; preview.hidden = true;
@@ -142,12 +142,6 @@ export function Builder(props: BuilderProps) {
         return at === null || (at >= payload.range.from && at <= payload.range.to) ? null : { kind: "text", at };
       }
       if (!hit || !host.contains(hit) || payload.element.contains(hit)) return null;
-      if (payload.element.dataset.dragKind === "item") {
-        const element = hit.closest<HTMLElement>('[data-drag-kind="item"]');
-        if (!element || element === payload.element) return null;
-        const rect = element.getBoundingClientRect();
-        return { kind: "item", element, placement: y < rect.top + rect.height / 2 ? "before" : "after" };
-      }
       const summary = hit.closest("summary"), spoiler = summary?.parentElement as HTMLElement | undefined;
       if (summary && spoiler) {
         if (!(spoiler as HTMLDetailsElement).open && hoverOpen?.element !== spoiler) {
@@ -169,7 +163,8 @@ export function Builder(props: BuilderProps) {
       const container = hit.closest<HTMLElement>(".spoiler-body, .builder-page") ?? (hit.closest(".builder-caption") ? null : host.querySelector<HTMLElement>(".builder-page"));
       return container ? { kind: "block", ...slotIn(container, y, payload.element) } : null;
     };
-    const showCaret = (at: number) => {
+    const textGhost = document.createElement("div"); textGhost.className = "visual-drop-text-ghost"; textGhost.hidden = true;
+    const showCaret = (at: number, label: string | null) => {
       const leaf = Array.from(host.querySelectorAll<HTMLElement>(".visual-text[data-source-from]")).find((item) => Number(item.dataset.sourceFrom) <= at && at <= Number(item.dataset.sourceTo));
       const text = leaf?.firstChild;
       if (!leaf || !text) return;
@@ -178,20 +173,20 @@ export function Builder(props: BuilderProps) {
       const rect = range.getClientRects()[0] ?? leaf.getBoundingClientRect(), base = host.getBoundingClientRect();
       Object.assign(caret.style, { left: `${rect.left - base.left + host.scrollLeft}px`, top: `${rect.top - base.top + host.scrollTop}px`, height: `${rect.height || 18}px` });
       caret.hidden = false;
+      textGhost.hidden = !label;
+      if (label) { textGhost.textContent = label; Object.assign(textGhost.style, { left: caret.style.left, top: caret.style.top, lineHeight: `${rect.height || 18}px` }); }
     };
-    let painted: HTMLElement | null = null;
+    let ghostLabel: string | null = null;
     const paint = (drop: Drop | null) => {
       lastDrop = drop;
-      if (painted) delete painted.dataset.dropPlacement;
-      painted = null; caret.hidden = true;
+      caret.hidden = true; textGhost.hidden = true;
       if (!drop?.kind || drop.kind !== "block" || !drop.slot) ghost.remove();
       if (!drop) return;
-      if (drop.kind === "item") { painted = drop.element; painted.dataset.dropPlacement = drop.placement; return; }
       if (drop.kind === "block" && drop.slot) {
         if (ghost.parentElement !== drop.slot.parent || ghost.nextElementSibling !== drop.slot.before) drop.slot.parent.insertBefore(ghost, drop.slot.before);
         return;
       }
-      showCaret(drop.at);
+      showCaret(drop.at, drop.kind === "text" ? ghostLabel : null);
     };
     const apply = (payload: Payload, drop: Drop, copy: boolean) => {
       const current = latest.current, document = current.getDocument(), snapshot = snapshotRef.current;
@@ -199,7 +194,6 @@ export function Builder(props: BuilderProps) {
       try {
         let command: EditCommand | null = null;
         if (payload.kind === "text" && drop.kind === "text") command = (copy ? copyVisualRange : moveVisualRange)(document, snapshot, payload.range, drop.at);
-        else if (payload.kind === "node" && drop.kind === "item") command = (copy ? copyNode : moveNode)(document, snapshot, { ...identity(document), span: spanOf(payload.element) }, { node: { ...identity(document), span: spanOf(drop.element) }, placement: drop.placement });
         else if (payload.kind === "node" && drop.kind === "block") command = placeNodeAt(document, snapshot, { ...identity(document), span: spanOf(payload.element) }, drop.at, copy);
         if (!command) return;
         current.execute(command);
@@ -208,7 +202,8 @@ export function Builder(props: BuilderProps) {
     };
     const fillPreview = (payload: Payload) => {
       preview.replaceChildren();
-      if (payload.kind === "text") { preview.textContent = latest.current.getDocument().text.slice(payload.range.from, payload.range.to).replace(/\[[^\]]*\]/g, "").slice(0, 80); }
+      ghostLabel = null;
+      if (payload.kind === "text") { ghostLabel = latest.current.getDocument().text.slice(payload.range.from, payload.range.to).replace(/\[[^\]]*\]/g, "").replace(/\s+/g, " ").slice(0, 80); preview.textContent = ghostLabel; }
       else {
         const head = payload.element.querySelector(":scope > summary") ?? payload.element;
         const copy = head.cloneNode(true) as HTMLElement; copy.removeAttribute("data-at-from");
@@ -271,12 +266,13 @@ export function Builder(props: BuilderProps) {
         selectText(event, leaf);
         return;
       }
-      const element = target.closest<HTMLElement>('[data-drag-kind]:not([data-drag-kind="text"])');
-      if (element && host.contains(element)) { window.getSelection()?.removeAllRanges(); gesture(event, { kind: "node", element }, () => undefined); }
+      const summary = target.closest("summary");
+      const element = (summary ? summary.parentElement : target.matches(".spoiler-body, .builder-spoiler") ? target.closest(".builder-spoiler") : null) as HTMLElement | null;
+      if (element?.dataset.dragKind === "spoiler" && host.contains(element)) { window.getSelection()?.removeAllRanges(); gesture(event, { kind: "node", element }, () => undefined); }
     };
-    host.append(caret); document.body.append(preview);
+    host.append(caret, textGhost); document.body.append(preview);
     host.addEventListener("pointerdown", down, true);
-    return () => { host.removeEventListener("pointerdown", down, true); caret.remove(); ghost.remove(); preview.remove(); scroller.stop(); if (typeof CSS !== "undefined") (CSS as unknown as { highlights?: Map<string, unknown> }).highlights?.delete("bbforge-selection"); };
+    return () => { host.removeEventListener("pointerdown", down, true); caret.remove(); textGhost.remove(); ghost.remove(); preview.remove(); scroller.stop(); if (typeof CSS !== "undefined") (CSS as unknown as { highlights?: Map<string, unknown> }).highlights?.delete("bbforge-selection"); };
   }, [props.document.id]);
   const retained = useRef<AnalysisSnapshot | null>(null);
   if (props.snapshot?.documentId === props.document.id) retained.current = props.snapshot;
