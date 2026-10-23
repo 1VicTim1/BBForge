@@ -470,3 +470,4 @@ button, .tree-row, .diagnostic-row, .keymap-row, .document-tab, .app-menu > summ
 .builder-spoiler > summary::before { transition: transform 140ms ease; }
 .diagnostics, .panel.outline, .properties { animation: bb-fade 120ms ease-out; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } }
+.builder:focus { outline: none; }

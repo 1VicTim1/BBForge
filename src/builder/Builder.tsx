@@ -58,7 +58,13 @@ export function Builder(props: BuilderProps) {
         return x < rect.left + rect.width / 2 ? Number(element.dataset.sourceFrom) : Number(element.dataset.sourceTo);
       }
       const prefix = document.createRange(); prefix.selectNodeContents(element); prefix.setEnd(node, at);
-      return Number(element.dataset.sourceFrom) + prefix.toString().length;
+      const offset = Number(element.dataset.sourceFrom) + prefix.toString().length;
+      // Past the end (or before the start) of a line, take the adjacent closing (opening) tags too, so
+      // selecting "the whole line" includes its formatting wrappers.
+      const rects = Array.from(element.getClientRects()), text = latest.current.getDocument().text;
+      if (offset === Number(element.dataset.sourceTo) && rects.length && x > rects[rects.length - 1].right) return offset + (/^(?:\[\/[^\]\n]+\])+/.exec(text.slice(offset))?.[0].length ?? 0);
+      if (offset === Number(element.dataset.sourceFrom) && rects.length && x < rects[0].left) return offset - (/(?:\[[^/\]\n][^\]\n]*\])+$/.exec(text.slice(Math.max(0, offset - 2000), offset))?.[0].length ?? 0);
+      return offset;
     };
     const highlightSelection = (from: number, to: number) => {
       const registry = typeof CSS === "undefined" ? undefined : (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
@@ -103,7 +109,7 @@ export function Builder(props: BuilderProps) {
         requestAnimationFrame(() => {
           if (anchor !== null && head !== null && head !== anchor) {
             const range = { from: Math.min(anchor, head), to: Math.max(anchor, head) };
-            highlightSelection(range.from, range.to); setSelectedRange(range, true); latest.current.onRange({ ...identity(latest.current.getDocument()), ...range });
+            highlightSelection(range.from, range.to); setSelectedRange(range, true); (document.activeElement as HTMLElement | null)?.blur(); host.focus({ preventScroll: true }); latest.current.onRange({ ...identity(latest.current.getDocument()), ...range });
           }
           else if (anchor !== null) placeCaret(leaf, anchor);
         });
@@ -294,7 +300,15 @@ export function Builder(props: BuilderProps) {
         const body = summary ? null : element.querySelector<HTMLElement>(":scope > .spoiler-body");
         const x = event.clientX, y = event.clientY;
         gesture(event, { kind: "node", element }, () => { if (body) focusEmptyArea(body, x, y); });
+        return;
       }
+      // Empty space next to text (left of a line start, right of its end) starts a selection too.
+      if (target.closest(".builder-caption, .properties, .opaque-block, .media-placeholder") || !host.contains(target)) return;
+      const anchor = sourceOffsetAt(event.clientX, event.clientY);
+      if (anchor === null) return;
+      const distance = (item: HTMLElement) => { const from = Number(item.dataset.sourceFrom), to = Number(item.dataset.sourceTo); return anchor < from ? from - anchor : anchor > to ? anchor - to : 0; };
+      const near = Array.from(host.querySelectorAll<HTMLElement>(".visual-text[data-source-from]")).reduce<HTMLElement | null>((best, item) => !best || distance(item) < distance(best) ? item : best, null);
+      if (near) selectText(event, near);
     };
     host.append(caret, textGhost); document.body.append(preview);
     host.addEventListener("pointerdown", down, true);
@@ -362,7 +376,7 @@ export function Builder(props: BuilderProps) {
     if (node.name === "url") return <span key={path} data-at-from={from} data-at-to={to} className={safeExternalUrl(node.parameter ?? "") ? "builder-link" : ""} title={node.parameter ?? ""} onClick={selectNode}>{children()}</span>;
     return <span key={path} data-at-from={from} data-at-to={to} style={style} onClick={selectNode}>{children()}</span>;
   };
-  return <div className="builder" ref={root} onMouseUp={select} onCopy={(event) => { if (selectedRange && selectedRange.from !== selectedRange.to) { event.preventDefault(); event.clipboardData.setData("text/plain", props.document.text.slice(selectedRange.from, selectedRange.to)); } }} onScroll={(event) => props.onScrollPosition?.({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}>
+  return <div className="builder" tabIndex={-1} ref={root} onMouseUp={select} onCopy={(event) => { if (selectedRange && selectedRange.from !== selectedRange.to) { event.preventDefault(); event.clipboardData.setData("text/plain", props.document.text.slice(selectedRange.from, selectedRange.to)); } }} onScroll={(event) => props.onScrollPosition?.({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}>
     <div className="builder-caption"><span>ВИЗУАЛЬНЫЙ ДОКУМЕНТ</span><small>{snapshot?.revision === props.document.revision ? "Синхронизирован с кодом" : "Обновление структуры…"}</small><button disabled={!selectedRange} onClick={() => selectedRange && props.onNavigate(selectedRange)}>К исходнику</button></div>
     <div className="builder-page">{snapshot ? Array.from({ length: Math.ceil(snapshot.analysis.nodes.length / 30) }, (_, group) => <LazyBlockGroup key={`${props.document.id}-${group}`} eager={group === 0} count={Math.min(30, snapshot.analysis.nodes.length - group * 30)}>{() => snapshot.analysis.nodes.slice(group * 30, group * 30 + 30).map((node, at) => render(node, String(group * 30 + at)))}</LazyBlockGroup>) : <p>Анализ документа…</p>}{snapshot?.analysis.nodes.length === 0 && render({ kind: "text", name: null, parameter: null, span: { start: 0, end: 0 }, contentSpan: { start: 0, end: 0 }, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, "empty")}</div>
     {paste && <div className="modal-backdrop"><section className="dialog" role="dialog" aria-label="Вставить текст"><h3>В тексте найдены BBCode-теги</h3><pre>{paste.text}</pre><button onClick={() => { run(() => ({ ...paste, label: "Вставить BBCode", changes: [{ ...paste.range, insert: paste.text }] })); setPaste(null); }}>Вставить как BBCode</button><button onClick={() => { run(() => ({ ...paste, label: "Вставить буквальный текст", changes: [{ ...paste.range, insert: literalPaste(paste.text) }] })); setPaste(null); }}>Буквально в code</button><button onClick={() => setPaste(null)}>Отмена</button></section></div>}
