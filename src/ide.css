@@ -50,7 +50,15 @@
 body { margin: 0; min-width: 760px; min-height: 100vh; background: var(--bg-editor); }
 h1, h2, h3, h4, p { margin: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }
-button, select, input:not([type=checkbox]):not([type=radio]) { -webkit-appearance: none; appearance: none; }
+button, select, input { -webkit-appearance: none; appearance: none; }
+input[type=checkbox], input[type=radio] { flex: 0 0 auto; width: 16px; height: 16px; min-width: 16px; margin: 0; padding: 0; background: var(--bg-input) center / 10px 10px no-repeat; border: 1px solid #5a5d63; border-radius: 3px; cursor: pointer; line-height: 0; }
+input[type=radio] { border-radius: 50%; }
+input[type=checkbox]:hover, input[type=radio]:hover { border-color: #868a91; }
+input[type=checkbox]:focus, input[type=radio]:focus { box-shadow: none; }
+input[type=checkbox]:focus-visible, input[type=radio]:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+input[type=checkbox]:checked { background-color: var(--accent); border-color: var(--accent); background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2l2 2L8 3' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+input[type=radio]:checked { border-color: var(--accent); background-image: radial-gradient(circle, var(--accent) 0 3.5px, transparent 4px); background-size: 100% 100%; }
+input[type=checkbox]:disabled, input[type=radio]:disabled { opacity: .4; cursor: default; }
 input[type=color] { -webkit-appearance: none; appearance: none; }
 /* IDE chrome is never text-selectable; only documents, editors and fields are. */
 .app { -webkit-user-select: none; user-select: none; }
@@ -346,7 +354,7 @@ small, .muted { color: var(--text-muted); }
 .dialog header { display: flex; align-items: start; justify-content: space-between; }
 .dialog header button { width: 24px; height: 24px; padding: 0; color: var(--text-muted); }
 .dialog label { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.dialog input { flex: 1; }
+.dialog input:not([type=checkbox]):not([type=radio]) { flex: 1; }
 .dialog p { margin: 10px 0; color: var(--text-muted); font-size: 12px; }
 .dialog pre { max-height: 45vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--font-code); }
 .dialog > button, .dialog footer button { margin: 8px 6px 0 0; padding: 3px 14px; border-color: var(--line-strong); }
@@ -363,7 +371,7 @@ small, .muted { color: var(--text-muted); }
 .fix-options { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 .dialog .fix-option { display: flex; align-items: center; gap: 8px; margin: 0; padding: 5px 10px; border: 1px solid var(--line-soft); border-radius: var(--radius); cursor: pointer; }
 .dialog .fix-option:has(input:checked) { background: #3574f01f; border-color: var(--accent); }
-.fix-option input { flex: 0 0 auto; accent-color: var(--accent); }
+
 
 @media (max-width: 1150px) {
   .top-document > span:last-child, .app-menu:nth-child(5) { display: none; }
@@ -385,10 +393,11 @@ small, .muted { color: var(--text-muted); }
 .settings-page h4 { margin-bottom: 12px; font-size: 13px; font-weight: 600; color: var(--text); }
 .settings-row { display: flex; align-items: center; gap: 16px; min-height: 32px; margin-bottom: 6px; }
 .settings-label { display: flex; flex-direction: column; width: 230px; flex-shrink: 0; }
-.settings-label small, .settings-check small { display: block; font-size: 12px; color: var(--text-muted); }
+.settings-label small, .settings-check small { display: block; font-size: 12px; line-height: 16px; color: var(--text-muted); }
 .settings-control select { min-width: 200px; }
 .dialog .settings-check { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 10px; cursor: pointer; }
-.settings-check input { flex: 0 0 auto; margin: 3px 0 0; accent-color: var(--accent); }
+.settings-check input { margin-top: 2px; }
+.settings-check > span { line-height: 20px; }
 .settings-dialog > footer { display: flex; align-items: center; margin: 0; padding: 10px 12px; border-top: 1px solid var(--line-soft); }
 .settings-dialog > footer .settings-reset { margin: 0; }
 
