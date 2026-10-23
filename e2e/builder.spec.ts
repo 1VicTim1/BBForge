@@ -568,3 +568,17 @@ test("underlines problems in code and fixes them from the context menu", async (
   await page.getByRole("menuitem", { name: /Исправить: Удалить пустой тег \[b\]/ }).click();
   await expect(code).toHaveText("[color=#AAAAAA]x[/color]  ");
 });
+
+test("selecting past the end of a formatted line includes its closing tags", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const line = '[b][color=Green]Куратор [/color][color=Blue][url="https://4pda.to/b"]QMS[/url][/color][/b]';
+  await page.locator(".cm-content").fill(`intro\n${line}\nnext`);
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  const first = (await page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "Куратор" }).boundingBox())!;
+  const qms = (await page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: /^QMS$/ }).boundingBox())!;
+  await page.mouse.move(first.x - 6, first.y + first.height / 2); await page.mouse.down();
+  await page.mouse.move(qms.x + qms.width + 120, qms.y + qms.height / 2, { steps: 10 }); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => CSS.highlights.has("bbforge-selection"))).toBe(true);
+  await page.keyboard.press("Control+KeyC");
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(line);
+});
