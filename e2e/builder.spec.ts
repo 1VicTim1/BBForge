@@ -506,3 +506,15 @@ test("refactoring merges adjacent tags and reports when there is nothing to chan
   await open(); await page.getByRole("button", { name: "Удалить пустые теги" }).click();
   await expect(page.getByRole("alert")).toContainText("изменять нечего");
 });
+
+test("highlights the matching opening tag when the cursor is on a closing tag", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("[spoiler=[b]T[/b]][color=red]Text[/color][/spoiler]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await page.locator(".cm-line").first().click();
+  await page.keyboard.press("End");
+  for (let step = 0; step < 14; step++) await page.keyboard.press("ArrowLeft");
+  await expect(page.locator(".cm-matchingTag")).toHaveCount(2);
+  await expect(page.locator(".cm-matchingTag").first()).toContainText("[color=red]");
+  await expect(page.locator(".cm-matchingTag").last()).toContainText("[/color]");
+});
