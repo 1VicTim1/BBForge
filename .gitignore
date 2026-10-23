@@ -12,3 +12,4 @@ src-tauri/gen/
 src-tauri/icons/ios/
 src-tauri/icons/mipmap-*/
 
+packages/

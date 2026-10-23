@@ -77,6 +77,17 @@ npm run tauri:build
 
 В dev-режиме используется фича `desktop-runtime`: окно загружает Vite-сервер, правки интерфейса применяются сразу, а изменения Rust пересобираются автоматически. `desktop` дополнительно включает `tauri/custom-protocol`: готовое приложение загружает встроенные ресурсы и не требует Vite или Node.js. Основная сборка использует нативный WebKitGTK 4.1; совместимость с конкретной версией RED OS или CachyOS требует проверки на ней. Экспериментальный `legacy-webkit` отключён по умолчанию: его заглушки API не являются гарантией полноценной работы старого WebKitGTK.
 
+### Пакеты для дистрибутивов
+
+```bash
+npm run tauri:build -- --bundles deb,rpm,appimage
+```
+
+- `target/release/bundle/deb/*.deb` — Ubuntu 22.04+ / Debian 12+ (`sudo apt install ./BBForge_*.deb`);
+- `target/release/bundle/rpm/*.rpm` — Fedora, RHEL, RED OS (`sudo dnf install ./BBForge-*.rpm`);
+- `target/release/bundle/appimage/*.AppImage` — переносимая сборка для любого дистрибутива;
+- Arch Linux / CachyOS: после сборки `.deb` выполните `cd packaging/arch && makepkg -f`, затем `sudo pacman -U bbforge-*.pkg.tar.zst`.
+
 Проверка настоящего Linux release-окна без dev-сервера (WebKitWebDriver, Xvfb и D-Bus):
 
 ```bash
