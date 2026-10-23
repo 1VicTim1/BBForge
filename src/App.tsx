@@ -35,6 +35,9 @@ import { Workspace } from "./layout/Workspace";
 import { Splitter } from "./layout/Splitter";
 import { StatusBar } from "./layout/StatusBar";
 import { SettingsDialog } from "./settings/SettingsDialog";
+import { useMenuDismiss } from "./components/menuDismiss";
+import type { DocumentState } from "./document/state";
+import { lowercaseTagNames, mergeAdjacentTags, removeEmptyTags, removeEscapedTags, removeRedundantNesting, trimTrailingWhitespace } from "./document/refactor";
 import { loadPreferences, preferenceStyle, PreferencesContext, savePreferences } from "./settings/preferences";
 import { TabStrip } from "./workspace/TabStrip";
 import { createWorkspace, workspaceReducer } from "./workspace/session";
@@ -47,6 +50,20 @@ import { extractPreviewBbcode, readPreviewSelection, type PreviewSelection } fro
 import "./ide.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
+
+interface Refactoring { title: string; hint: string; needsSpoiler?: boolean; build(document: DocumentState, snapshot: AnalysisSnapshot, selected: NodeRef | null): EditCommand | null }
+const refactorings: Array<Refactoring | null> = [
+  { title: "Убрать пустые строки в документе", hint: "Между спойлерами ([/spoiler][spoiler]) и в начале/конце спойлеров; повторы схлопываются", build: (document, snapshot) => tidyDocumentBlankLines(document, snapshot) },
+  { title: "Убрать пустые строки в спойлере", hint: "Только в выбранном спойлере", needsSpoiler: true, build: (document, snapshot, selected) => selected ? tidyBlankLines(document, snapshot, selected) : null },
+  { title: "Убрать пробелы в конце строк", hint: "Кроме содержимого [code]", build: trimTrailingWhitespace },
+  null,
+  { title: "Удалить пустые теги", hint: "[b][/b], [color=…] [/color] и подобные; пробелы сохраняются", build: removeEmptyTags },
+  { title: "Склеить соседние одинаковые теги", hint: "[b]a[/b][b]b[/b] → [b]ab[/b]", build: mergeAdjacentTags },
+  { title: "Убрать повторное оформление", hint: "[b]x [b]y[/b][/b] → [b]x y[/b]", build: removeRedundantNesting },
+  { title: "Привести теги к нижнему регистру", hint: "[B], [SPOILER=…] → [b], [spoiler=…]; параметры не меняются", build: lowercaseTagNames },
+  null,
+  { title: "Удалить теги, преобразованные форумом", hint: "Все фрагменты вида &#91;…&#93;", build: removeEscapedTags },
+];
 
 export default function App() {
   const [workspace, dispatchWorkspace] = useReducer(workspaceReducer, decodeDocument(new TextEncoder().encode(example)), createWorkspace);
@@ -61,6 +78,7 @@ export default function App() {
   const mode = layout.mode;
   const setMode = (mode: WorkspaceMode) => { if (!composition.current && !controller?.isComposing()) { setLayout((current) => ({ ...current, mode })); setShowPreview(false); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { mode, showPreview: false } }); } };
   useEffect(() => { saveLayout(localStorage, layout); }, [layout]);
+  const menus = useRef<HTMLElement>(null); useMenuDismiss(menus);
   const [preferences, setPreferences] = useState(() => loadPreferences(localStorage)), [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => { savePreferences(localStorage, preferences); }, [preferences]);
   const restoreSession = useRef(preferences.restoreSession);
@@ -292,15 +310,16 @@ export default function App() {
   const navigate = (span: Span) => { const range = { from: byteToUtf16(document.text, span.start), to: byteToUtf16(document.text, span.end) }; setActiveRange(range); visualNavigate(range); };
   const closeAppMenu = (event: React.MouseEvent<HTMLElement>) => event.currentTarget.closest("details")?.removeAttribute("open");
   const focusSearch = () => { setMode("code"); requestAnimationFrame(() => { controller?.select(activeRange); globalThis.document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "f", code: "KeyF", ctrlKey: true, bubbles: true })); }); };
+  const refactor = (item: Refactoring) => { if (!currentSnapshot) return; run(() => { const command = item.build(documentRef.current, currentSnapshot, selected ?? null); if (!command) throw new Error(`${item.title}: изменять нечего`); return command; }); };
   const appearance = preferenceStyle(preferences);
   return <PreferencesContext.Provider value={preferences}><main className={`app ${appearance.className}`} style={appearance.style as React.CSSProperties} onContextMenu={openContextMenu}>
     <header className="toolbar">
       <div className="brand-icon">BF</div><h1>BBForge</h1>
-      <nav className="app-menus" aria-label="Главное меню">
+      <nav className="app-menus" aria-label="Главное меню" ref={menus}>
         <details className="app-menu"><summary>Файл</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); setSettingsOpen(true); }}>Настройки… <kbd>Ctrl+Alt+S</kbd></button><button onClick={(event) => { closeAppMenu(event); void newDocument(); }}>Новый документ <kbd>Ctrl+N</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void openDocument(); }}>Открыть… <kbd>Ctrl+O</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void saveCurrent(); }}>Сохранить <kbd>Ctrl+S</kbd></button><button disabled={!isTauri()} onClick={(event) => { closeAppMenu(event); void saveCurrent(true); }}>Сохранить как…</button></div></details>
         <details className="app-menu"><summary>Правка</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); historyAction(false); }}>Отменить <kbd>Ctrl+Z</kbd></button><button onClick={(event) => { closeAppMenu(event); historyAction(true); }}>Повторить <kbd>Ctrl+Shift+Z</kbd></button><button onClick={(event) => { closeAppMenu(event); showFix(); }}>Исправить в позиции… <kbd>Alt+Enter</kbd></button></div></details>
         <details className="app-menu"><summary>Вид</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); setLayout({ ...layout, showOutline: !layout.showOutline }); }}>{layout.showOutline ? "Скрыть" : "Показать"} структуру</button><button onClick={(event) => { closeAppMenu(event); setLayout({ ...layout, showProblems: !layout.showProblems }); }}>{layout.showProblems ? "Скрыть" : "Показать"} проблемы</button><button onClick={(event) => { closeAppMenu(event); const value = !showPreview; setShowPreview(value); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { showPreview: value } }); }}>{showPreview ? "Закрыть" : "Открыть"} предпросмотр</button></div></details>
-        <details className="app-menu"><summary>Рефакторинг</summary><div className="app-menu-popup"><button disabled={!currentSnapshot} onClick={(event) => { closeAppMenu(event); if (currentSnapshot) run(() => { const command = tidyDocumentBlankLines(documentRef.current, currentSnapshot); if (!command) throw new Error("Лишних пустых строк нет"); return command; }); }}>Убрать пустые строки в документе</button><button disabled={!currentSnapshot || !selected} title="Выберите спойлер в конструкторе или структуре" onClick={(event) => { closeAppMenu(event); if (currentSnapshot && selected) run(() => { const command = tidyBlankLines(documentRef.current, currentSnapshot, selected); if (!command) throw new Error("Лишних пустых строк нет"); return command; }); }}>Убрать пустые строки в спойлере</button></div></details>
+        <details className="app-menu"><summary>Рефакторинг</summary><div className="app-menu-popup">{refactorings.map((item, at) => item === null ? <span key={at} className="menu-separator" /> : <button key={item.title} title={item.hint} disabled={!currentSnapshot || (item.needsSpoiler && !selected)} onClick={(event) => { closeAppMenu(event); refactor(item); }}>{item.title}</button>)}</div></details>
         <details className="app-menu"><summary>Инструменты</summary><div className="app-menu-popup"><button onClick={(event) => { closeAppMenu(event); setLayout({ ...defaultLayout }); setShowPreview(false); }}>Восстановить раскладку</button><button onClick={(event) => { closeAppMenu(event); showAllFixes(); }}>Исправить однозначные ошибки</button></div></details>
       </nav>
       <span className="spacer" /><span className="top-document"><Icon name="file" />{document.path?.split(/[\\/]/).at(-1) ?? "Без имени"}<span>/ Рабочее пространство</span></span><span className="spacer" />

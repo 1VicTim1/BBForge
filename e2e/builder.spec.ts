@@ -472,3 +472,37 @@ test("refactoring removes blank lines between and inside spoilers", async ({ pag
   await page.getByRole("button", { name: "Убрать пустые строки в документе" }).click();
   await expect(code).toHaveText("[spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
 });
+
+test("menus close on outside click, Escape and when the pointer stays away", async ({ page }) => {
+  const menu = (title: string) => page.locator(".app-menu", { has: page.locator("summary", { hasText: title }) });
+  await menu("Рефакторинг").locator("summary").click();
+  await expect(menu("Рефакторинг")).toHaveAttribute("open", "");
+  await page.locator(".cm-content").click();
+  await expect(menu("Рефакторинг")).not.toHaveAttribute("open", "");
+  await menu("Файл").locator("summary").click();
+  await menu("Правка").locator("summary").hover();
+  await expect(menu("Правка")).toHaveAttribute("open", "");
+  await expect(menu("Файл")).not.toHaveAttribute("open", "");
+  await page.keyboard.press("Escape");
+  await expect(menu("Правка")).not.toHaveAttribute("open", "");
+  await menu("Вид").locator("summary").click();
+  await page.mouse.move(700, 600, { steps: 4 });
+  await page.waitForTimeout(800);
+  await page.mouse.move(705, 605);
+  await expect(menu("Вид")).not.toHaveAttribute("open", "");
+});
+
+test("refactoring merges adjacent tags and reports when there is nothing to change", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("[B]a[/B][b]b[/b]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  const open = async () => page.locator(".app-menu > summary", { hasText: "Рефакторинг" }).click();
+  await open(); await page.getByRole("button", { name: "Привести теги к нижнему регистру" }).click();
+  await expect(code).toHaveText("[b]a[/b][b]b[/b]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await open(); await page.getByRole("button", { name: "Склеить соседние одинаковые теги" }).click();
+  await expect(code).toHaveText("[b]ab[/b]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await open(); await page.getByRole("button", { name: "Удалить пустые теги" }).click();
+  await expect(page.getByRole("alert")).toContainText("изменять нечего");
+});
