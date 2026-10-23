@@ -34,7 +34,9 @@ it("repairs a crossed closing tag by closing and reopening the inner tags", () =
   snapshot.analysis.tokens = tokenize(source);
   const closing = snapshot.analysis.tokens[2];
   const fixes = suggestFixes(document, snapshot, { code: "crossedClosingTag", severity: "warning", message: "", span: closing.span, line: 1, column: 9 });
-  expect(fixes.map((fix) => applyChanges(document, fix.command.changes).text)).toEqual(["[i]a[b]b[/b][/i][b]c[/b]", "[i]a[b]bc[/b]"]);
+  expect(fixes.map((fix) => applyChanges(document, fix.command.changes).text)).toEqual(["[i]a[b]b[/b][/i][b]c[/b]", "[i]a[b]b[/b][/i]c[/b]", "[i]a[b]bc[/b]"]);
+  expect(fixes[0].impact).toBe("устраняет 2 ошибки");
+  expect(fixes[1].impact).toBe("устраняет 1 ошибку");
 });
 
 it("only closes inner tags that never close later", () => {
@@ -60,4 +62,31 @@ it("preserves a colored link by reordering adjacent opening tags", () => {
 
   expect(fixes).toHaveLength(1);
   expect(applyChanges(document, fixes[0].command.changes).text).toBe('[url="https://4pda.to"][color=Blue]QMS[/color][/url]');
+});
+
+it("does not reopen inner tags whose closing comes after the enclosing tag closes", () => {
+  const source = "[b][i]Curator [color=Blue][url=x]QMS[/i][/b] tail [/color]";
+  const document = decodeDocument(new TextEncoder().encode(source)), snapshot = snapshotFixture(document);
+  snapshot.analysis.tokens = tokenize(source);
+  const closing = snapshot.analysis.tokens.find((token) => token.kind === "closingTag" && token.name === "i")!;
+  const [best] = suggestFixes(document, snapshot, { code: "crossedClosingTag", severity: "warning", message: "", span: closing.span, line: 1, column: 1 });
+  expect(applyChanges(document, best.command.changes).text).toBe("[b][i]Curator [color=Blue][url=x]QMS[/url][/color][/i][/b] tail [/color]");
+});
+
+it("removes an escaped pair inside a link parameter and does not offer restoring it there", () => {
+  const source = '[url="https://4pda.to/forum/index.ph&#91;LIST&#93;&#91;/LIST&#93;p?showtopic=1"]A[/url]';
+  const document = decodeDocument(new TextEncoder().encode(source)), snapshot = snapshotFixture(document);
+  const from = source.indexOf("&#91;LIST"), escaped = "&#91;LIST&#93;";
+  const fixes = suggestFixes(document, snapshot, { code: "escapedBbcodeTag", severity: "info", message: "", span: { start: from, end: from + escaped.length }, line: 1, column: 1 });
+  expect(fixes).toHaveLength(1);
+  expect(applyChanges(document, fixes[0].command.changes).text).toBe('[url="https://4pda.to/forum/index.php?showtopic=1"]A[/url]');
+});
+
+it("treats a forum-escaped closing tag as the missing closing tag", () => {
+  const source = "[b]bold text&#91;/b&#93; tail";
+  const document = decodeDocument(new TextEncoder().encode(source)), snapshot = snapshotFixture(document);
+  const [best] = suggestFixes(document, snapshot, { code: "unclosedTag", severity: "error", message: "", span: { start: 0, end: 3 }, line: 1, column: 1 });
+  expect(best.title).toContain("из преобразованного");
+  expect(applyChanges(document, best.command.changes).text).toBe("[b]bold text[/b] tail");
+  expect(best.impact).toBe("устраняет 1 ошибку");
 });
