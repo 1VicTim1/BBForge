@@ -396,7 +396,7 @@ test("reports forum-escaped tags as info and lets the user remove them", async (
   await page.locator(".diagnostic-row").first().getByRole("button", { name: "Исправить…" }).click();
   await expect(page.getByRole("radiogroup", { name: "Варианты исправления" })).toBeVisible();
   await page.getByRole("button", { name: "Применить исправление", exact: true }).click();
-  await expect(code).toHaveText("a b&#91;/LIST&#93;");
+  await expect(code).toHaveText("a b");
 });
 
 test("a selected spoiler is not dragged as text, and an unchanged drop shows no ghost", async ({ page }) => {
