@@ -65,21 +65,41 @@ export function unwrapNode(document: DocumentState, snapshot: AnalysisSnapshot, 
   if (!node.openingSpan || !node.closingSpan) throw new Error("У блока нет парной оболочки");
   return { ...identity(document), label: "Убрать оболочку", changes: [node.openingSpan, node.closingSpan].map((span) => ({ ...sourceRange(document, span), insert: "" })) };
 }
-function placeNode(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef, target: DropTarget, copy: boolean): EditCommand {
-  const { node } = resolveNode(document, snapshot, reference), resolved = resolveNode(document, snapshot, target.node), destination = resolved.node;
-  if (node.name === "*" && (target.placement === "inside" || destination.name !== "*" || resolved.parent?.name !== "list")) throw new Error("Элемент списка можно перемещать только рядом с другим элементом списка");
-  if (!copy && destination.span.start >= node.span.start && destination.span.end <= node.span.end) throw new Error("Нельзя переместить блок в самого себя или потомка");
-  if (target.placement === "inside" && (destination.name !== "spoiler" || !destination.closingSpan)) throw new Error("Вложить можно в корректный спойлер");
+function placeAt(document: DocumentState, node: Node, at: number, copy: boolean): EditCommand {
   const index = createPositionIndex(document.text);
   const from = index.byteToUtf16(node.span.start), to = index.byteToUtf16(node.span.end);
-  const at = index.byteToUtf16(target.placement === "before" ? destination.span.start : target.placement === "after" ? destination.span.end : destination.contentSpan.end);
-  if (!copy && at > from && at < to) throw new Error("Пересекающееся перемещение");
+  if (!copy && at > from && at < to) throw new Error("Нельзя переместить блок в самого себя или потомка");
   const endingFrom = (document.text.slice(0, from).match(/\n/g) ?? []).length;
   const insert = document.text.slice(from, to), count = (insert.match(/\n/g) ?? []).length;
   const endings = document.endings.slice(endingFrom, endingFrom + count);
   if (copy) return { ...identity(document), label: "Копировать блок", changes: [{ from: at, to: at, insert, endings }], selection: { from: at, to: at + insert.length } };
   const newFrom = at >= to ? at - (to - from) : at;
   return { ...identity(document), label: "Переместить блок", changes: [{ from, to, insert: "" }, { from: at, to: at, insert, endings }], selection: { from: newFrom, to: newFrom + insert.length } };
+}
+function placeNode(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef, target: DropTarget, copy: boolean): EditCommand {
+  const { node } = resolveNode(document, snapshot, reference), resolved = resolveNode(document, snapshot, target.node), destination = resolved.node;
+  if (node.name === "*" && (target.placement === "inside" || destination.name !== "*" || resolved.parent?.name !== "list")) throw new Error("Элемент списка можно перемещать только рядом с другим элементом списка");
+  if (!copy && destination.span.start >= node.span.start && destination.span.end <= node.span.end) throw new Error("Нельзя переместить блок в самого себя или потомка");
+  if (target.placement === "inside" && (destination.name !== "spoiler" || !destination.closingSpan)) throw new Error("Вложить можно в корректный спойлер");
+  const index = createPositionIndex(document.text);
+  return placeAt(document, node, index.byteToUtf16(target.placement === "before" ? destination.span.start : target.placement === "after" ? destination.span.end : destination.contentSpan.end), copy);
+}
+/** Moves or copies a whole block to an arbitrary UTF-16 position between tags or inside text. */
+export function placeNodeAt(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef, at: number, copy: boolean): EditCommand | null {
+  const { node } = resolveNode(document, snapshot, reference);
+  if (node.name === "*") throw new Error("Элемент списка можно перемещать только рядом с другим элементом списка");
+  validateCommand(document, { ...identity(document), label: "range", changes: [{ from: at, to: at, insert: "" }] });
+  const index = createPositionIndex(document.text);
+  const visit = (nodes: Node[]) => { for (const candidate of nodes) {
+    for (const part of [candidate.openingSpan, candidate.closingSpan]) {
+      if (part && at > index.byteToUtf16(part.start) && at < index.byteToUtf16(part.end)) throw new Error("Сюда нельзя вставить блок: место внутри тега");
+    }
+    if (candidate.name === "code" && at > index.byteToUtf16(candidate.contentSpan.start) && at < index.byteToUtf16(candidate.contentSpan.end)) throw new Error("Внутри code вставка блоков недоступна");
+    visit(candidate.children);
+  } };
+  visit(snapshot.analysis.nodes);
+  if (!copy && (at === index.byteToUtf16(node.span.start) || at === index.byteToUtf16(node.span.end))) return null;
+  return placeAt(document, node, at, copy);
 }
 export function moveNode(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef, target: DropTarget): EditCommand { return placeNode(document, snapshot, reference, target, false); }
 export function copyNode(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef, target: DropTarget): EditCommand { return placeNode(document, snapshot, reference, target, true); }

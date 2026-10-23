@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { copyNode, copyVisualRange, createSpoiler, extractNode, moveNode, moveVisualRange, nestedSpoilerRange, renameSpoiler, unwrapNode } from "./structure";
+import { copyNode, copyVisualRange, createSpoiler, placeNodeAt, extractNode, moveNode, moveVisualRange, nestedSpoilerRange, renameSpoiler, unwrapNode } from "./structure";
 import { applyChanges, decodeDocument, serializeDocument } from "./state";
 import { snapshotFixture, refFor } from "../test/structureFixture";
 
@@ -76,4 +76,17 @@ it("copies a block inside a spoiler, including into itself, without removing the
     .toBe("[spoiler=A]a[/spoiler][spoiler=B]b[spoiler=A]a[/spoiler][/spoiler]");
   expect(applyChanges(document, copyNode(document, snapshot, refFor(snapshot, 0), { node: refFor(snapshot, 0), placement: "after" }).changes).text)
     .toBe("[spoiler=A]a[/spoiler][spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
+});
+
+it("places a block at an exact position between siblings, outside its parent or inside text", () => {
+  const document = decodeDocument(new TextEncoder().encode("[spoiler=P][spoiler=A]a[/spoiler][spoiler=B]b[/spoiler][spoiler=C]c[/spoiler][/spoiler]text"));
+  const snapshot = snapshotFixture(document);
+  const parent = snapshot.analysis.nodes[0];
+  const c = { documentId: document.id, revision: 0, span: parent.children[2].span };
+  const apply = (at: number, copy = false) => applyChanges(document, placeNodeAt(document, snapshot, c, at, copy)!.changes).text;
+  expect(apply(document.text.indexOf("[spoiler=B]"))).toBe("[spoiler=P][spoiler=A]a[/spoiler][spoiler=C]c[/spoiler][spoiler=B]b[/spoiler][/spoiler]text");
+  expect(apply(0)).toBe("[spoiler=C]c[/spoiler][spoiler=P][spoiler=A]a[/spoiler][spoiler=B]b[/spoiler][/spoiler]text");
+  expect(apply(document.text.length - 2)).toBe("[spoiler=P][spoiler=A]a[/spoiler][spoiler=B]b[/spoiler][/spoiler]te[spoiler=C]c[/spoiler]xt");
+  expect(placeNodeAt(document, snapshot, c, document.text.indexOf("[spoiler=C]"), false)).toBeNull();
+  expect(() => placeNodeAt(document, snapshot, c, 3, false)).toThrow();
 });
