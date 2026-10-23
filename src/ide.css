@@ -450,3 +450,23 @@ p.fix-impact { margin: -6px 0 10px; padding: 0; }
 .keymap-empty { color: var(--text-disabled); font-size: 12px; }
 .keymap-reset { padding: 0 6px; color: var(--accent-text); font-size: 12px; }
 .keymap-recording { padding: 0 8px; color: var(--accent-text); font-size: 12px; line-height: 20px; border: 1px dashed var(--accent); border-radius: 4px; }
+
+/* ---------- motion ---------- */
+@keyframes bb-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bb-drop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes bb-pop { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes bb-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+button, .tree-row, .diagnostic-row, .keymap-row, .document-tab, .app-menu > summary, .builder-spoiler > summary, .statusbar > span { transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease, opacity 100ms ease; }
+.app-menu[open] > .app-menu-popup { animation: bb-drop 120ms ease-out; }
+.context-menu { animation: bb-pop 100ms ease-out; transform-origin: top left; }
+.modal-backdrop { animation: bb-fade 120ms ease-out; }
+.modal-backdrop > .dialog, .modal-backdrop > .palette { animation: bb-pop 140ms ease-out; }
+.spoiler-body { animation: bb-drop 150ms ease-out; }
+.document-tab.active::after { animation: bb-tab 160ms ease-out; transform-origin: center; }
+@keyframes bb-tab { from { transform: scaleX(.3); opacity: .4; } to { transform: none; opacity: 1; } }
+.visual-drop-ghost, .visual-drop-text-ghost, .document-tab-marker { animation: bb-fade 90ms ease-out; }
+.error-banner { animation: bb-rise 160ms ease-out; }
+.cm-tooltip { animation: bb-fade 100ms ease-out; }
+.builder-spoiler > summary::before { transition: transform 140ms ease; }
+.diagnostics, .panel.outline, .properties { animation: bb-fade 120ms ease-out; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } }
