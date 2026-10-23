@@ -195,22 +195,49 @@ test("keeps a selected spoiler while toggling formatting and toggles a tag besid
   await expect(code).toHaveText("word");
 });
 
-test("drags visual spoilers after and inside one another", async ({ page }) => {
+test("drags visual spoilers by their surface without handles", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 1100 });
   const code = page.locator(".cm-content");
   await code.fill("[spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
-  const handleA = page.getByRole("button", { name: "Перетащить спойлер A" });
-  const blockB = page.locator(".builder-spoiler").filter({ hasText: "B" });
-  const moveAfter = await handleA.evaluate((element) => { const data = new DataTransfer(); element.dispatchEvent(new DragEvent("dragstart", { dataTransfer: data, clientX: 20, bubbles: true })); return data.getData("application/bbforge-node"); });
-  await blockB.evaluate((element, payload) => { const data = new DataTransfer(); data.setData("application/bbforge-node", payload); element.dispatchEvent(new DragEvent("dragover", { dataTransfer: data, clientX: 20, clientY: element.getBoundingClientRect().bottom - 2, bubbles: true, cancelable: true })); element.dispatchEvent(new DragEvent("drop", { dataTransfer: data, clientX: 20, clientY: element.getBoundingClientRect().bottom - 2, bubbles: true, cancelable: true })); }, moveAfter);
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".visual-drag-handle")).toHaveCount(0);
+  const drag = async (from: { x: number; y: number }, to: { x: number; y: number }, ctrl = false) => {
+    await page.mouse.move(from.x, from.y); await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 10 });
+    if (ctrl) await page.keyboard.down("Control");
+    await page.mouse.up();
+    if (ctrl) await page.keyboard.up("Control");
+  };
+  const box = async (title: string, part = "summary") => { const result = await page.locator(`.builder-spoiler:has(> summary:text("${title}")) ${part === "summary" ? "> summary" : ""}`).first().boundingBox(); if (!result) throw new Error(`no spoiler ${title}`); return result; };
+  let a = await box("A"), b = await box("B", "block");
+  await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: b.x + 40, y: b.y + b.height - 2 });
   await expect(code).toHaveText("[spoiler=B]b[/spoiler][spoiler=A]a[/spoiler]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  a = await box("A"); b = await box("B");
+  await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: b.x + 40, y: b.y + b.height / 2 });
+  await expect(code).toHaveText("[spoiler=B]b[spoiler=A]a[/spoiler][/spoiler]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  a = await box("A"); b = await box("B");
+  await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: b.x + 40, y: b.y + 2 }, true);
+  await expect(code).toHaveText("[spoiler=A]a[/spoiler][spoiler=B]b[spoiler=A]a[/spoiler][/spoiler]");
+});
 
-  await page.reload();
-  const freshCode = page.locator(".cm-content");
-  await freshCode.fill("[spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
-  await expect(page.locator(".builder-spoiler").first()).toContainText("A");
-  const nestedPayload = await page.getByRole("button", { name: "Перетащить спойлер A" }).evaluate((element) => { const data = new DataTransfer(); element.dispatchEvent(new DragEvent("dragstart", { dataTransfer: data, clientX: 20, bubbles: true })); return data.getData("application/bbforge-node"); });
-  await page.locator(".builder-spoiler").filter({ hasText: "B" }).evaluate((element, payload) => { const data = new DataTransfer(); data.setData("application/bbforge-node", payload); element.dispatchEvent(new DragEvent("dragover", { dataTransfer: data, clientX: 100, clientY: element.getBoundingClientRect().top + 5, bubbles: true, cancelable: true })); element.dispatchEvent(new DragEvent("drop", { dataTransfer: data, clientX: 100, clientY: element.getBoundingClientRect().top + 5, bubbles: true, cancelable: true })); }, nestedPayload);
-  await expect(freshCode).toHaveText("[spoiler=B]b[spoiler=A]a[/spoiler][/spoiler]");
+test("drags a partially selected formatted fragment and copies it with Ctrl", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("[b]very long[/b] plain");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  const leaves = page.getByRole("textbox", { name: "Текст блока" });
+  const bold = await leaves.nth(0).boundingBox(), plain = await leaves.nth(1).boundingBox();
+  if (!bold || !plain) throw new Error("visual leaves are not visible");
+  const charWidth = bold.width / "very long".length, y = bold.y + bold.height / 2;
+  await page.mouse.move(bold.x + charWidth * 5 + 1, y); await page.mouse.down();
+  await page.mouse.move(bold.x + bold.width - 1, y, { steps: 6 }); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => CSS.highlights.has("bbforge-selection"))).toBe(true);
+  await page.mouse.move(bold.x + charWidth * 7, y); await page.mouse.down();
+  await page.mouse.move(plain.x + plain.width - 1, plain.y + plain.height / 2, { steps: 10 });
+  await expect(page.locator(".visual-drop-caret")).toBeVisible();
+  await page.mouse.up();
+  await expect(code).toHaveText("[b]very [/b] plain[b]long[/b]");
 });
 
 test("selects visual text across separate formatted fragments", async ({ page }) => {

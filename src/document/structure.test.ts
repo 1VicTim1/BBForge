@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { copyVisualRange, createSpoiler, extractNode, moveNode, moveVisualRange, nestedSpoilerRange, renameSpoiler, unwrapNode } from "./structure";
+import { copyNode, copyVisualRange, createSpoiler, extractNode, moveNode, moveVisualRange, nestedSpoilerRange, renameSpoiler, unwrapNode } from "./structure";
 import { applyChanges, decodeDocument, serializeDocument } from "./state";
 import { snapshotFixture, refFor } from "../test/structureFixture";
 
@@ -67,4 +67,13 @@ it("copies a formatted visual range without changing its source", () => {
   const range = { from: content + 1, to: content + 3 };
   const command = copyVisualRange(document, snapshotFixture(document), range, document.text.length);
   expect(applyChanges(document, command.changes).text).toBe("[color=red]abc[/color] [color=red]bc[/color]");
+});
+
+it("copies a block inside a spoiler, including into itself, without removing the source", () => {
+  const document = decodeDocument(new TextEncoder().encode("[spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]"));
+  const snapshot = snapshotFixture(document);
+  expect(applyChanges(document, copyNode(document, snapshot, refFor(snapshot, 0), { node: refFor(snapshot, 1), placement: "inside" }).changes).text)
+    .toBe("[spoiler=A]a[/spoiler][spoiler=B]b[spoiler=A]a[/spoiler][/spoiler]");
+  expect(applyChanges(document, copyNode(document, snapshot, refFor(snapshot, 0), { node: refFor(snapshot, 0), placement: "after" }).changes).text)
+    .toBe("[spoiler=A]a[/spoiler][spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
 });
