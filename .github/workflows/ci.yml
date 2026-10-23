@@ -105,10 +105,39 @@ jobs:
           path: out/*
           if-no-files-found: error
 
+  package-arch:
+    name: Arch Linux package (x86_64)
+    needs: package-linux
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bbforge-linux-amd64
+          path: linux
+      - name: Install makepkg tooling
+        run: pacman -Syu --noconfirm --needed base-devel
+      - name: Build .pkg.tar.zst
+        run: |
+          mkdir -p target/release/bundle/deb
+          cp linux/*.deb target/release/bundle/deb/
+          useradd -m builder
+          chown -R builder: .
+          # Dependencies are declared for installation only; the package repackages the prebuilt .deb.
+          su builder -c "cd packaging/arch && makepkg -f --nodeps"
+          mkdir -p out && cp packaging/arch/*.pkg.tar.zst out/
+          (cd out && sha256sum * > SHA256SUMS-arch.txt && ls -la)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbforge-arch-x86_64
+          path: out/*
+          if-no-files-found: error
+
   release:
     name: GitHub release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [package-linux, package-windows]
+    needs: [package-linux, package-windows, package-arch]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
