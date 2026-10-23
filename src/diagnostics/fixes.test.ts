@@ -90,3 +90,13 @@ it("treats a forum-escaped closing tag as the missing closing tag", () => {
   expect(applyChanges(document, best.command.changes).text).toBe("[b]bold text[/b] tail");
   expect(best.impact).toBe("устраняет 1 ошибку");
 });
+
+it("repairs colour values and removes empty tags", () => {
+  const fix = (source: string, code: string, span: { start: number; end: number }) => {
+    const document = decodeDocument(new TextEncoder().encode(source)), snapshot = snapshotFixture(document);
+    return suggestFixes(document, snapshot, { code, severity: "warning", message: "", span, line: 1, column: 1 }).map((item) => applyChanges(document, item.command.changes).text);
+  };
+  expect(fix("[color=AAAAAA]x[/color]", "invalidColor", { start: 0, end: 14 })).toEqual(["[color=#AAAAAA]x[/color]", "x"]);
+  expect(fix("[color=#AAAAAAAAAA]x[/color]", "invalidColor", { start: 0, end: 19 })).toEqual(["[color=#AAAAAA]x[/color]", "x"]);
+  expect(fix("a[color=red] [/color]b", "emptyTag", { start: 1, end: 21 })).toEqual(["a b"]);
+});

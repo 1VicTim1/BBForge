@@ -1,7 +1,7 @@
 import { historyKeymap, defaultKeymap, undo, redo } from "@codemirror/commands";
 import { searchKeymap } from "@codemirror/search";
 import { bracketMatching, foldGutter, foldKeymap, foldService } from "@codemirror/language";
-import { Decoration, drawSelection, EditorView, highlightActiveLine, keymap, lineNumbers, placeholder, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
+import { Decoration, drawSelection, EditorView, highlightActiveLine, hoverTooltip, keymap, lineNumbers, placeholder, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { StateEffect } from "@codemirror/state";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { bbcodeLanguage } from "./language";
@@ -53,6 +53,42 @@ interface EditorProps {
   scroll?: ScrollPosition;
   onScrollPosition?(position: ScrollPosition): void;
 }
+type Problem = { from: number; to: number; severity: string; message: string };
+/** IDE-style squiggles under diagnostics plus a hover tooltip with the message. */
+function problemMarks(snapshot: () => AnalysisSnapshot | null | undefined) {
+  let cached: { snapshot: AnalysisSnapshot; problems: Problem[] } | null = null;
+  const problemsOf = (view: EditorView): Problem[] => {
+    const current = snapshot();
+    if (!current || current.source.length !== view.state.doc.length || current.source !== view.state.doc.toString()) return [];
+    if (cached?.snapshot === current) return cached.problems;
+    const index = createPositionIndex(current.source), length = current.source.length;
+    const problems = current.analysis.diagnostics.map((item) => {
+      let from = index.byteToUtf16(item.span.start), to = index.byteToUtf16(item.span.end);
+      if (to <= from) { if (from < length) to = from + 1; else from = Math.max(0, from - 1); }
+      return { from, to: Math.max(to, from), severity: item.severity, message: item.message };
+    }).filter((item) => item.to > item.from);
+    cached = { snapshot: current, problems };
+    return problems;
+  };
+  const build = (view: EditorView): DecorationSet => Decoration.set(problemsOf(view).map((item) => Decoration.mark({ class: `cm-problem cm-problem-${item.severity}` }).range(item.from, item.to)), true);
+  return [
+    ViewPlugin.fromClass(class {
+      decorations: DecorationSet;
+      constructor(view: EditorView) { this.decorations = build(view); }
+      update(update: ViewUpdate) { if (update.docChanged || update.transactions.some((transaction) => transaction.effects.some((effect) => effect.is(refreshMatching)))) this.decorations = build(update.view); }
+    }, { decorations: (plugin) => plugin.decorations }),
+    hoverTooltip((view, pos) => {
+      const found = problemsOf(view).filter((item) => pos >= item.from && pos <= item.to);
+      if (!found.length) return null;
+      return { pos: Math.min(...found.map((item) => item.from)), end: Math.max(...found.map((item) => item.to)), above: true, create() {
+        const dom = document.createElement("div"); dom.className = "cm-problem-tooltip";
+        for (const item of found) { const row = document.createElement("div"); row.className = `cm-problem-row ${item.severity}`; row.textContent = item.message; dom.append(row); }
+        const hint = document.createElement("div"); hint.className = "cm-problem-hint"; hint.textContent = "Alt+Enter — исправления"; dom.append(hint);
+        return { dom };
+      } };
+    }, { hoverTime: 350 }),
+  ];
+}
 export function Editor(props: EditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const latest = useRef(props); latest.current = props;
@@ -62,7 +98,7 @@ export function Editor(props: EditorProps) {
     if (!host.current) return;
     const initial = props.document ?? { ...decodeDocument(new TextEncoder().encode(props.value)), endings: props.endings };
     const extensions = [
-      lineNumbers(), drawSelection(), highlightActiveLine(), bracketMatching(), foldGutter(), bbcodeLanguage, matchingTags(() => latest.current.snapshot),
+      lineNumbers(), drawSelection(), highlightActiveLine(), bracketMatching(), foldGutter(), bbcodeLanguage, matchingTags(() => latest.current.snapshot), problemMarks(() => latest.current.snapshot),
       foldService.of((state, lineStart, lineEnd) => {
         const snapshot = latest.current.snapshot;
         if (!snapshot || snapshot.source !== state.doc.toString()) return null;

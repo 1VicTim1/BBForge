@@ -25,3 +25,13 @@
 .cm-editor .bb-parameter { color: #6aab73; }
 .cm-editor .cm-matchingTag { background: #3b4f6b; border-radius: 2px; }
 .cm-editor .cm-matchingTag .bb-name { color: #f0d9a0; }
+.cm-editor .cm-problem { background-repeat: repeat-x; background-position: left bottom; background-size: 6px 3px; padding-bottom: 1px; }
+.cm-editor .cm-problem-error { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='3'%3E%3Cpath d='M0 2.5 1.5 0.5 3 2.5 4.5 0.5 6 2.5' fill='none' stroke='%23f75464' stroke-width='1'/%3E%3C/svg%3E"); }
+.cm-editor .cm-problem-warning { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='3'%3E%3Cpath d='M0 2.5 1.5 0.5 3 2.5 4.5 0.5 6 2.5' fill='none' stroke='%23f2c55c' stroke-width='1'/%3E%3C/svg%3E"); }
+.cm-editor .cm-problem-info { background-image: linear-gradient(90deg, #548af7 50%, transparent 50%); background-size: 4px 1px; }
+.cm-tooltip.cm-tooltip-hover { padding: 0; background: #2b2d30; border: 1px solid #393b40; border-radius: 6px; box-shadow: 0 6px 18px #0008; }
+.cm-problem-tooltip { max-width: 520px; padding: 6px 10px; font: 12px/1.45 Inter, "Segoe UI", system-ui, sans-serif; color: #dfe1e5; }
+.cm-problem-row { position: relative; padding-left: 14px; }
+.cm-problem-row::before { content: ""; position: absolute; left: 0; top: 5px; width: 8px; height: 8px; border-radius: 50%; }
+.cm-problem-row.error::before { background: #f75464; } .cm-problem-row.warning::before { background: #f2c55c; } .cm-problem-row.info::before { background: #548af7; }
+.cm-problem-hint { margin-top: 4px; color: #868a91; font-size: 11px; }

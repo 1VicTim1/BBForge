@@ -554,3 +554,17 @@ test("keyboard shortcuts close tabs, open Find Action and can be reassigned", as
   await page.keyboard.press("Alt+KeyQ");
   await expect(page.getByRole("tab")).toHaveCount(1);
 });
+
+test("underlines problems in code and fixes them from the context menu", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("[color=AAAAAA]x[/color] [b] [/b]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".cm-problem-warning")).toHaveCount(2);
+  await page.locator(".cm-problem-warning").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: /Исправить: Добавить «#»/ }).click();
+  await expect(code).toHaveText("[color=#AAAAAA]x[/color] [b] [/b]");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await page.locator(".cm-problem-warning").first().click({ button: "right" });
+  await page.getByRole("menuitem", { name: /Исправить: Удалить пустой тег \[b\]/ }).click();
+  await expect(code).toHaveText("[color=#AAAAAA]x[/color]  ");
+});
