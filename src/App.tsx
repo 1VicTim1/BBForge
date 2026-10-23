@@ -217,7 +217,13 @@ export default function App() {
       openLink: () => (target.closest("a") as HTMLAnchorElement | null)?.click(), copyLink: () => void copyText((target.closest("a") as HTMLAnchorElement | null)?.href ?? ""),
       copyMedia: () => void copyText(target.closest("[data-source-value]")?.getAttribute("data-source-value") ?? ""),
     };
-    const commands = buildContextCommands({ surface, editable: surface === "code" || surface === "builder", hasSelection: captured.from !== captured.to || Boolean(window.getSelection()?.toString()), hasBlock: Boolean(selected) || Boolean(target.closest("details,[data-source-span]")), hasDiagnostic: analysis.diagnostics.length > 0 }, handlers);
+    // Quick fixes for the problem under the pointer (code) or at the captured position (builder).
+    const at = surface === "code" ? controller?.positionAt(event.clientX, event.clientY) ?? captured.from : captured.from;
+    const here = currentSnapshot ? analysis.diagnostics.filter((item) => { const range = sourceRange(documentRef.current, item.span); return at >= range.from && at <= Math.max(range.to, range.from + 1); }) : [];
+    const quickFixes = here.flatMap((item) => suggestFixes(documentRef.current, currentSnapshot!, item).slice(0, 3).map((fix) => ({
+      id: `fix-${fix.id}`, label: `Исправить: ${fix.title}${fix.impact ? ` (${fix.impact})` : ""}`, run: checked(() => { if (fix.needsParameter) { setFixOptions(undefined); setFix(fix); } else run(() => fix.command); }),
+    })));
+    const commands = buildContextCommands({ surface, editable: surface === "code" || surface === "builder", hasSelection: captured.from !== captured.to || Boolean(window.getSelection()?.toString()), hasBlock: Boolean(selected) || Boolean(target.closest("details,[data-source-span]")), hasDiagnostic: analysis.diagnostics.length > 0 }, handlers, quickFixes);
     if (commands.length) {
       contextMenu.open({ x: event.clientX, y: event.clientY, commands });
       if (domSelection && previewRoot?.contains(domSelection.commonAncestorContainer)) requestAnimationFrame(() => {

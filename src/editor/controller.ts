@@ -10,6 +10,7 @@ export interface EditorController {
   execute(command: EditCommand): void; undo(): boolean; redo(): boolean;
   getSelection(): SourceRange; isComposing(): boolean; finishComposition(): Promise<void>;
   select(range: SourceRange, focus?: boolean): void;
+  positionAt(x: number, y: number): number | null;
   activate(documentId: string, document: DocumentState, viewport?: { top: number; left: number }): boolean;
   discard(documentId: string): void;
 }
@@ -34,6 +35,7 @@ export function createEditorController(view: EditorView, getDocument: (documentI
     undo: () => undo(view), redo: () => redo(view),
     getSelection: () => ({ from: view.state.selection.main.from, to: view.state.selection.main.to }),
     select(range, focus = true) { view.dispatch({ selection: { anchor: range.from, head: range.to }, scrollIntoView: true }); if (focus) view.focus(); },
+    positionAt: (x, y) => view.posAtCoords({ x, y }),
     isComposing: () => view.composing || getComposing(),
     async finishComposition() {
       if (!view.composing) return; view.contentDOM.blur();

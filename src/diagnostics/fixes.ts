@@ -138,6 +138,24 @@ function unclosedFixes(document: DocumentState, snapshot: AnalysisSnapshot, diag
   return [{ id: `close-${node.span.start}`, title: `Добавить [/${node.name}]`, command: { ...base, changes: [{ from: at, to: at, insert: `[/${node.name}]` }] } }];
 }
 function otherFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagnostic: Diagnostic, base: { label: string } & ReturnType<typeof identity>): FixSuggestion[] {
+  if (diagnostic.code === "invalidColor") {
+    const node = allNodes(snapshot.analysis.nodes).find((item) => item.openingSpan?.start === diagnostic.span.start);
+    if (!node?.openingSpan || !node.parameter) return [];
+    const opening = sourceRange(document, node.openingSpan), value = node.parameter.trim(), hex = value.replace(/^#/, "");
+    const withValue = (next: string) => ({ ...base, changes: [{ ...opening, insert: `[${node.name}=${next}]` }] });
+    const fixes: FixSuggestion[] = [];
+    if (!value.startsWith("#") && /^([\da-f]{3}|[\da-f]{6})$/i.test(value)) fixes.push({ id: `color-hash-${node.span.start}`, title: `Добавить «#»: ${node.name}=#${value}`, command: withValue(`#${value}`) });
+    if (/^[\da-f]{7,}$/i.test(hex)) fixes.push({ id: `color-trim-${node.span.start}`, title: `Сократить до #${hex.slice(0, 6)}`, command: withValue(`#${hex.slice(0, 6)}`) });
+    if (/^[\da-f]{4,5}$/i.test(hex)) fixes.push({ id: `color-short-${node.span.start}`, title: `Сократить до #${hex.slice(0, 3)}`, command: withValue(`#${hex.slice(0, 3)}`) });
+    if (node.closingSpan) fixes.push({ id: `color-unwrap-${node.span.start}`, title: `Убрать оформление [${node.name}]`, command: { ...base, changes: [{ ...opening, insert: "" }, { ...sourceRange(document, node.closingSpan), insert: "" }] } });
+    return fixes;
+  }
+  if (diagnostic.code === "emptyTag") {
+    const range = sourceRange(document, diagnostic.span), node = allNodes(snapshot.analysis.nodes).find((item) => item.span.start === diagnostic.span.start && item.span.end === diagnostic.span.end);
+    if (!node) return [];
+    const blank = document.text.slice(range.from, range.to).replace(/\[[^\]]*\]/g, "");
+    return [{ id: `empty-${node.span.start}`, title: `Удалить пустой тег [${node.name}]`, command: { ...base, changes: [{ ...range, insert: blank }] } }];
+  }
   if (diagnostic.code === "missingParameter") {
     const node = allNodes(snapshot.analysis.nodes).find((item) => item.openingSpan?.start === diagnostic.span.start && !item.parameter);
     if (node?.openingSpan && ["url", "color", "background", "spoiler", "size", "font"].includes(node.name ?? "")) {

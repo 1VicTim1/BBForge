@@ -9,7 +9,7 @@ const labels: Record<string, string> = {
   source: "Перейти к исходному коду", unwrap: "Убрать оболочку", openLink: "Открыть ссылку", copyLink: "Копировать адрес ссылки", copyMedia: "Копировать адрес медиа",
 };
 
-export function buildContextCommands(target: ContextTarget, handlers: Partial<Record<string, () => void>> = {}): ContextCommand[] {
+export function buildContextCommands(target: ContextTarget, handlers: Partial<Record<string, () => void>> = {}, fixes: ContextCommand[] = []): ContextCommand[] {
   let ids: string[];
   if (target.surface === "field") ids = ["undo", "redo", ...(target.hasSelection ? ["cut", "copy", "delete"] : []), "paste", "selectAll"];
   else if (target.surface === "code") ids = ["undo", "redo", ...(target.hasSelection ? ["cut", "copy", "delete"] : []), "paste", "selectAll", "bold", "italic", "underline", "strike", "spoiler", ...(target.hasDiagnostic ? ["fix"] : [])];
@@ -17,7 +17,8 @@ export function buildContextCommands(target: ContextTarget, handlers: Partial<Re
   else if (target.surface === "preview") ids = [...(target.hasSelection ? ["copyText", "copyInner", "copyWrapped"] : []), ...(target.hasBlock ? ["copyBlock"] : []), "source"];
   else if (target.surface === "link") ids = ["openLink", "copyLink", ...(target.hasSelection ? ["copyText", "copyWrapped"] : []), "source"];
   else ids = ["copyMedia", "copyBlock", "source"];
-  return ids.filter((id) => handlers[id]).map((id) => ({ id, label: labels[id], shortcut: shortcuts[id], run: handlers[id]! }));
+  const built = ids.filter((id) => handlers[id]).map((id) => ({ id, label: labels[id], shortcut: shortcuts[id], run: handlers[id]! }));
+  return fixes.length && (target.surface === "code" || target.surface === "builder") ? [...fixes, ...built] : built;
 }
 
 const shortcuts: Record<string, string | undefined> = { undo: "Ctrl+Z", redo: "Ctrl+Shift+Z", cut: "Ctrl+X", copy: "Ctrl+C", paste: "Ctrl+V", selectAll: "Ctrl+A", bold: "Ctrl+B", italic: "Ctrl+I", underline: "Ctrl+U" };
