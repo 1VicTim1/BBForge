@@ -392,3 +392,4 @@ small, .muted { color: var(--text-muted); }
 .pref-no-wrap .cm-content.cm-lineWrapping { white-space: pre; overflow-wrap: normal; word-break: normal; }
 .pref-no-active-line .cm-activeLine { background: transparent; }
 .pref-no-tag-labels .tag-label { display: none; }
+.menu-separator { display: block; height: 1px; margin: 4px 6px; background: var(--line-soft); }
