@@ -50,6 +50,12 @@
 body { margin: 0; min-width: 760px; min-height: 100vh; background: var(--bg-editor); }
 h1, h2, h3, h4, p { margin: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }
+button, select, input:not([type=checkbox]):not([type=radio]) { -webkit-appearance: none; appearance: none; }
+input[type=color] { -webkit-appearance: none; appearance: none; }
+/* IDE chrome is never text-selectable; only documents, editors and fields are. */
+.app { -webkit-user-select: none; user-select: none; }
+.cm-editor, .builder-page, .rendered-post, input, textarea, [contenteditable], .dialog pre, .diagnostic, .opaque-block code { -webkit-user-select: text; user-select: text; }
+summary, .app-menu > summary { cursor: default; }
 button { background: transparent; border: 1px solid transparent; border-radius: var(--radius); padding: 3px 8px; cursor: pointer; white-space: nowrap; line-height: 18px; }
 button:hover { background: var(--bg-hover); }
 button:active { background: var(--bg-pressed); }
@@ -150,9 +156,10 @@ small, .muted { color: var(--text-muted); }
 .color-control { position: relative; display: flex; align-items: center; gap: 1px; height: 26px; padding: 0 2px 0 6px; border-radius: var(--radius); }
 .color-control:hover { background: #ffffff08; }
 .color-control > span { font-size: 12px; color: var(--text-muted); }
-.color-control input { width: 20px; height: 20px; padding: 0; border: 0; background: transparent; cursor: pointer; }
-.color-control input::-webkit-color-swatch-wrapper { padding: 2px; }
-.color-control input::-webkit-color-swatch { border: 1px solid #ffffff30; border-radius: 3px; }
+.color-control input { width: 18px; height: 18px; padding: 0; border: 1px solid #ffffff38; border-radius: 3px; background: transparent; cursor: pointer; overflow: hidden; }
+.color-control input::-moz-color-swatch { border: 0; }
+.color-control input::-webkit-color-swatch-wrapper { padding: 0; }
+.color-control input::-webkit-color-swatch { border: 0; border-radius: 2px; }
 .color-control button { min-width: 18px; width: 18px; height: 20px; padding: 0; font-size: 10px; }
 .format-toolbar .new-spoiler { margin-left: 4px; padding: 0 10px; color: var(--text); border: 1px solid var(--line-strong); }
 .format-toolbar .new-spoiler:hover { border-color: var(--text-muted); }
@@ -393,3 +400,4 @@ small, .muted { color: var(--text-muted); }
 .pref-no-active-line .cm-activeLine { background: transparent; }
 .pref-no-tag-labels .tag-label { display: none; }
 .menu-separator { display: block; height: 1px; margin: 4px 6px; background: var(--line-soft); }
+select { padding-right: 24px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23868a91' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; }
