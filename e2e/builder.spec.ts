@@ -518,3 +518,39 @@ test("highlights the matching opening tag when the cursor is on a closing tag", 
   await expect(page.locator(".cm-matchingTag").first()).toContainText("[color=red]");
   await expect(page.locator(".cm-matchingTag").last()).toContainText("[/color]");
 });
+
+test("reorders document tabs by dragging", async ({ page }) => {
+  await page.getByRole("button", { name: "Новый документ" }).click();
+  await page.locator(".cm-content").fill("second");
+  const tabs = page.getByRole("tab");
+  await expect(tabs).toHaveCount(2);
+  const first = (await page.locator(".document-tab").nth(0).boundingBox())!, second = (await page.locator(".document-tab").nth(1).boundingBox())!;
+  await page.mouse.move(second.x + second.width / 2, second.y + second.height / 2); await page.mouse.down();
+  await page.mouse.move(first.x + 4, first.y + first.height / 2, { steps: 8 });
+  await expect(page.locator(".document-tab-marker")).toBeVisible();
+  await page.mouse.up();
+  await expect(page.locator(".document-tab").first()).toHaveClass(/active/);
+  await expect(page.locator(".document-tab").first().locator(".dirty-dot")).toHaveCount(1);
+  await expect(page.locator(".document-tab").last().locator(".dirty-dot")).toHaveCount(0);
+});
+
+test("keyboard shortcuts close tabs, open Find Action and can be reassigned", async ({ page }) => {
+  await page.keyboard.press("Control+KeyN");
+  await expect(page.getByRole("tab")).toHaveCount(2);
+  await page.keyboard.press("Control+KeyW");
+  await expect(page.getByRole("tab")).toHaveCount(1);
+  await page.keyboard.press("Control+Shift+KeyA");
+  const palette = page.getByRole("dialog", { name: "Найти действие" });
+  await palette.getByRole("textbox").fill("новый док");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("tab")).toHaveCount(2);
+  await page.keyboard.press("Control+Alt+KeyS");
+  const settings = page.getByRole("dialog", { name: "Настройки" });
+  await settings.getByRole("button", { name: "Сочетания клавиш" }).click();
+  await settings.getByRole("button", { name: "Добавить сочетание для «Закрыть документ»" }).click();
+  await page.keyboard.press("Alt+KeyQ");
+  await settings.getByRole("button", { name: "ОК", exact: true }).click();
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Alt+KeyQ");
+  await expect(page.getByRole("tab")).toHaveCount(1);
+});

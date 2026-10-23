@@ -1,14 +1,16 @@
 import { useState, type ReactNode } from "react";
 import { defaultPreferences, type Preferences } from "./preferences";
+import { KeymapEditor } from "../keymap/KeymapEditor";
 
-type Section = "appearance" | "code" | "builder" | "behavior";
-const sections: Array<[Section, string]> = [["appearance", "Внешний вид"], ["code", "Редактор кода"], ["builder", "Конструктор"], ["behavior", "Поведение"]];
+type Section = "appearance" | "code" | "builder" | "keymap" | "behavior";
+const sections: Array<[Section, string]> = [["appearance", "Внешний вид"], ["code", "Редактор кода"], ["builder", "Конструктор"], ["keymap", "Сочетания клавиш"], ["behavior", "Поведение"]];
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return <div className="settings-row"><div className="settings-label"><span>{label}</span>{hint && <small>{hint}</small>}</div><div className="settings-control">{children}</div></div>;
 }
 
-export function SettingsDialog({ value, onApply, onClose, onResetLayout }: { value: Preferences; onApply(value: Preferences): void; onClose(): void; onResetLayout(): void }) {
+export function SettingsDialog({ value, onApply, onClose, onResetLayout, onRecording }: { value: Preferences; onApply(value: Preferences): void; onClose(): void; onResetLayout(): void; onRecording?(active: boolean): void }) {
+  const [recording, setRecording] = useState(false);
   const [draft, setDraft] = useState(value), [section, setSection] = useState<Section>("appearance");
   const set = <K extends keyof Preferences>(key: K, next: Preferences[K]) => setDraft((current) => ({ ...current, [key]: next }));
   const check = (key: { [K in keyof Preferences]: Preferences[K] extends boolean ? K : never }[keyof Preferences], label: string, hint?: string) =>
@@ -16,7 +18,7 @@ export function SettingsDialog({ value, onApply, onClose, onResetLayout }: { val
   const size = (key: "codeFontSize" | "builderFontSize", low: number, high: number) =>
     <select aria-label="Размер шрифта" value={draft[key]} onChange={(event) => set(key, Number(event.target.value))}>{Array.from({ length: high - low + 1 }, (_, at) => low + at).map((item) => <option key={item} value={item}>{item}</option>)}</select>;
   const changed = JSON.stringify(draft) !== JSON.stringify(value);
-  return <div className="modal-backdrop" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
+  return <div className="modal-backdrop" onKeyDown={(event) => { if (event.key === "Escape" && !recording) { event.stopPropagation(); onClose(); } }}>
     <section className="dialog settings-dialog" role="dialog" aria-label="Настройки">
       <header><h3>Настройки</h3><button aria-label="Закрыть настройки" onClick={onClose}>×</button></header>
       <div className="settings-body">
@@ -41,6 +43,10 @@ export function SettingsDialog({ value, onApply, onClose, onResetLayout }: { val
             <Row label="Ширина страницы"><select aria-label="Ширина страницы" value={draft.builderWidth} onChange={(event) => set("builderWidth", event.target.value as Preferences["builderWidth"])}><option value="narrow">Узкая</option><option value="medium">Средняя</option><option value="full">Во всю ширину</option></select></Row>
             <Row label="Раскрывать спойлеры" hint="При открытии документа"><select aria-label="Раскрывать спойлеры" value={draft.spoilerOpenDepth} onChange={(event) => set("spoilerOpenDepth", Number(event.target.value))}><option value={99}>Все</option><option value={2}>Два уровня</option><option value={1}>Только верхний уровень</option><option value={0}>Все свёрнуты</option></select></Row>
             {check("tagLabels", "Показывать метки тегов", "Подпись «spoiler» в заголовке блока")}
+          </>}
+          {section === "keymap" && <>
+            <h4>Сочетания клавиш</h4>
+            <KeymapEditor value={draft.keymap} onChange={(keymap) => set("keymap", keymap)} onRecording={(active) => { setRecording(active); onRecording?.(active); }} />
           </>}
           {section === "behavior" && <>
             <h4>Поведение</h4>
