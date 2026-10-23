@@ -49,6 +49,7 @@ pub struct Node {
 pub enum Severity {
     Error,
     Warning,
+    Info,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

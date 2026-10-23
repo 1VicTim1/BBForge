@@ -5,8 +5,9 @@ import type { EditCommand } from "../document/commands";
 import { validateCommand } from "../document/commands";
 import type { FixSuggestion } from "../diagnostics/fixes";
 import { safeExternalUrl } from "./Preview";
-export function ChangePreview({ document, suggestion, onApply, onClose }: { document: DocumentState; suggestion: FixSuggestion; onApply(command: EditCommand): void; onClose(): void }) {
-  const [parameter, setParameter] = useState(""), [error, setError] = useState("");
+export function ChangePreview({ document, suggestion: initial, options, onApply, onClose }: { document: DocumentState; suggestion: FixSuggestion; options?: FixSuggestion[]; onApply(command: EditCommand): void; onClose(): void }) {
+  const [parameter, setParameter] = useState(""), [error, setError] = useState(""), [chosen, setChosen] = useState(initial.id);
+  const suggestion = options?.find((item) => item.id === chosen) ?? initial;
   const command = { ...suggestion.command, changes: suggestion.command.changes.map((change) => ({ ...change, insert: suggestion.needsParameter ? change.insert.replace("$VALUE", () => parameter) : change.insert })) };
   let next = document.text, stale = false;
   try { validateCommand(document, command); next = applyChanges(document, command.changes).text; } catch { stale = true; }
@@ -16,7 +17,8 @@ export function ChangePreview({ document, suggestion, onApply, onClose }: { docu
   const before = document.text.slice(start, end < 0 ? undefined : end);
   const delta = next.length - document.text.length;
   const after = next.slice(start, end < 0 ? undefined : end + delta);
-  return <div className="modal-backdrop"><section className="dialog diff-dialog" role="dialog" aria-label="Предпросмотр исправления"><header><h3>{suggestion.title}</h3><button aria-label="Закрыть предпросмотр исправления" onClick={onClose}>×</button></header>
+  return <div className="modal-backdrop"><section className="dialog diff-dialog" role="dialog" aria-label="Предпросмотр исправления"><header><h3>{options && options.length > 1 ? "Выберите исправление" : suggestion.title}</h3><button aria-label="Закрыть предпросмотр исправления" onClick={onClose}>×</button></header>
+    {options && options.length > 1 && <div className="fix-options" role="radiogroup" aria-label="Варианты исправления">{options.map((item) => <label key={item.id} className="fix-option"><input type="radio" name="fix-option" checked={item.id === suggestion.id} onChange={() => { setChosen(item.id); setError(""); }} /> {item.title}</label>)}</div>}
     {suggestion.needsParameter && <label>Значение параметра <input aria-label="Значение параметра" value={parameter} onChange={(event) => setParameter(event.target.value)} /></label>}
     <div className="diff-grid"><section><h4>До</h4><pre className="diff-before">{before || "∅"}</pre></section><section><h4>После</h4><pre className="diff-after">{after || "∅"}</pre></section></div>
     {(stale || error) && <p role="alert">{stale ? "Документ изменился. Откройте исправление заново." : error}</p>}

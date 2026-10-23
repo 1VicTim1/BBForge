@@ -36,6 +36,38 @@ function closingOrderFixes(document: DocumentState, snapshot: AnalysisSnapshot):
   }
   return fixes;
 }
+function crossedFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagnostic: Diagnostic): FixSuggestion[] {
+  const tokens = snapshot.analysis.tokens, stack: typeof tokens = [];
+  const raw = (token: (typeof tokens)[number]) => { const range = sourceRange(document, token.span); return document.text.slice(range.from, range.to); };
+  for (let at = 0; at < tokens.length; at++) {
+    const token = tokens[at];
+    if (token.kind === "openingTag") { if (token.name === "*" && stack.at(-1)?.name === "*") stack.pop(); stack.push(token); continue; }
+    if (token.kind !== "closingTag") continue;
+    if (token.name === "list" && stack.at(-1)?.name === "*") stack.pop();
+    const index = stack.map((item) => item.name ?? "").lastIndexOf(token.name ?? "");
+    if (index < 0) continue;
+    if (token.span.start !== diagnostic.span.start) { stack.splice(index); continue; }
+    const inner = stack.slice(index + 1), range = sourceRange(document, token.span);
+    const removal: FixSuggestion = { id: `drop-${token.span.start}`, title: `Удалить пересекающий тег [/${token.name}]`, command: { ...identity(document), label: "Удалить пересекающий тег", changes: [{ ...range, insert: "" }] } };
+    if (!inner.length || inner.some((item) => item.name === "*")) return [removal];
+    const later = tokens.slice(at + 1);
+    const reopen = inner.filter((item) => later.some((next) => next.kind === "closingTag" && next.name === item.name));
+    const closes = [...inner].reverse().map((item) => `[/${item.name}]`).join("");
+    return [{
+      id: `cross-${token.span.start}`, title: reopen.length ? "Закрыть вложенные теги и открыть их снова после" : "Закрыть вложенные теги перед этим тегом",
+      command: { ...identity(document), label: "Исправить пересечение тегов", changes: [{ from: range.from, to: range.from, insert: closes }, { from: range.to, to: range.to, insert: reopen.map(raw).join("") }].filter((change) => change.insert) },
+    }, removal];
+  }
+  return [];
+}
+function escapedFixes(document: DocumentState, diagnostic: Diagnostic): FixSuggestion[] {
+  const range = sourceRange(document, diagnostic.span), text = document.text.slice(range.from, range.to);
+  const restored = text.replace(/^&#91;/, "[").replace(/&#93;$/, "]");
+  return [
+    { id: `escaped-remove-${diagnostic.span.start}`, title: `Удалить преобразованный тег ${restored}`, command: { ...identity(document), label: "Удалить преобразованный тег", changes: [{ ...range, insert: "" }] } },
+    { id: `escaped-restore-${diagnostic.span.start}`, title: `Вернуть как BBCode ${restored}`, command: { ...identity(document), label: "Вернуть BBCode", changes: [{ ...range, insert: restored }] } },
+  ];
+}
 export function suggestFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagnostic: Diagnostic): FixSuggestion[] {
   if (document.id !== snapshot.documentId || document.revision !== snapshot.revision || document.text !== snapshot.source) return [];
   const base = { ...identity(document), label: "Исправить разметку" };
@@ -43,8 +75,10 @@ export function suggestFixes(document: DocumentState, snapshot: AnalysisSnapshot
     const range = sourceRange(document, diagnostic.span);
     const repair = closingOrderFixes(document, snapshot).find((fix) => fix.id === `order-${diagnostic.span.start}` || fix.command.changes.some((change) => change.from <= range.from && change.to >= range.to));
     if (repair) return [repair];
-    if (diagnostic.code === "crossedClosingTag" || diagnostic.severity === "warning" || snapshot.analysis.diagnostics.some((item) => item.code === "crossedClosingTag")) return [];
+    if (diagnostic.code === "crossedClosingTag") return crossedFixes(document, snapshot, diagnostic);
+    if (diagnostic.severity === "warning" || snapshot.analysis.diagnostics.some((item) => item.code === "crossedClosingTag")) return [];
   }
+  if (diagnostic.code === "escapedBbcodeTag") return escapedFixes(document, diagnostic);
   if (diagnostic.code === "unexpectedClosingTag") return [{ id: `remove-${diagnostic.span.start}`, title: "Удалить лишний закрывающий тег", command: { ...base, changes: [{ ...sourceRange(document, diagnostic.span), insert: "" }] } }];
   if (diagnostic.code === "unclosedTag") {
     const nodes = allNodes(snapshot.analysis.nodes), broken = nodes.filter((node) => node.kind === "element" && !node.wellFormed && !node.closingSpan && node.name !== "*");

@@ -65,14 +65,14 @@ test("does not render recovery closing tags as visual text", async ({ page }) =>
   expect((await page.locator(".cm-line").allTextContents()).join("\n")).toBe(source);
 });
 
-test("does not delete recovery tags when a crossing repair is ambiguous", async ({ page }) => {
+test("repairs a crossing tag without deleting the recovered formatting", async ({ page }) => {
   await page.locator(".collapsed-problems").click();
   const code = page.locator(".cm-content");
   await code.fill("[b][i]a[/b]tail[/i]");
   await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
   await page.getByRole("button", { name: "Исправить однозначные…", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("Нет доступных однозначных исправлений");
-  await expect(code).toHaveText("[b][i]a[/b]tail[/i]");
+  await page.getByRole("button", { name: "Применить исправление", exact: true }).click();
+  await expect(code).toHaveText("[b][i]a[/i][/b][i]tail[/i]");
 });
 
 test("keeps visual typing coherent through Undo and formatting", async ({ page }) => {
@@ -384,4 +384,17 @@ test("preview context menu preserves and copies a selection across nested siblin
   await expect.poll(() => preview.evaluate(() => window.getSelection()?.toString())).toBe("Куратор темы ~VicTim~ по вопросам наполнения и актуализации шапки обращаться в QMS");
   await page.getByRole("menuitem", { name: "Копировать BBCode с оформлением" }).click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(source);
+});
+
+test("reports forum-escaped tags as info and lets the user remove them", async ({ page }) => {
+  await page.locator(".collapsed-problems").click();
+  const code = page.locator(".cm-content");
+  await code.fill("a &#91;LIST&#93;b&#91;/LIST&#93;");
+  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  const rows = page.locator(".diagnostic.info");
+  await expect(rows).toHaveCount(2);
+  await page.locator(".diagnostic-row").first().getByRole("button", { name: "Исправить…" }).click();
+  await expect(page.getByRole("radiogroup", { name: "Варианты исправления" })).toBeVisible();
+  await page.getByRole("button", { name: "Применить исправление", exact: true }).click();
+  await expect(code).toHaveText("a b&#91;/LIST&#93;");
 });

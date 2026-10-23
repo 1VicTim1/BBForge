@@ -236,11 +236,14 @@ export function Builder(props: BuilderProps) {
         next.preventDefault();
         scroller.update(host, lastY); update(next.ctrlKey);
       };
+      const noSelect = (selection: Event) => selection.preventDefault();
+      document.addEventListener("selectstart", noSelect, true);
       const onScroll = () => { if (dragging) update(host.dataset.dragCopy === "true"); };
       const key = (next: KeyboardEvent) => { if (next.key === "Escape") { next.preventDefault(); finish(null); } else if (dragging && next.key === "Control") update(next.type === "keydown"); };
       const finish = (end: PointerEvent | null) => {
         window.removeEventListener("pointermove", move, true); window.removeEventListener("pointerup", up, true);
         window.removeEventListener("keydown", key, true); window.removeEventListener("keyup", key, true); host.removeEventListener("scroll", onScroll);
+        document.removeEventListener("selectstart", noSelect, true);
         scroller.stop(); paint(null); ghost.remove(); preview.hidden = true; setEditable(true);
         if (hoverOpen) { clearTimeout(hoverOpen.timer); hoverOpen = null; }
         host.classList.remove("visual-dragging"); delete host.dataset.dragCopy;
@@ -269,7 +272,7 @@ export function Builder(props: BuilderProps) {
         return;
       }
       const element = target.closest<HTMLElement>('[data-drag-kind]:not([data-drag-kind="text"])');
-      if (element && host.contains(element)) gesture(event, { kind: "node", element }, () => undefined);
+      if (element && host.contains(element)) { window.getSelection()?.removeAllRanges(); gesture(event, { kind: "node", element }, () => undefined); }
     };
     host.append(caret); document.body.append(preview);
     host.addEventListener("pointerdown", down, true);
