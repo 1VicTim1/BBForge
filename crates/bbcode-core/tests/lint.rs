@@ -80,10 +80,25 @@ fn reports_html_escaped_bbcode_tags_as_info() {
 
 #[test]
 fn reports_invalid_colours_and_empty_tags() {
-    let codes = |source: &str| parse(source).diagnostics.into_iter().map(|item| item.code).collect::<Vec<_>>();
-    assert_eq!(codes("[color=AAAAAA]x[/color]"), vec![DiagnosticCode::InvalidColor]);
-    assert_eq!(codes("[color=#AAAAAAAAAAAA]x[/color]"), vec![DiagnosticCode::InvalidColor]);
-    assert_eq!(codes("[color=#zz0000]x[/color]"), vec![DiagnosticCode::InvalidColor]);
+    let codes = |source: &str| {
+        parse(source)
+            .diagnostics
+            .into_iter()
+            .map(|item| item.code)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        codes("[color=AAAAAA]x[/color]"),
+        vec![DiagnosticCode::InvalidColor]
+    );
+    assert_eq!(
+        codes("[color=#AAAAAAAAAAAA]x[/color]"),
+        vec![DiagnosticCode::InvalidColor]
+    );
+    assert_eq!(
+        codes("[color=#zz0000]x[/color]"),
+        vec![DiagnosticCode::InvalidColor]
+    );
     assert!(codes("[color=#abc]x[/color][color=#A1B2C3]y[/color][color=royalblue]z[/color][color=red]w[/color]").is_empty());
     assert_eq!(codes("[color=red][/color]"), vec![DiagnosticCode::EmptyTag]);
     assert_eq!(codes("[b] [i][/i] [/b]"), vec![DiagnosticCode::EmptyTag]);

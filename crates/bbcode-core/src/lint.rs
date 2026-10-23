@@ -96,22 +96,34 @@ fn visit(
                 node,
             );
         }
-        if name == "color" || name == "background" {
-            if let Some(value) = node.parameter.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-                if let Some(problem) = color_problem(value) {
-                    diagnostics.push(Diagnostic {
-                        code: DiagnosticCode::InvalidColor,
-                        severity: Severity::Warning,
-                        message: format!("{problem}: [{name}={value}]"),
-                        span: node.opening_span.unwrap_or(node.span),
-                        line: 0,
-                        column: 0,
-                    });
-                }
-            }
+        if (name == "color" || name == "background")
+            && let Some(value) = node
+                .parameter
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+            && let Some(problem) = color_problem(value)
+        {
+            diagnostics.push(Diagnostic {
+                code: DiagnosticCode::InvalidColor,
+                severity: Severity::Warning,
+                message: format!("{problem}: [{name}={value}]"),
+                span: node.opening_span.unwrap_or(node.span),
+                line: 0,
+                column: 0,
+            });
         }
-        if BLANK_CHECKED_TAGS.contains(&name) && node.well_formed && node.closing_span.is_some() && is_blank(source, node) {
-            warning(diagnostics, DiagnosticCode::EmptyTag, format!("Пустой тег [{name}] ничего не оформляет"), node);
+        if BLANK_CHECKED_TAGS.contains(&name)
+            && node.well_formed
+            && node.closing_span.is_some()
+            && is_blank(source, node)
+        {
+            warning(
+                diagnostics,
+                DiagnosticCode::EmptyTag,
+                format!("Пустой тег [{name}] ничего не оформляет"),
+                node,
+            );
             continue;
         }
         if name == "url" {
@@ -140,29 +152,57 @@ fn visit(
     }
 }
 
-const BLANK_CHECKED_TAGS: &[&str] = &["b", "i", "u", "s", "color", "background", "size", "font", "sub", "sup", "left", "center", "right"];
+const BLANK_CHECKED_TAGS: &[&str] = &[
+    "b",
+    "i",
+    "u",
+    "s",
+    "color",
+    "background",
+    "size",
+    "font",
+    "sub",
+    "sup",
+    "left",
+    "center",
+    "right",
+];
 
 /// A formatting tag whose content is only whitespace (possibly inside other such tags).
 fn is_blank(source: &str, node: &Node) -> bool {
     node.children.iter().all(|child| match child.kind {
         NodeKind::Text => source[child.span.start..child.span.end].trim().is_empty(),
-        _ => BLANK_CHECKED_TAGS.contains(&child.name.as_deref().unwrap_or_default()) && is_blank(source, child),
+        _ => {
+            BLANK_CHECKED_TAGS.contains(&child.name.as_deref().unwrap_or_default())
+                && is_blank(source, child)
+        }
     })
 }
 
 /// 4PDA accepts #RGB, #RRGGBB and colour names.
 fn color_problem(value: &str) -> Option<&'static str> {
-    let is_hex = |text: &str| !text.is_empty() && text.chars().all(|character| character.is_ascii_hexdigit());
+    let is_hex = |text: &str| {
+        !text.is_empty() && text.chars().all(|character| character.is_ascii_hexdigit())
+    };
     if let Some(hex) = value.strip_prefix('#') {
         if !is_hex(hex) {
             return Some("Цвет содержит недопустимые символы");
         }
-        return (hex.len() != 3 && hex.len() != 6).then_some("Цвет должен быть в формате #RGB или #RRGGBB");
+        return (hex.len() != 3 && hex.len() != 6)
+            .then_some("Цвет должен быть в формате #RGB или #RRGGBB");
     }
-    if is_hex(value) && (value.len() == 3 || value.len() == 6) && value.chars().any(|character| character.is_ascii_digit() || value.len() == 6) {
+    if is_hex(value)
+        && (value.len() == 3 || value.len() == 6)
+        && value
+            .chars()
+            .any(|character| character.is_ascii_digit() || value.len() == 6)
+    {
         return Some("Цвет записан без «#»");
     }
-    if value.chars().all(|character| character.is_ascii_alphabetic()) {
+    if value
+        .chars()
+        .all(|character| character.is_ascii_alphabetic())
+    {
         return None;
     }
     Some("Неверный формат цвета")

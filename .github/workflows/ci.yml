@@ -2,11 +2,20 @@ name: CI
 
 on:
   push:
+    branches: ["**"]
+    tags: ["v*"]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    name: Tests (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-24.04, windows-2025]
     runs-on: ${{ matrix.os }}
@@ -15,13 +24,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xvfb xauth dbus-x11 webkit2gtk-driver python3
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: npm ci
       - run: cargo fmt --all -- --check
       - run: cargo test --workspace --no-default-features
@@ -32,8 +42,82 @@ jobs:
       - name: Browser workflow tests
         if: runner.os == 'Linux'
         run: cargo build -p bbcode-core --example analyze && npx playwright install --with-deps chromium && npx playwright test
-      - name: Build desktop bundles
-        run: npm run tauri:build
+
+  package-linux:
+    name: Linux packages (amd64)
+    needs: test
+    # Built on the oldest supported Ubuntu so the binaries also run on older glibc.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install build and smoke-test dependencies
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf file xvfb xauth dbus-x11 webkit2gtk-driver python3
+      - run: npm ci
+      - name: Build .deb and .AppImage
+        run: npm run tauri:build -- --bundles deb,appimage
       - name: Native release smoke without dev server
-        if: runner.os == 'Linux'
         run: BBFORGE_BINARY="$PWD/target/release/bbforge-app" bash scripts/smoke-desktop.sh
+      - name: Build manual-install tarball
+        run: bash scripts/package-tarball.sh
+      - name: Collect packages
+        run: |
+          mkdir -p out
+          cp target/release/bundle/deb/*.deb target/release/bundle/appimage/*.AppImage target/release/bundle/tarball/*.tar.gz out/
+          (cd out && sha256sum * > SHA256SUMS-linux.txt && ls -la)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbforge-linux-amd64
+          path: out/*
+          if-no-files-found: error
+
+  package-windows:
+    name: Windows packages (x64)
+    needs: test
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build NSIS installer
+        run: npm run tauri:build -- --bundles nsis
+      - name: Collect installer and portable executable
+        shell: bash
+        run: |
+          mkdir -p out
+          cp target/release/bundle/nsis/*.exe out/
+          version=$(node -p "require('./package.json').version")
+          cp target/release/bbforge-app.exe "out/BBForge_${version}_x64-portable.exe"
+          (cd out && sha256sum * > SHA256SUMS-windows.txt && ls -la)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bbforge-windows-x64
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [package-linux, package-windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
