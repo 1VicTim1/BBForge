@@ -125,6 +125,7 @@ test("restores cursor and scroll positions independently for every document surf
   await page.locator(".sync-state").getByText("Синхронизировано").waitFor();
   await editor.click();
   await page.keyboard.press("Control+End");
+  await expect(page.locator(".statusbar")).toContainText("Стр 90,");
   const codeScroller = page.locator(".cm-scroller");
   await codeScroller.evaluate((node) => { node.scrollTop = 420; node.dispatchEvent(new Event("scroll")); });
   const builder = page.locator(".builder");

@@ -582,8 +582,7 @@ test("underlines problems in code and fixes them from the context menu", async (
   await expect(code).toHaveText("[color=#AAAAAA]x[/color]  ");
 });
 
-test("selecting past the end of a formatted line includes its closing tags", async ({ page, context }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+test("selecting past the end of a formatted line includes its closing tags", async ({ page }) => {
   const line = '[b][color=Green]Куратор [/color][color=Blue][url="https://4pda.to/b"]QMS[/url][/color][/b]';
   await page.locator(".cm-content").fill(`intro\n${line}\nnext`);
   await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
@@ -592,12 +591,11 @@ test("selecting past the end of a formatted line includes its closing tags", asy
   await page.mouse.move(first.x - 6, first.y + first.height / 2); await page.mouse.down();
   await page.mouse.move(qms.x + qms.width + 120, qms.y + qms.height / 2, { steps: 10 }); await page.mouse.up();
   await expect.poll(() => page.evaluate(() => CSS.highlights.has("bbforge-selection"))).toBe(true);
-  await page.keyboard.press("Control+KeyC");
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(line);
+  const copied = await page.locator(".builder").evaluate((element) => { const data = new DataTransfer(); element.dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true })); return data.getData("text/plain"); });
+  expect(copied).toBe(line);
 });
 
-test("selection past the text column works when the engine finds no caret there (WebKitGTK)", async ({ page, context }) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+test("selection past the text column works when the engine finds no caret there (WebKitGTK)", async ({ page }) => {
   // WebKitGTK has no caretPositionFromPoint and returns nothing outside the text column.
   await page.addInitScript(() => {
     Object.defineProperty(Document.prototype, "caretPositionFromPoint", { value: undefined, configurable: true });
@@ -613,6 +611,6 @@ test("selection past the text column works when the engine finds no caret there 
   const pane = (await page.locator(".builder").boundingBox())!;
   await page.mouse.move(first.x + 1, first.y + first.height / 2); await page.mouse.down();
   await page.mouse.move(pane.x + pane.width - 30, first.y + first.height / 2, { steps: 12 }); await page.mouse.up();
-  await page.keyboard.press("Control+KeyC");
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(line.replace("[b][color=Green]", ""));
+  const copied = await page.locator(".builder").evaluate((element) => { const data = new DataTransfer(); element.dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true })); return data.getData("text/plain"); });
+  expect(copied).toBe(line.replace("[b][color=Green]", ""));
 });
