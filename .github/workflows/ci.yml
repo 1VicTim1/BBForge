@@ -29,9 +29,15 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Cache downloaded Linux packages
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: apt-${{ matrix.os }}-test-v1
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+        run: bash scripts/ci-apt.sh libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: npm ci
       - run: cargo fmt --all -- --check
       - run: cargo test --workspace --no-default-features
@@ -45,7 +51,7 @@ jobs:
 
   package-linux:
     name: Linux packages (amd64)
-    needs: test
+    # Runs next to the tests instead of after them; the release job still requires the tests.
     # Built on the oldest supported Ubuntu so the binaries also run on older glibc.
     runs-on: ubuntu-22.04
     steps:
@@ -56,8 +62,13 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Cache downloaded Linux packages
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: apt-ubuntu-22.04-package-v1
       - name: Install build and smoke-test dependencies
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf file xvfb xauth dbus-x11 webkit2gtk-driver python3
+        run: bash scripts/ci-apt.sh libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf file xvfb xauth dbus-x11 webkit2gtk-driver python3
       - run: npm ci
       - name: Build .deb and .AppImage
         run: npm run tauri:build -- --bundles deb,appimage
@@ -78,7 +89,6 @@ jobs:
 
   package-windows:
     name: Windows packages (x64)
-    needs: test
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
@@ -139,7 +149,7 @@ jobs:
     # Publishes automatically when package.json has a version without a v<version> tag yet
     # (just bump the version and push to main), or when a v* tag is pushed manually.
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [package-linux, package-windows, package-arch]
+    needs: [test, package-linux, package-windows, package-arch]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
