@@ -6,7 +6,7 @@ const labels: Record<string, string> = {
   undo: "Отменить", redo: "Повторить", cut: "Вырезать", copy: "Копировать", paste: "Вставить", delete: "Удалить", selectAll: "Выделить всё",
   bold: "Жирный", italic: "Курсив", underline: "Подчёркнутый", strike: "Зачёркнутый", spoiler: "Создать спойлер", fix: "Исправить ошибку…",
   copyText: "Копировать видимый текст", copyInner: "Копировать BBCode без внешнего оформления", copyWrapped: "Копировать BBCode с оформлением", copyBlock: "Копировать BBCode блока",
-  source: "Перейти к исходному коду", unwrap: "Убрать оболочку", openLink: "Открыть ссылку", copyLink: "Копировать адрес ссылки", copyMedia: "Копировать адрес медиа",
+  source: "Перейти к исходному коду", unwrap: "Снять тег", openLink: "Открыть ссылку", copyLink: "Копировать адрес ссылки", copyMedia: "Копировать адрес медиа",
 };
 
 export function buildContextCommands(target: ContextTarget, handlers: Partial<Record<string, () => void>> = {}, fixes: ContextCommand[] = []): ContextCommand[] {

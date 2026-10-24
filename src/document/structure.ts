@@ -63,7 +63,7 @@ export function renameSpoiler(document: DocumentState, snapshot: AnalysisSnapsho
 export function unwrapNode(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef): EditCommand {
   const { node } = resolveNode(document, snapshot, reference);
   if (!node.openingSpan || !node.closingSpan) throw new Error("У блока нет парной оболочки");
-  return { ...identity(document), label: "Убрать оболочку", changes: [node.openingSpan, node.closingSpan].map((span) => ({ ...sourceRange(document, span), insert: "" })) };
+  return { ...identity(document), label: "Снять тег", changes: [node.openingSpan, node.closingSpan].map((span) => ({ ...sourceRange(document, span), insert: "" })) };
 }
 function placeAt(document: DocumentState, node: Node, at: number, copy: boolean): EditCommand {
   const index = createPositionIndex(document.text);

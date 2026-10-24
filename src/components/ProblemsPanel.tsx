@@ -38,7 +38,7 @@ export function ProblemsPanel(props: Props) {
         <label className="panel-filter"><Icon name="filter" /><input aria-label="Фильтр проблем" placeholder="Фильтр проблем" value={filter} onChange={(event) => setFilter(event.target.value)} /></label>
         <span className="spacer" />
         <button className="text-button group-toggle" aria-pressed={grouped} onClick={() => setGrouped(!grouped)}>Группировать: {grouped ? "по правилу" : "нет"}</button>
-        <button className="secondary-button" disabled={!props.unambiguous} onClick={props.onFixAll}>Исправить однозначные ({props.unambiguous})</button>
+        <button className="secondary-button fix-all" aria-label={`Исправить однозначные (${props.unambiguous})`} title="Исправить однозначные ошибки" disabled={!props.unambiguous} onClick={props.onFixAll}><span>Исправить<span className="fix-all-scope"> однозначные</span> ({props.unambiguous})</span></button>
       </>}
       {tab === "journal" && <><span className="spacer" /><button className="text-button" disabled={!props.journal.length} onClick={props.onClearJournal}>Очистить</button></>}
       <button className="icon-button panel-close" aria-label="Скрыть проблемы" onClick={props.onClose}><Icon name="close" /></button>

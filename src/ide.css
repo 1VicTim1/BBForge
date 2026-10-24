@@ -364,7 +364,7 @@ code { font-family: var(--font-code); }
 .spoiler-body .builder-spoiler { background: var(--bg-editor); }
 .spoiler-body .builder-spoiler > summary { min-height: 32px; color: var(--text); font-size: 13px; font-weight: 500; }
 .spoiler-body .drag-handle { left: -26px; top: 5px; }
-.empty-insert { display: inline-flex; height: 24px; margin-top: 8px; padding: 0 8px; color: var(--text-muted); font-size: 12px; border: 1px dashed var(--border-strong); }
+.empty-insert { display: flex; width: fit-content; height: 24px; margin-top: 8px; padding: 0 8px; color: var(--text-muted); font-size: 12px; border: 1px dashed var(--border-strong); }
 .empty-insert:hover { color: var(--text); border-color: var(--text-muted); background: transparent; }
 .builder-code { padding: 10px 12px; font: 13px/20px var(--font-code); white-space: pre-wrap; background: var(--bg-input); border: 1px solid var(--border-subtle); border-radius: var(--radius); }
 .builder-link { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
@@ -655,6 +655,44 @@ button.status-item:hover, span.status-item:hover { color: var(--text); backgroun
 @container editor (max-width: 560px) {
   .breadcrumbs .crumb, .crumb-root { display: none; }
   .segmented.mode-tabs button { padding: 0 7px; }
+}
+
+@container editor (max-width: 520px) {
+  .format-toolbar { flex-wrap: wrap; height: auto; min-height: var(--h-toolbar); padding-block: 3px; row-gap: 2px; }
+  .format-toolbar .toolbar-divider { display: none; }
+}
+
+.problems-panel { container: problems / inline-size; }
+.panel-tabs > * { flex-shrink: 0; }
+.panel-tabs .panel-filter { flex: 0 1 220px; min-width: 70px; }
+@container problems (max-width: 820px) { .panel-tabs .group-toggle { display: none; } }
+@container problems (max-width: 600px) {
+  .fix-all-scope { display: none; }
+  .panel-tabs .toolbar-divider { display: none; }
+}
+@container problems (max-width: 500px) {
+  .panel-tabs { flex-wrap: wrap; height: auto; min-height: 34px; padding-block: 4px; row-gap: 4px; }
+  .panel-tabs .panel-filter { flex: 1 1 120px; }
+}
+
+.opaque-block { flex-wrap: wrap; }
+.opaque-block-text { flex-basis: 140px; }
+
+.preview-badge { max-width: calc(100% - 24px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview { container: preview / inline-size; }
+/* the badge and actions sit over the top-right corner; once the post can reach that corner, push it below them */
+@container preview (max-width: 900px) { .rendered-post { padding-top: 68px; } }
+
+@container editor (max-width: 640px) {
+  .settings-page-view { flex-direction: column; }
+  .settings-nav { flex: 0 0 auto; flex-flow: row wrap; border-right: 0; border-bottom: 1px solid var(--border-subtle); }
+  .settings-nav .panel-filter { flex: 1 0 100%; margin-bottom: 4px; }
+  .settings-content { padding: 14px 16px 20px; }
+  .settings-row:not(.check-row) { flex-wrap: wrap; gap: 6px 16px; }
+  .settings-row:not(.check-row) .settings-label { flex-basis: 100%; }
+  .settings-row:not(.check-row) .settings-control { flex: 1 1 100%; }
+  .settings-footer { flex-wrap: wrap; }
+  .settings-footer small { flex-basis: 100%; }
 }
 
 /* narrow windows: keep every control readable instead of squeezing it */

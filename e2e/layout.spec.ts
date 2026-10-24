@@ -23,7 +23,15 @@ async function overflowing(page: Page) {
       if (style.textOverflow === "ellipsis" || element.closest(".cm-editor")) continue;
       const clipped = element.scrollWidth > element.clientWidth + 1 && style.overflowX !== "visible";
       const spill = Array.from(element.children).some((child) => { const inner = child.getBoundingClientRect(), outer = element.getBoundingClientRect(); return visible(child) && getComputedStyle(child).position !== "absolute" && getComputedStyle(child).textOverflow !== "ellipsis" && (inner.right > outer.right + 1 || inner.left < outer.left - 1); });
-      if (clipped || spill) problems.push(`${element.tagName.toLowerCase()}.${element.className} «${element.textContent.trim().slice(0, 40)}» ${element.scrollWidth}>${element.clientWidth}`);
+      // A control that fits its own box can still be cut off by a panel that hides overflow.
+      let cut = false;
+      for (let parent = element.parentElement; parent && parent !== document.body; parent = parent.parentElement) {
+        const parentStyle = getComputedStyle(parent);
+        if (parentStyle.overflowX === "visible") continue;
+        if (parentStyle.overflowX === "hidden" || parentStyle.overflowX === "clip") { const box = element.getBoundingClientRect(), outer = parent.getBoundingClientRect(); cut = box.right > outer.right + 1 || box.left < outer.left - 1; }
+        break;
+      }
+      if (clipped || spill || cut) problems.push(`${element.tagName.toLowerCase()}.${element.className} «${element.textContent.trim().slice(0, 40)}» ${cut ? "cut off by its panel" : `${element.scrollWidth}>${element.clientWidth}`}`);
     }
     // Nothing may push the window into horizontal scrolling.
     if (document.documentElement.scrollWidth > window.innerWidth + 1) problems.push(`page scrolls horizontally: ${document.documentElement.scrollWidth}>${window.innerWidth}`);
@@ -42,7 +50,8 @@ for (const theme of ["dark", "light"] as const) for (const [width, height] of [[
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
     await page.getByRole("button", { name: /^Ошибки: / }).click();
     await page.getByRole("treeitem").filter({ hasText: "spoiler" }).first().click();
-    const shot = (name: string) => page.screenshot({ path: `artifacts/redesign-${theme}-${width}-${name}.png` });
+    // Popovers fade in; wait for that so the screenshots show them as the user sees them.
+    const shot = async (name: string) => { await page.waitForTimeout(250); await page.screenshot({ path: `artifacts/redesign-${theme}-${width}-${name}.png` }); };
     expect(await overflowing(page)).toEqual([]);
     await shot("main");
 
