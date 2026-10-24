@@ -21,7 +21,7 @@ export function Preview({ document, source, nodes, scroll, onScrollPosition, onN
   useEffect(() => setSelection(null), [effectiveDocument.id, effectiveDocument.revision]);
   useLayoutEffect(() => { if (root.current) { root.current.scrollLeft = scroll?.left ?? 0; root.current.scrollTop = scroll?.top ?? 0; } }, [effectiveDocument.id]);
   const read = () => { if (!root.current) return; const range = readPreviewSelection(root.current, effectiveDocument); if (range) { setSelection(range); onSelection?.(range); } };
-  return <div className="rendered-post" ref={root} onMouseUp={read} onScroll={(event) => onScrollPosition?.({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}><div className="preview-actions"><button disabled={!selection} onClick={() => selection && onNavigate({ start: positions.utf16ToByte(selection.from), end: positions.utf16ToByte(selection.to) })}>К исходнику</button></div>{nodes.map((node, index) => <RenderNode key={`${node.span.start}-${index}`} node={node} source={source} positions={positions} onNavigate={onNavigate} openExternal={openExternal} />)}</div>;
+  return <div className="rendered-post" ref={root} onMouseUp={read} onScroll={(event) => onScrollPosition?.({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}><span className="preview-badge">Приблизительный рендер · не пиксель-в-пиксель</span><div className="preview-actions"><button disabled={!selection} onClick={() => selection && onNavigate({ start: positions.utf16ToByte(selection.from), end: positions.utf16ToByte(selection.to) })}>К исходнику</button></div><div className="preview-content">{nodes.map((node, index) => <RenderNode key={`${node.span.start}-${index}`} node={node} source={source} positions={positions} onNavigate={onNavigate} openExternal={openExternal} />)}</div></div>;
 }
 
 function RenderNode({ node, source, positions, onNavigate, openExternal }: { node: Node; source: string; positions: PositionIndex; onNavigate(span: Span): void; openExternal?: (url: string) => void }): ReactNode {
@@ -41,7 +41,7 @@ function RenderNode({ node, source, positions, onNavigate, openExternal }: { nod
   else if (name === "list") rendered = <ul>{children}</ul>;
   else if (name === "*") rendered = <li>{children}</li>;
   else if (name === "spoiler") rendered = <details><summary onDoubleClick={() => onNavigate(node.span)}>{formatTitle(node.parameter ?? "Спойлер")}</summary><div>{children}</div></details>;
-  else if (name === "img") rendered = <span className="media-placeholder" data-context-surface="media" data-source-value={plainText(node, source, positions)}>Изображение: {plainText(node, source, positions)}</span>;
+  else if (name === "img") rendered = <span className="media-placeholder" data-context-surface="media" data-source-value={plainText(node, source, positions)}>▧ {plainText(node, source, positions).split(/[\\/]/).at(-1)?.split("?")[0] || "Изображение"}</span>;
   else if (name === "attachment") rendered = <span className="media-placeholder" data-context-surface="media" data-source-value={node.parameter ?? ""}>Вложение: {node.parameter}</span>;
   if (name === "url") {
     const raw = node.parameter ?? plainText(node, source, positions);

@@ -1,5 +1,3 @@
-import { type Extension, RangeSetBuilder } from "@codemirror/state";
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 
 export type TagSpanKind = "bracket" | "name" | "parameter";
 export interface TagSpan { from: number; to: number; kind: TagSpanKind }
@@ -37,25 +35,5 @@ export function spoilerFoldRanges(source: string): FoldRange[] {
   return ranges.sort((left, right) => left.order - right.order).map(({ from, to }) => ({ from, to }));
 }
 
-function decorations(view: EditorView): DecorationSet {
-  const builder = new RangeSetBuilder<Decoration>();
-  for (const span of tagSpans(view.state.doc.toString())) {
-    builder.add(span.from, span.to, Decoration.mark({ class: `bb-${span.kind}` }));
-  }
-  return builder.finish();
-}
-
-const highlighting = ViewPlugin.fromClass(class {
-  decorations: DecorationSet;
-  constructor(view: EditorView) { this.decorations = decorations(view); }
-  update(update: ViewUpdate) { if (update.docChanged) this.decorations = decorations(update.view); }
-}, { decorations: (plugin) => plugin.decorations });
-
-export const bbcodeLanguage: Extension = [
-  highlighting,
-  EditorView.baseTheme({
-    ".bb-bracket": { color: "#7c8da6" },
-    ".bb-name": { color: "#075f9f", fontWeight: "600" },
-    ".bb-parameter": { color: "#8a4a0a" },
-  }),
-];
+/** Role-based highlighting (inline, block, media tags, values, URLs, unknown tags); colours live in theme.css. */
+export { bbcodeHighlighting as bbcodeLanguage } from "./highlight";

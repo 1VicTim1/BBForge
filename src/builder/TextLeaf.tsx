@@ -10,6 +10,8 @@ interface Props {
   onEdit(range: SourceRange, text: string, expected: string): void;
   onSelect(): void; onPasteCode(range: SourceRange, text: string): void;
   onComposition(active: boolean): void;
+  /** Enter with the caret at the end of the leaf; true when the builder handled it (e.g. left a link). */
+  onEnterAtEnd?(to: number): boolean;
 }
 export function TextLeaf(props: Props) {
   const host = useRef<HTMLSpanElement>(null), composing = useRef(false), focused = useRef(false);
@@ -66,7 +68,16 @@ export function TextLeaf(props: Props) {
     onCompositionStart={() => { composing.current = true; props.onComposition(true); }}
     onCompositionEnd={() => { composing.current = false; props.onComposition(false); commit(); }}
     onInput={commit}
-    onKeyDown={(event) => { if (event.key === "Enter" && !composing.current && !event.nativeEvent.isComposing) { event.preventDefault(); insertText("\n"); } }}
+    onKeyDown={(event) => {
+      if (event.key !== "Enter" || composing.current || event.nativeEvent.isComposing) return;
+      event.preventDefault();
+      const selection = window.getSelection(), range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+      if (range?.collapsed && host.current?.contains(range.startContainer) && props.onEnterAtEnd) {
+        const before = window.document.createRange(); before.selectNodeContents(host.current); before.setEnd(range.startContainer, range.startOffset);
+        if (before.toString().length === (host.current.textContent ?? "").replace(/\n$/, "").length) { commit(); if (props.onEnterAtEnd(state.current.to)) return; }
+      }
+      insertText("\n");
+    }}
     onBeforeInput={(event) => {
       const native = event.nativeEvent as InputEvent;
       if (native.inputType === "insertParagraph" || native.inputType === "insertLineBreak") {

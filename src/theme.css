@@ -1,37 +1,58 @@
-/* CodeMirror colours matching the JetBrains New UI dark editor scheme. */
-.cm-editor { height: 100%; color: #bcbec4; background: #1e1f22; font-size: var(--code-font-size, 13px); line-height: var(--code-line-height, 1.6); }
-.cm-editor .cm-scroller { font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace; }
-.cm-editor .cm-gutters { min-width: 48px; padding-right: 6px; color: #4b5059; background: #1e1f22; border-right: 0; }
-.cm-editor .cm-activeLineGutter { color: #a1a3ab; background: transparent; }
-.cm-editor .cm-activeLine { background: #26282e; }
-.cm-editor .cm-cursor { border-left: 2px solid #ced0d6; }
-.cm-editor .cm-content { padding: 8px 0; }
-.cm-editor .cm-line { padding: 0 12px; }
-.cm-editor .cm-selectionBackground, .cm-editor.cm-focused .cm-selectionBackground, .cm-editor .cm-content ::selection { background: #214283 !important; }
-.cm-editor .cm-selectionMatch { background: #373b39; }
-.cm-editor .cm-searchMatch { background: #32593d; outline: 1px solid #3c704b; }
-.cm-editor .cm-searchMatch-selected { background: #214283; }
-.cm-editor .cm-panels { color: #dfe1e5; background: #2b2d30; }
-.cm-editor .cm-panels.cm-panels-top { border-bottom: 1px solid #1e1f22; }
-.cm-editor .cm-panel.cm-search { padding: 6px 10px; }
-.cm-editor .cm-panel.cm-search label { color: #868a91; font-size: 12px; }
-.cm-editor .cm-textfield { padding: 2px 6px; color: #dfe1e5; background: #1e1f22; border: 1px solid #4e5157; border-radius: 4px; }
-.cm-editor .cm-button { padding: 2px 10px; color: #dfe1e5; background: #2b2d30; background-image: none; border: 1px solid #4e5157; border-radius: 4px; }
-.cm-editor .cm-tooltip { color: #dfe1e5; background: #2b2d30; border: 1px solid #393b40; border-radius: 4px; }
-.cm-editor .cm-foldPlaceholder { color: #868a91; background: #393b40; border: 0; }
-.cm-editor .cm-placeholder { color: #5a5d63; }
-.cm-editor .bb-bracket { color: #bcbec4; }
-.cm-editor .bb-name { color: #d5b778; }
-.cm-editor .bb-parameter { color: #6aab73; }
-.cm-editor .cm-matchingTag { background: #3b4f6b; border-radius: 2px; }
-.cm-editor .cm-matchingTag .bb-name { color: #f0d9a0; }
-.cm-editor .cm-problem { background-repeat: repeat-x; background-position: left bottom; background-size: 6px 3px; padding-bottom: 1px; }
-.cm-editor .cm-problem-error { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='3'%3E%3Cpath d='M0 2.5 1.5 0.5 3 2.5 4.5 0.5 6 2.5' fill='none' stroke='%23f75464' stroke-width='1'/%3E%3C/svg%3E"); }
-.cm-editor .cm-problem-warning { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='3'%3E%3Cpath d='M0 2.5 1.5 0.5 3 2.5 4.5 0.5 6 2.5' fill='none' stroke='%23f2c55c' stroke-width='1'/%3E%3C/svg%3E"); }
-.cm-editor .cm-problem-info { background-image: linear-gradient(90deg, #548af7 50%, transparent 50%); background-size: 4px 1px; }
-.cm-tooltip.cm-tooltip-hover { padding: 0; background: #2b2d30; border: 1px solid #393b40; border-radius: 6px; box-shadow: 0 6px 18px #0008; }
-.cm-problem-tooltip { max-width: 520px; padding: 6px 10px; font: 12px/1.45 Inter, "Segoe UI", system-ui, sans-serif; color: #dfe1e5; }
+/* CodeMirror on design tokens: a theme switch is a data-theme change, the editor is never recreated. */
+.cm-editor { height: 100%; color: var(--syn-text); background: var(--bg-editor); font-size: var(--code-font-size, 13px); line-height: var(--code-line-height, 20px); }
+.cm-editor .cm-scroller { font-family: var(--font-code); font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+.cm-editor .cm-gutters { color: var(--syn-bracket); background: var(--bg-editor); border-right: 0; }
+.cm-editor .cm-lineNumbers .cm-gutterElement { min-width: 32px; padding: 0 14px 0 4px; }
+.cm-editor .cm-activeLineGutter { color: var(--text); background: var(--editor-line); }
+.cm-editor .cm-activeLine { background: var(--editor-line); }
+.cm-editor .cm-cursor { border-left: 2px solid var(--accent); }
+.cm-editor .cm-content { padding: 8px 0; caret-color: var(--accent); }
+.cm-editor .cm-line { padding: 0 12px 0 2px; }
+.cm-editor .cm-selectionBackground, .cm-editor.cm-focused .cm-selectionBackground, .cm-editor .cm-content ::selection { background: var(--editor-selection) !important; }
+.cm-editor .cm-selectionMatch { background: var(--accent-subtle); }
+.cm-editor .cm-searchMatch { background: var(--warning-subtle); outline: 1px solid var(--warning); }
+.cm-editor .cm-searchMatch-selected { background: var(--editor-selection); }
+.cm-editor .cm-panels { color: var(--text); background: var(--bg-surface); }
+.cm-editor .cm-panels.cm-panels-top { border-bottom: 1px solid var(--border-subtle); }
+.cm-editor .cm-panel.cm-search { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; font-family: var(--font-ui); font-size: 12px; }
+.cm-editor .cm-panel.cm-search br { display: none; }
+.cm-editor .cm-panel.cm-search label { display: inline-flex; align-items: center; gap: 4px; color: var(--text-secondary); font-size: 12px; }
+.cm-editor .cm-panel.cm-search [name=close] { position: static; margin-left: auto; color: var(--text-muted); }
+.cm-editor .cm-textfield { height: 24px; padding: 0 6px; color: var(--text); font-size: 12px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); }
+.cm-editor .cm-button { height: 24px; padding: 0 10px; color: var(--text); font-size: 12px; background: var(--bg-elevated); background-image: none; border: 1px solid var(--border); border-radius: var(--radius); }
+.cm-editor .cm-foldPlaceholder { color: var(--text-muted); background: var(--bg-active); border: 0; border-radius: var(--radius-chip); }
+.cm-editor .cm-foldGutter .cm-gutterElement { color: var(--text-muted); }
+.cm-editor .cm-placeholder { color: var(--text-disabled); }
+
+/* BBCode roles */
+.bb-bracket { color: var(--syn-bracket); }
+.bb-inline { color: var(--syn-inline); }
+.bb-block { color: var(--syn-block); font-weight: 500; }
+.bb-media { color: var(--syn-media); }
+.bb-item { color: var(--syn-item); font-weight: 600; }
+.bb-value { color: var(--syn-value); }
+.bb-url { color: var(--syn-url); }
+.bb-unknown { color: var(--error); background: var(--error-subtle); text-decoration: underline dashed var(--error); text-underline-offset: 3px; }
+.bb-swatch { display: inline-block; width: 10px; height: 10px; margin: 0 3px 0 1px; vertical-align: -1px; border: 1px solid var(--border-strong); border-radius: 2px; }
+.cm-editor .cm-matchingTag { background: var(--accent-subtle); border-radius: 2px; box-shadow: 0 0 0 1px var(--accent); }
+
+/* problems: wavy underlines, gutter dots and the quick-fix bulb */
+.cm-editor .cm-problem { text-decoration-line: underline; text-decoration-style: wavy; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
+.cm-editor .cm-problem-error { text-decoration-color: var(--error); }
+.cm-editor .cm-problem-warning { text-decoration-color: var(--warning); }
+.cm-editor .cm-problem-info { text-decoration-style: dotted; text-decoration-color: var(--info); }
+.cm-editor .cm-problem-gutter .cm-gutterElement { display: flex; align-items: center; justify-content: center; width: 18px; padding-left: 4px; }
+.cm-problem-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--warning); }
+.cm-problem-dot.error { background: var(--error); }
+.cm-problem-dot.info { background: var(--info); }
+.cm-bulb { display: flex; color: var(--warning); cursor: pointer; }
+.cm-bulb:hover { color: var(--accent); }
+
+/* tooltips */
+.cm-tooltip { color: var(--text); background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--radius); }
+.cm-tooltip.cm-tooltip-hover { padding: 0; background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: var(--radius-popup); box-shadow: var(--shadow-popup); }
+.cm-problem-tooltip { max-width: 520px; padding: 8px 10px; font: 12px/1.45 var(--font-ui); color: var(--text); }
 .cm-problem-row { position: relative; padding-left: 14px; }
-.cm-problem-row::before { content: ""; position: absolute; left: 0; top: 5px; width: 8px; height: 8px; border-radius: 50%; }
-.cm-problem-row.error::before { background: #f75464; } .cm-problem-row.warning::before { background: #f2c55c; } .cm-problem-row.info::before { background: #548af7; }
-.cm-problem-hint { margin-top: 4px; color: #868a91; font-size: 11px; }
+.cm-problem-row::before { content: ""; position: absolute; left: 0; top: 5px; width: 7px; height: 7px; border-radius: 50%; }
+.cm-problem-row.error::before { background: var(--error); } .cm-problem-row.warning::before { background: var(--warning); } .cm-problem-row.info::before { background: var(--info); }
+.cm-problem-hint { margin-top: 4px; color: var(--text-muted); font-size: 11px; }

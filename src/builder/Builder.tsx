@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AnalysisSnapshot, Node } from "../analysis/types";
+import type { AnalysisSnapshot, Node, Span } from "../analysis/types";
 import type { DocumentState } from "../document/state";
 import type { EditCommand, SourceRange } from "../document/commands";
 import { identity } from "../document/commands";
@@ -13,7 +13,13 @@ import { safeExternalUrl } from "../components/Preview";
 import { LazyBlockGroup, SpoilerBlock } from "./Block";
 import { InsertionDraft } from "./InsertionDraft";
 import type { ScrollPosition } from "../workspace/session";
+import { Icon } from "../components/Icon";
+import { stripTags } from "../bbcode/labels";
 
+// Selecting "the whole line" takes its formatting wrappers along, but never block tags like [/spoiler].
+const INLINE = "b|i|u|s|color|size|font|background|url|sub|sup";
+const INLINE_CLOSE = new RegExp(`^(?:\\[\\/(?:${INLINE})\\])+`, "i");
+const INLINE_OPEN = new RegExp(`(?:\\[(?:${INLINE})(?:=[^\\]\\n]*)?\\])+$`, "i");
 export interface BuilderProps {
   document: DocumentState; snapshot: AnalysisSnapshot | null;
   execute(command: EditCommand): void; getDocument(): DocumentState;
@@ -22,6 +28,12 @@ export interface BuilderProps {
   onComposition(active: boolean): void;
   scroll?: ScrollPosition; onScrollPosition?(position: ScrollPosition): void;
   storedSelection?: SourceRange; restoreFocus?: boolean;
+  /** The block selected in the structure tree or inspector: drawn with an accent ring. */
+  selectedSpan?: Span;
+  /** "Исправить…" on an unknown or broken tag. */
+  onFix?(range: SourceRange): void;
+  /** Status-bar hint while a block is dragged; null when the drag ends. */
+  onDragHint?(hint: string | null): void;
 }
 export function Builder(props: BuilderProps) {
   const root = useRef<HTMLDivElement>(null);
@@ -37,23 +49,54 @@ export function Builder(props: BuilderProps) {
   useEffect(() => {
     const host = root.current;
     if (!host) return;
+    // The character under the pointer, measured per character: wrapped text spans several lines, so the
+    // leaf's bounding box says nothing about where on which line the click landed.
+    const offsetInLeaf = (leaf: HTMLElement, x: number, y: number): number | null => {
+      const text = leaf.firstChild;
+      if (!text || text.nodeType !== Node.TEXT_NODE) return null;
+      const length = Math.min(text.textContent?.length ?? 0, 20000), range = document.createRange();
+      let best: { at: number; score: number } | null = null;
+      for (let at = 0; at < length; at++) {
+        range.setStart(text, at); range.setEnd(text, at + 1);
+        const rect = range.getBoundingClientRect();
+        if (!rect.width && !rect.height) continue;
+        const dy = y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0, dx = x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0;
+        const score = dy * 10000 + dx;
+        if (!best || score < best.score) best = { at: x > rect.left + rect.width / 2 ? at + 1 : at, score };
+        if (score === 0) break;
+      }
+      return best?.at ?? null;
+    };
     const sourceOffsetAt = (x: number, y: number): number | null => {
       const hit = document.elementFromPoint(x, y) as HTMLElement | null;
       const hitLeaf = hit?.closest<HTMLElement>(".visual-text") ?? hit?.closest(".visual-text-node")?.querySelector<HTMLElement>(".visual-text");
       if (hitLeaf && host.contains(hitLeaf)) {
-        const rect = hitLeaf.getBoundingClientRect(), from = Number(hitLeaf.dataset.sourceFrom), to = Number(hitLeaf.dataset.sourceTo);
-        if (rect.width > 0 && to > from) return Math.round(from + Math.max(0, Math.min(1, (x - rect.left) / rect.width)) * (to - from));
-        return from;
+        const from = Number(hitLeaf.dataset.sourceFrom), at = offsetInLeaf(hitLeaf, x, y);
+        return at === null ? from : from + at;
       }
+      const nearest = (): number | null => {
+        // WebKitGTK finds no caret outside the text column; pick the closest leaf on screen instead.
+        let best: { leaf: HTMLElement; rect: DOMRect; score: number } | null = null;
+        for (const leaf of Array.from(host.querySelectorAll<HTMLElement>(".visual-text[data-source-from]"))) for (const rect of Array.from(leaf.getClientRects())) {
+          const dy = y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0, dx = x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0;
+          const score = dy * 1000 + dx;
+          if (!best || score < best.score) best = { leaf, rect, score };
+        }
+        if (!best) return null;
+        const from = Number(best.leaf.dataset.sourceFrom), to = Number(best.leaf.dataset.sourceTo), text = latest.current.getDocument().text;
+        if (x >= best.rect.right) return to + (INLINE_CLOSE.exec(text.slice(to))?.[0].length ?? 0);
+        if (x <= best.rect.left) return from - (INLINE_OPEN.exec(text.slice(Math.max(0, from - 2000), from))?.[0].length ?? 0);
+        return from + (offsetInLeaf(best.leaf, x, best.rect.top + best.rect.height / 2) ?? 0);
+      };
       const caret = document.caretPositionFromPoint?.(x, y);
       const fallback = !caret ? document.caretRangeFromPoint?.(x, y) : null;
       const node = caret?.offsetNode ?? fallback?.startContainer;
       const at = caret?.offset ?? fallback?.startOffset;
-      if (!node || at === undefined) return null;
+      if (!node || at === undefined) return nearest();
       let element = (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest<HTMLElement>("[data-source-from]");
       if (!element || !host.contains(element)) {
         element = hit?.closest(".visual-text-node")?.querySelector<HTMLElement>(".visual-text") ?? null;
-        if (!element) return null;
+        if (!element) return nearest();
         const rect = element.getBoundingClientRect();
         return x < rect.left + rect.width / 2 ? Number(element.dataset.sourceFrom) : Number(element.dataset.sourceTo);
       }
@@ -62,8 +105,8 @@ export function Builder(props: BuilderProps) {
       // Past the end (or before the start) of a line, take the adjacent closing (opening) tags too, so
       // selecting "the whole line" includes its formatting wrappers.
       const rects = Array.from(element.getClientRects()), text = latest.current.getDocument().text;
-      if (offset === Number(element.dataset.sourceTo) && rects.length && x > rects[rects.length - 1].right) return offset + (/^(?:\[\/[^\]\n]+\])+/.exec(text.slice(offset))?.[0].length ?? 0);
-      if (offset === Number(element.dataset.sourceFrom) && rects.length && x < rects[0].left) return offset - (/(?:\[[^/\]\n][^\]\n]*\])+$/.exec(text.slice(Math.max(0, offset - 2000), offset))?.[0].length ?? 0);
+      if (offset === Number(element.dataset.sourceTo) && rects.length && x > rects[rects.length - 1].right) return offset + (INLINE_CLOSE.exec(text.slice(offset))?.[0].length ?? 0);
+      if (offset === Number(element.dataset.sourceFrom) && rects.length && x < rects[0].left) return offset - (INLINE_OPEN.exec(text.slice(Math.max(0, offset - 2000), offset))?.[0].length ?? 0);
       return offset;
     };
     const highlightSelection = (from: number, to: number) => {
@@ -91,6 +134,12 @@ export function Builder(props: BuilderProps) {
     };
     const selectText = (event: PointerEvent, leaf: HTMLElement) => {
       event.preventDefault();
+      // WebKit still starts a native selection (and places its own caret) from the following mousedown; keep it out.
+      window.getSelection()?.removeAllRanges();
+      host.classList.add("visual-selecting");
+      const noNative = (native: Event) => native.preventDefault();
+      document.addEventListener("selectstart", noNative, true);
+      host.addEventListener("mousedown", noNative, { capture: true, once: true });
       const anchor = sourceOffsetAt(event.clientX, event.clientY);
       let head = anchor;
       setEditable(false);
@@ -104,6 +153,10 @@ export function Builder(props: BuilderProps) {
       const up = (event: PointerEvent) => {
         window.removeEventListener("pointermove", move, true);
         window.removeEventListener("pointerup", up, true);
+        document.removeEventListener("selectstart", noNative, true);
+        host.removeEventListener("mousedown", noNative, true);
+        host.classList.remove("visual-selecting");
+        window.getSelection()?.removeAllRanges();
         setEditable(true);
         head = sourceOffsetAt(event.clientX, event.clientY) ?? head;
         requestAnimationFrame(() => {
@@ -184,15 +237,30 @@ export function Builder(props: BuilderProps) {
       if (label) { textGhost.textContent = label; Object.assign(textGhost.style, { left: caret.style.left, top: caret.style.top, lineHeight: `${rect.height || 18}px` }); }
     };
     let ghostLabel: string | null = null;
+    const titleOf = (element: Element | null | undefined) => { const title = element?.querySelector(":scope > summary .spoiler-title")?.textContent?.trim(); return title ? `«${title}»` : null; };
+    const describe = (slot: Slot) => {
+      const spoiler = slot.parent.closest(".builder-spoiler"), inside = spoiler ? `внутрь ${titleOf(spoiler) ?? "«спойлер»"}` : "в корень документа";
+      let previous = slot.before ? slot.before.previousElementSibling : slot.parent.lastElementChild;
+      while (previous && (previous === ghost || previous.classList.contains("empty-insert") || previous.classList.contains("visual-drag-source"))) previous = previous.previousElementSibling;
+      const after = previous?.classList.contains("builder-spoiler") ? titleOf(previous) : null;
+      return `Переместить ${inside}, ${after ? `после ${after}` : previous ? "после текста" : "в начало"}`;
+    };
+    let insideMark: Element | null = null, lastHint: string | null = null;
+    // Only a changed hint reaches React: re-rendering the app on every pointer move would drop moves.
+    const hint = (text: string | null) => { if (text !== lastHint) { lastHint = text; latest.current.onDragHint?.(text); } };
     const paint = (drop: Drop | null) => {
       lastDrop = drop;
       caret.hidden = true; textGhost.hidden = true;
+      insideMark?.classList.remove("drop-inside"); insideMark = null;
       if (!drop?.kind || drop.kind !== "block" || !drop.slot) ghost.remove();
-      if (!drop) return;
+      if (!drop) { hint(dragging ? "Здесь блок не изменится — отпустите в другом месте" : null); return; }
       if (drop.kind === "block" && drop.slot) {
         if (ghost.parentElement !== drop.slot.parent || ghost.nextElementSibling !== drop.slot.before) drop.slot.parent.insertBefore(ghost, drop.slot.before);
+        if (drop.slot.parent.classList.contains("spoiler-body")) { insideMark = drop.slot.parent.closest(".builder-spoiler"); insideMark?.classList.add("drop-inside"); }
+        hint(`${describe(drop.slot)}${host.dataset.dragCopy === "true" ? " (копия)" : ""}`);
         return;
       }
+      hint(host.dataset.dragCopy === "true" ? "Скопировать в текст" : "Переместить в текст");
       showCaret(drop.at, drop.kind === "text" ? ghostLabel : null);
     };
     const apply = (payload: Payload, drop: Drop, copy: boolean) => {
@@ -214,18 +282,24 @@ export function Builder(props: BuilderProps) {
         for (let previous = ""; previous !== label;) { previous = label; label = label.replace(/\[[^[\]]*\]/g, ""); }
         ghostLabel = label.replace(/\s+/g, " ").trim().slice(0, 80); preview.textContent = ghostLabel; }
       else {
-        const head = payload.element.querySelector(":scope > summary") ?? payload.element;
-        const copy = head.cloneNode(true) as HTMLElement; copy.removeAttribute("data-at-from");
-        preview.append(copy);
+        // A 28px chip: tag, title and how many blocks move with it.
+        const kind = payload.element.dataset.dragKind === "spoiler" ? "spoiler" : payload.element.dataset.dragKind === "item" ? "*" : payload.element.dataset.dragKind ?? "";
+        const tag = document.createElement("span"); tag.className = `tag-name role-${kind === "spoiler" || kind === "list" ? "block" : "item"}`; tag.textContent = kind;
+        const title = document.createElement("span"); title.textContent = payload.element.querySelector(":scope > summary .spoiler-title")?.textContent?.trim() || payload.element.textContent?.trim().slice(0, 60) || "";
+        preview.append(tag, title);
+        const count = payload.element.querySelector(":scope > summary .spoiler-count")?.textContent;
+        if (count) { const small = document.createElement("small"); small.textContent = count; preview.append(small); }
       }
       ghost.replaceChildren();
       if (payload.kind === "node") { const head = payload.element.querySelector(":scope > summary"); ghost.append((head ?? payload.element).cloneNode(true)); ghost.className = `visual-drop-ghost visual-drop-ghost-${payload.element.dataset.dragKind}`; }
     };
     const movePreview = (x: number, y: number) => { preview.style.transform = `translate(${x + 14}px, ${y + 12}px)`; };
     const scroller = new EdgeAutoScroller();
+    let dragging = false;
     const gesture = (event: PointerEvent, payload: Payload, onClick: () => void) => {
       const startX = event.clientX, startY = event.clientY;
-      let dragging = false, drop: Drop | null = null, lastX = startX, lastY = startY;
+      let drop: Drop | null = null, lastX = startX, lastY = startY;
+      dragging = false;
       const update = (copy: boolean) => {
         host.dataset.dragCopy = String(copy); preview.dataset.copy = String(copy);
         drop = locate(payload, lastX, lastY);
@@ -237,6 +311,8 @@ export function Builder(props: BuilderProps) {
         lastX = next.clientX; lastY = next.clientY;
         if (!dragging) {
           if (Math.hypot(lastX - startX, lastY - startY) < 5) return;
+          // Structural moves wait until the code and the view are in sync again.
+          if (payload.kind === "node" && snapshotRef.current?.revision !== latest.current.getDocument().revision) return;
           dragging = true; setEditable(false); window.getSelection()?.removeAllRanges();
           host.classList.add("visual-dragging"); if (payload.kind === "node") payload.element.classList.add("visual-drag-source");
           fillPreview(payload); preview.hidden = false;
@@ -253,11 +329,12 @@ export function Builder(props: BuilderProps) {
         window.removeEventListener("pointermove", move, true); window.removeEventListener("pointerup", up, true);
         window.removeEventListener("keydown", key, true); window.removeEventListener("keyup", key, true); host.removeEventListener("scroll", onScroll);
         document.removeEventListener("selectstart", noSelect, true);
+        const wasDragging = dragging; dragging = false;
         scroller.stop(); paint(null); ghost.remove(); preview.hidden = true; setEditable(true);
         if (hoverOpen) { clearTimeout(hoverOpen.timer); hoverOpen = null; }
         host.classList.remove("visual-dragging"); delete host.dataset.dragCopy;
         if (payload.kind === "node") payload.element.classList.remove("visual-drag-source");
-        if (!dragging) { if (end) onClick(); return; }
+        if (!wasDragging) { if (end) onClick(); return; }
         const swallow = (click: MouseEvent) => { click.preventDefault(); click.stopPropagation(); };
         window.addEventListener("click", swallow, true); setTimeout(() => window.removeEventListener("click", swallow, true), 0);
         if (end && drop) apply(payload, drop, end.ctrlKey);
@@ -329,6 +406,21 @@ export function Builder(props: BuilderProps) {
     while (oldEnd > start && end > start && source[oldEnd - 1] === current[end - 1]) { oldEnd--; end--; }
     return { start, oldEnd, delta: end - oldEnd };
   }, [source, props.document.text]);
+  // A new line typed at the end of a link starts after the link (as in word processors), not inside it.
+  const pendingCaret = useRef<number | null>(null);
+  const leaveLink = (to: number) => {
+    const document = props.getDocument(), closing = /^(?:\[\/(?!url\])[^\]\n]+\])*\[\/url\]/i.exec(document.text.slice(to));
+    if (!closing) return false;
+    const at = to + closing[0].length;
+    try { props.execute(textEditCommand(document, { from: at, to: at }, "\n", "")); pendingCaret.current = at + 1; } catch (error) { props.onError(String(error)); }
+    return true;
+  };
+  useLayoutEffect(() => {
+    const at = pendingCaret.current;
+    if (at === null || !root.current || snapshot?.revision !== props.document.revision) return;
+    pendingCaret.current = null;
+    restoreVisualSelection(root.current, { from: at, to: at }, true);
+  });
   const [paste, setPaste] = useState<{ range: SourceRange; text: string; documentId: string; revision: number } | null>(null);
   const select = () => { if (root.current) { const range = readVisualSelection(root.current, props.getDocument()); if (range) { setSelectedRange(range, true); props.onRange(range); } } };
   const run = (build: () => EditCommand) => { try { props.execute(build()); } catch (error) { props.onError(String(error)); } };
@@ -344,20 +436,23 @@ export function Builder(props: BuilderProps) {
       }
       if (text.length > 65536) return <button className="opaque-block" key={path} onClick={() => props.onNavigate({ from, to })}>Большой текстовый блок · Редактировать код</button>;
       const reference = movable ?? nodeRef(snapshot!, node);
-      return <span key={path} className="visual-text-node" {...dragTarget(reference, "text", from, to)}><TextLeaf autoFocus={path === insertionPath} literal={literal} onError={props.onError} editable={snapshot?.revision === props.document.revision} text={text} from={from} to={to} onEdit={(range, value, expected) => { try { props.execute(textEditCommand(props.getDocument(), range, value, expected)); } catch (error) { props.onError(String(error)); throw error; } }} onSelect={select} onComposition={props.onComposition} onPasteCode={(range, text) => setPaste({ range, text, ...identity(props.getDocument()) })} /></span>;
+      return <span key={path} className="visual-text-node" {...dragTarget(reference, "text", from, to)}><TextLeaf autoFocus={path === insertionPath} literal={literal} onError={props.onError} editable={snapshot?.revision === props.document.revision} text={text} from={from} to={to} onEdit={(range, value, expected) => { try { props.execute(textEditCommand(props.getDocument(), range, value, expected)); } catch (error) { props.onError(String(error)); throw error; } }} onSelect={select} onComposition={props.onComposition} onPasteCode={(range, text) => setPaste({ range, text, ...identity(props.getDocument()) })} onEnterAtEnd={literal ? undefined : leaveLink} /></span>;
     }
     const reference = nodeRef(snapshot!, node);
     const structural = ["spoiler", "list", "*", "quote", "code", "img", "attachment"].includes(node.name ?? "");
     const children = () => node.children.length ? node.children.map((child, at) => render(child, `${path}.${at}`, literal || node.name === "code", structural ? undefined : reference)) : render({ kind: "text", name: null, parameter: null, span: node.contentSpan, contentSpan: node.contentSpan, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, `${path}.empty`, literal || node.name === "code", structural ? undefined : reference);
     const selectNode = (event: React.MouseEvent) => { event.stopPropagation(); const range = { from, to }; setSelectedRange(range); props.onRange({ ...identity(props.document), ...range }); props.onSelect(reference); };
     const known = ["b", "i", "u", "s", "color", "background", "url", "quote", "code", "list", "*", "spoiler", "size", "font", "left", "center", "right", "sub", "sup", "img", "attachment"];
-    if (!node.wellFormed || !known.includes(node.name ?? "")) return <div key={path} className="opaque-block" data-at-from={from} data-at-to={to} onClick={selectNode}><span>{node.wellFormed ? `Неизвестный тег [${node.name}]` : "Повреждённая разметка"}</span><code>{source.slice(from, to)}</code><button onClick={() => props.onNavigate({ from, to })}>Редактировать код</button></div>;
+    const isSelected = props.selectedSpan?.start === node.span.start && props.selectedSpan?.end === node.span.end;
+    // Unknown or broken markup is inert: shown as its source with ways out, never as half-rendered content.
+    if (!node.wellFormed || !known.includes(node.name ?? "")) return <div key={path} className={`opaque-block ${isSelected ? "is-selected" : ""}`} data-at-from={from} data-at-to={to} onClick={selectNode}><Icon name="warning" /><span className="opaque-block-text"><span>{node.wellFormed ? "Неизвестный тег" : "Повреждённая разметка"}</span><code>{source.slice(from, Math.min(to, from + 600))}{to - from > 600 ? "…" : ""}</code></span><button onClick={(event) => { event.stopPropagation(); props.onNavigate({ from, to }); }}>В коде</button>{props.onFix && <button onClick={(event) => { event.stopPropagation(); props.onFix!({ from, to }); }}>Исправить…</button>}</div>;
     if (node.name === "spoiler") {
       const insertPath = `${path}.insert`;
       const insertAt = index.byteToUtf16(node.contentSpan.end);
-      return <SpoilerBlock key={path} title={node.parameter ?? "Спойлер"} onRename={node.parameter !== null ? (title) => run(() => renameSpoiler(props.getDocument(), snapshotRef.current!, reference, title)) : undefined} depth={path.split(".").length - 1} dragTarget={dragTarget(reference, "spoiler", from, to)} contentEnd={insertAt} onSelect={selectNode} onInsert={() => { props.onRange({ ...identity(props.document), from: insertAt, to: insertAt }); props.onSelect(reference); setInsertionPath(insertPath); }}>{() => <>{children()}{insertionPath === insertPath && <InsertionDraft onCommit={(value) => { setInsertionPath(null); run(() => textEditCommand(props.getDocument(), { from: insertAt, to: insertAt }, value, "")); }} onCancel={() => setInsertionPath(null)} />}</>}</SpoilerBlock>;
+      const blocks = node.children.filter((child) => child.kind === "element" || source.slice(index.byteToUtf16(child.span.start), index.byteToUtf16(child.span.end)).trim()).length;
+      return <SpoilerBlock key={path} blocks={blocks} selected={isSelected} title={node.parameter ?? "Спойлер"} onRename={node.parameter !== null ? (title) => run(() => renameSpoiler(props.getDocument(), snapshotRef.current!, reference, title)) : undefined} depth={path.split(".").length - 1} dragTarget={dragTarget(reference, "spoiler", from, to)} contentEnd={insertAt} onSelect={selectNode} onInsert={() => { props.onRange({ ...identity(props.document), from: insertAt, to: insertAt }); props.onSelect(reference); setInsertionPath(insertPath); }}>{() => <>{children()}{insertionPath === insertPath && <InsertionDraft onCommit={(value) => { setInsertionPath(null); run(() => textEditCommand(props.getDocument(), { from: insertAt, to: insertAt }, value, "")); }} onCancel={() => setInsertionPath(null)} />}</>}</SpoilerBlock>;
     }
-    if (node.name === "img" || node.name === "attachment") return <button key={path} className="media-placeholder" data-at-from={from} data-at-to={to} onClick={selectNode}>{node.name === "img" ? "▧ Изображение" : "▤ Вложение"} · Свойства</button>;
+    if (node.name === "img" || node.name === "attachment") return <button key={path} className="media-placeholder" data-at-from={from} data-at-to={to} onClick={selectNode}><Icon name={node.name === "img" ? "image" : "file"} />{node.name === "img" ? (stripTags(source.slice(index.byteToUtf16(node.contentSpan.start), index.byteToUtf16(node.contentSpan.end))).split(/[\\/]/).at(-1)?.split("?")[0] || "Изображение") : `Вложение ${node.parameter ?? ""}`}</button>;
     if (node.name === "code") return <pre className="builder-code" key={path} data-at-from={from} data-at-to={to} onClick={selectNode}>{children()}</pre>;
     if (node.name === "quote") return <blockquote key={path} data-at-from={from} data-at-to={to} onClick={selectNode}>{children()}</blockquote>;
     if (node.name === "list") return <ul key={path} {...dragTarget(reference, "list", from, to)} onClick={selectNode}>{children()}</ul>;
@@ -376,8 +471,7 @@ export function Builder(props: BuilderProps) {
     if (node.name === "url") return <span key={path} data-at-from={from} data-at-to={to} className={safeExternalUrl(node.parameter ?? "") ? "builder-link" : ""} title={node.parameter ?? ""} onClick={selectNode}>{children()}</span>;
     return <span key={path} data-at-from={from} data-at-to={to} style={style} onClick={selectNode}>{children()}</span>;
   };
-  return <div className="builder" tabIndex={-1} ref={root} onMouseUp={select} onCopy={(event) => { if (selectedRange && selectedRange.from !== selectedRange.to) { event.preventDefault(); event.clipboardData.setData("text/plain", props.document.text.slice(selectedRange.from, selectedRange.to)); } }} onScroll={(event) => props.onScrollPosition?.({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}>
-    <div className="builder-caption"><span>ВИЗУАЛЬНЫЙ ДОКУМЕНТ</span><small>{snapshot?.revision === props.document.revision ? "Синхронизирован с кодом" : "Обновление структуры…"}</small><button disabled={!selectedRange} onClick={() => selectedRange && props.onNavigate(selectedRange)}>К исходнику</button></div>
+  return <div className={`builder ${snapshot?.revision === props.document.revision ? "" : "syncing"}`} aria-busy={snapshot?.revision !== props.document.revision} tabIndex={-1} ref={root} onMouseUp={select} onCopy={(event) => { if (selectedRange && selectedRange.from !== selectedRange.to) { event.preventDefault(); event.clipboardData.setData("text/plain", props.document.text.slice(selectedRange.from, selectedRange.to)); } }} onScroll={(event) => props.onScrollPosition?.({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}>
     <div className="builder-page">{snapshot ? Array.from({ length: Math.ceil(snapshot.analysis.nodes.length / 30) }, (_, group) => <LazyBlockGroup key={`${props.document.id}-${group}`} eager={group === 0} count={Math.min(30, snapshot.analysis.nodes.length - group * 30)}>{() => snapshot.analysis.nodes.slice(group * 30, group * 30 + 30).map((node, at) => render(node, String(group * 30 + at)))}</LazyBlockGroup>) : <p>Анализ документа…</p>}{snapshot?.analysis.nodes.length === 0 && render({ kind: "text", name: null, parameter: null, span: { start: 0, end: 0 }, contentSpan: { start: 0, end: 0 }, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, "empty")}</div>
     {paste && <div className="modal-backdrop"><section className="dialog" role="dialog" aria-label="Вставить текст"><h3>В тексте найдены BBCode-теги</h3><pre>{paste.text}</pre><button onClick={() => { run(() => ({ ...paste, label: "Вставить BBCode", changes: [{ ...paste.range, insert: paste.text }] })); setPaste(null); }}>Вставить как BBCode</button><button onClick={() => { run(() => ({ ...paste, label: "Вставить буквальный текст", changes: [{ ...paste.range, insert: literalPaste(paste.text) }] })); setPaste(null); }}>Буквально в code</button><button onClick={() => setPaste(null)}>Отмена</button></section></div>}
   </div>;

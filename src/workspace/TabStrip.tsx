@@ -1,5 +1,6 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import type { DocumentSession } from "./session";
+import { Icon } from "../components/Icon";
 
 function title(path: string | null): string {
   if (path === null) return "untitled.bbcode";
@@ -7,9 +8,12 @@ function title(path: string | null): string {
 }
 
 /** Editor tabs; drag a tab left/right to reorder it (Alt+Shift+←/→ from the keyboard). */
-export function TabStrip({ tabs, activeId, onActivate, onClose, onReorder }: {
+export function TabStrip({ tabs, activeId, onActivate, onClose, onReorder, extra }: {
   tabs: DocumentSession[];
+  /** Id of the active document; any other value (the settings tab) leaves every document tab inactive. */
   activeId: string;
+  /** Non-document tabs (settings), rendered after the documents. */
+  extra?: Array<{ id: string; title: string; icon: Parameters<typeof Icon>[0]["name"]; active: boolean; onActivate(): void; onClose(): void }>;
   onActivate(documentId: string): void;
   onClose(documentId: string): void;
   onReorder(documentId: string, to: number): void;
@@ -20,7 +24,7 @@ export function TabStrip({ tabs, activeId, onActivate, onClose, onReorder }: {
     if (event.button !== 0 || (event.target as Element).closest(".document-tab-close")) return;
     const startX = event.clientX;
     let active = false, target: { to: number; marker: number } | null = null;
-    const others = () => Array.from(host.current?.querySelectorAll<HTMLElement>(".document-tab") ?? []).filter((element) => element.dataset.id !== id);
+    const others = () => Array.from(host.current?.querySelectorAll<HTMLElement>(".document-tab[data-id]") ?? []).filter((element) => element.dataset.id !== id);
     const move = (next: PointerEvent) => {
       if (!active && Math.abs(next.clientX - startX) < 4) return;
       active = true;
@@ -44,7 +48,7 @@ export function TabStrip({ tabs, activeId, onActivate, onClose, onReorder }: {
     {tabs.map((tab, index) => {
       const name = title(tab.document.path);
       const dirty = tab.document.revision !== tab.document.savedRevision;
-      return <div className={`document-tab ${tab.document.id === activeId ? "active" : ""} ${drag?.id === tab.document.id ? "dragging" : ""}`} key={tab.document.id} data-id={tab.document.id} onPointerDown={(event) => startDrag(event, tab.document.id)}>
+      return <div className={`document-tab ${tab.document.id === activeId ? "active" : ""} ${dirty ? "dirty" : ""} ${drag?.id === tab.document.id ? "dragging" : ""}`} key={tab.document.id} data-id={tab.document.id} onPointerDown={(event) => startDrag(event, tab.document.id)}>
         <button
           type="button"
           role="tab"
@@ -59,13 +63,17 @@ export function TabStrip({ tabs, activeId, onActivate, onClose, onReorder }: {
             if (to >= 0 && to < tabs.length) onReorder(tab.document.id, to);
           }}
         >
-          <span className="file-icon" aria-hidden="true"><svg viewBox="0 0 16 16" width="16" height="16"><path d="M6.5 4.5h-2v7h2M9.5 4.5h2v7h-2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
-          <span>{name}</span>
-          {dirty && <span className="dirty-dot" aria-label="Есть несохранённые изменения">●</span>}
+          <span className="file-icon" aria-hidden="true" />
+          <span className="document-tab-name">{name}</span>
         </button>
-        <button type="button" className="document-tab-close" aria-label={`Закрыть ${name}`} onClick={() => onClose(tab.document.id)}>×</button>
+        {/* A modified file shows a dot that turns into × on hover. */}
+        <button type="button" className="document-tab-close" aria-label={`Закрыть ${name}`} onClick={() => onClose(tab.document.id)}>{dirty && <span className="dirty-dot" aria-label="Есть несохранённые изменения">●</span>}<Icon name="close" /></button>
       </div>;
     })}
+    {extra?.map((tab) => <div key={tab.id} className={`document-tab extra-tab ${tab.active ? "active" : ""}`}>
+      <button type="button" role="tab" aria-selected={tab.active} className="document-tab-activate" onClick={tab.onActivate}><Icon name={tab.icon} /><span className="document-tab-name">{tab.title}</span></button>
+      <button type="button" className="document-tab-close" aria-label={`Закрыть ${tab.title}`} onClick={tab.onClose}><Icon name="close" /></button>
+    </div>)}
     {drag && <span className="document-tab-marker" style={{ left: drag.marker }} aria-hidden="true" />}
   </div>;
 }

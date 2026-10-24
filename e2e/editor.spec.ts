@@ -14,7 +14,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("edits Cyrillic BBCode, searches, undoes and updates diagnostics", async ({ page }) => {
-  await page.locator(".collapsed-problems").click();
+  await page.getByRole("button", { name: /^Ошибки: / }).click();
   const editor = page.locator(".cm-content");
   await editor.fill("[b]");
   await expect(page.getByText("Тег [b] не закрыт")).toBeVisible();
@@ -30,7 +30,8 @@ test("toggles structure and preview panels", async ({ page }) => {
   await page.getByRole("button", { name: "Структура" }).click();
   await expect(page.getByRole("heading", { name: "Структура" })).toBeHidden();
   await page.getByRole("button", { name: "Предпросмотр", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Предпросмотр" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Предпросмотр" })).toBeVisible();
+  await expect(page.locator(".preview-badge")).toContainText("Приблизительный рендер");
 });
 
 test("selects all and copies with physical keys on Russian layout", async ({ page, context }) => {
@@ -120,7 +121,7 @@ test("restores cursor and scroll positions independently for every document surf
   const source = Array.from({ length: 90 }, (_, index) => `[spoiler=Раздел ${index}]Строка ${index}[/spoiler]`).join("\n");
   const editor = page.locator(".cm-content");
   await editor.fill(source);
-  await page.locator(".builder-caption").getByText("Синхронизирован с кодом").waitFor();
+  await page.locator(".sync-state").getByText("Синхронизировано").waitFor();
   await editor.click();
   await page.keyboard.press("Control+End");
   const codeScroller = page.locator(".cm-scroller");
@@ -134,7 +135,7 @@ test("restores cursor and scroll positions independently for every document surf
   const preview = page.locator(".rendered-post");
   await preview.evaluate((node) => { node.scrollTop = 280; node.dispatchEvent(new Event("scroll")); });
   const previewTop = await preview.evaluate((node) => node.scrollTop);
-  await page.getByRole("button", { name: "Предпросмотр", exact: true }).click();
+  await page.getByRole("button", { name: "Конструктор", exact: true }).click();
   const codeTop = await codeScroller.evaluate((node) => node.scrollTop);
   const builderTop = await builder.evaluate((node) => node.scrollTop);
 
@@ -143,7 +144,7 @@ test("restores cursor and scroll positions independently for every document surf
 
   await expect.poll(() => codeScroller.evaluate((node) => node.scrollTop)).toBe(codeTop);
   await expect.poll(() => builder.evaluate((node) => node.scrollTop)).toBe(builderTop);
-  await expect(page.locator(".statusbar")).toContainText("90:");
+  await expect(page.locator(".statusbar")).toContainText("Стр 90,");
   await expect(page.locator(".visual-text:focus")).toBeVisible();
   await page.getByRole("button", { name: "Предпросмотр", exact: true }).click();
   await expect.poll(() => preview.evaluate((node) => node.scrollTop)).toBe(previewTop);

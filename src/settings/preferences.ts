@@ -1,7 +1,13 @@
 import { createContext, useContext } from "react";
 import { validateOverrides, type KeymapOverrides } from "../keymap/keymap";
 
+export type Theme = "dark" | "light" | "system";
+export type Density = "comfortable" | "compact";
 export interface Preferences {
+  theme: Theme;
+  density: Density;
+  /** Linux/Windows: the window manager's title bar instead of BBForge's own. */
+  systemFrame: boolean;
   tooltips: boolean;
   animations: boolean;
   codeFontSize: number;
@@ -19,8 +25,9 @@ export interface Preferences {
 }
 
 export const defaultPreferences: Preferences = {
+  theme: "dark", density: "comfortable", systemFrame: false,
   tooltips: true, animations: true,
-  codeFontSize: 13, codeLineHeight: 1.6, codeWrap: true, codeLineNumbers: true, codeActiveLine: true,
+  codeFontSize: 13, codeLineHeight: 1.54, codeWrap: true, codeLineNumbers: true, codeActiveLine: true,
   builderFontSize: 14, builderWidth: "medium", spoilerOpenDepth: 2, tagLabels: true,
   restoreSession: true, analysisDelay: 150, keymap: {},
 };
@@ -32,10 +39,13 @@ const flag = (value: unknown, fallback: boolean) => typeof value === "boolean" ?
 export function validatePreferences(value: Partial<Preferences>): Preferences {
   const d = defaultPreferences;
   return {
+    theme: value.theme === "light" || value.theme === "system" ? value.theme : d.theme,
+    density: value.density === "compact" ? "compact" : d.density,
+    systemFrame: flag(value.systemFrame, d.systemFrame),
     tooltips: flag(value.tooltips, d.tooltips), animations: flag(value.animations, d.animations),
-    codeFontSize: number(value.codeFontSize, 10, 24, d.codeFontSize), codeLineHeight: number(value.codeLineHeight, 1.2, 2.2, d.codeLineHeight),
+    codeFontSize: number(value.codeFontSize, 11, 18, d.codeFontSize), codeLineHeight: number(value.codeLineHeight, 1.2, 2.2, d.codeLineHeight),
     codeWrap: flag(value.codeWrap, d.codeWrap), codeLineNumbers: flag(value.codeLineNumbers, d.codeLineNumbers), codeActiveLine: flag(value.codeActiveLine, d.codeActiveLine),
-    builderFontSize: number(value.builderFontSize, 11, 24, d.builderFontSize),
+    builderFontSize: number(value.builderFontSize, 12, 20, d.builderFontSize),
     builderWidth: value.builderWidth === "narrow" || value.builderWidth === "full" || value.builderWidth === "medium" ? value.builderWidth : d.builderWidth,
     spoilerOpenDepth: number(value.spoilerOpenDepth, 0, 99, d.spoilerOpenDepth), tagLabels: flag(value.tagLabels, d.tagLabels),
     restoreSession: flag(value.restoreSession, d.restoreSession), analysisDelay: number(value.analysisDelay, 50, 2000, d.analysisDelay),
@@ -64,9 +74,14 @@ export function preferenceStyle(preferences: Preferences): { className: string; 
     style: {
       "--code-font-size": `${preferences.codeFontSize}px`, "--code-line-height": String(preferences.codeLineHeight),
       "--builder-font-size": `${preferences.builderFontSize}px`,
-      "--builder-page-width": preferences.builderWidth === "narrow" ? "720px" : preferences.builderWidth === "full" ? "none" : "900px",
+      "--builder-page-width": preferences.builderWidth === "narrow" ? "620px" : preferences.builderWidth === "full" ? "none" : "700px",
     },
   };
+}
+
+/** The theme actually shown: "system" follows the OS setting. */
+export function resolvedTheme(theme: Theme, prefersDark: boolean): "dark" | "light" {
+  return theme === "system" ? prefersDark ? "dark" : "light" : theme;
 }
 
 export const PreferencesContext = createContext<Preferences>(defaultPreferences);
