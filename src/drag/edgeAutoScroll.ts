@@ -19,8 +19,8 @@ export class EdgeAutoScroller {
   private velocity = 0;
 
   constructor(
-    private readonly requestFrame: (callback: FrameRequestCallback) => number = requestAnimationFrame,
-    private readonly cancelFrame: (handle: number) => void = cancelAnimationFrame,
+    private readonly requestFrame: (callback: FrameRequestCallback) => number = (callback) => requestAnimationFrame(callback),
+    private readonly cancelFrame: (handle: number) => void = (handle) => cancelAnimationFrame(handle),
   ) {}
 
   update(element: HTMLElement, clientY: number): void {
