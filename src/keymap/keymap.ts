@@ -7,9 +7,9 @@ export type ActionId =
   | "tab.next" | "tab.previous"
   | "edit.undo" | "edit.redo" | "edit.find" | "edit.fix" | "edit.fixAll"
   | "format.bold" | "format.italic" | "format.underline" | "format.strike" | "format.link" | "format.quote" | "format.code" | "format.list" | "format.spoiler"
-  | "view.code" | "view.split" | "view.builder" | "view.preview" | "view.structure" | "view.problems"
-  | "refactor.tidyDocument" | "refactor.trimTrailing" | "refactor.removeEmpty" | "refactor.merge"
-  | "app.settings" | "app.findAction";
+  | "view.code" | "view.split" | "view.builder" | "view.preview" | "view.structure" | "view.problems" | "view.inspector" | "view.search"
+  | "refactor.tidyDocument" | "refactor.trimTrailing" | "refactor.removeEmpty" | "refactor.merge" | "refactor.cleanup"
+  | "app.settings" | "app.findAction" | "app.commandPalette" | "app.quickOpen" | "app.goToLine";
 
 export interface ActionDefinition { id: ActionId; title: string; category: string; keys: string[] }
 
@@ -36,18 +36,24 @@ export const actionDefinitions: ActionDefinition[] = [
   { id: "format.code", title: "Блок кода", category: "Оформление", keys: ["Ctrl+Shift+KeyK"] },
   { id: "format.list", title: "Список", category: "Оформление", keys: ["Ctrl+Shift+KeyL"] },
   { id: "format.spoiler", title: "Создать спойлер", category: "Оформление", keys: ["Ctrl+Shift+KeyE"] },
-  { id: "view.code", title: "Режим «Код»", category: "Вид", keys: ["Ctrl+Alt+Digit1"] },
-  { id: "view.split", title: "Режим «Рядом»", category: "Вид", keys: ["Ctrl+Alt+Digit2"] },
-  { id: "view.builder", title: "Режим «Конструктор»", category: "Вид", keys: ["Ctrl+Alt+Digit3"] },
-  { id: "view.preview", title: "Предпросмотр", category: "Вид", keys: ["Ctrl+Shift+KeyV"] },
+  { id: "view.code", title: "Вид «Код»", category: "Вид", keys: ["Ctrl+Digit1"] },
+  { id: "view.builder", title: "Вид «Конструктор»", category: "Вид", keys: ["Ctrl+Digit2"] },
+  { id: "view.preview", title: "Вид «Предпросмотр»", category: "Вид", keys: ["Ctrl+Digit3", "Ctrl+Shift+KeyV"] },
+  { id: "view.split", title: "Рядом с кодом", category: "Вид", keys: ["Ctrl+Backslash"] },
   { id: "view.structure", title: "Панель «Структура»", category: "Вид", keys: ["Alt+Digit7"] },
+  { id: "view.search", title: "Панель «Поиск»", category: "Вид", keys: ["Ctrl+Shift+KeyF"] },
   { id: "view.problems", title: "Панель «Проблемы»", category: "Вид", keys: ["Alt+Digit6"] },
-  { id: "refactor.tidyDocument", title: "Убрать пустые строки в документе", category: "Рефакторинг", keys: ["Ctrl+Alt+KeyL"] },
+  { id: "view.inspector", title: "Панель «Свойства»", category: "Вид", keys: ["Alt+Digit8"] },
+  { id: "refactor.tidyDocument", title: "Убрать пустые строки", category: "Рефакторинг", keys: [] },
   { id: "refactor.trimTrailing", title: "Убрать пробелы в конце строк", category: "Рефакторинг", keys: [] },
   { id: "refactor.removeEmpty", title: "Удалить пустые теги", category: "Рефакторинг", keys: [] },
   { id: "refactor.merge", title: "Склеить соседние одинаковые теги", category: "Рефакторинг", keys: [] },
+  { id: "refactor.cleanup", title: "Очистка документа…", category: "Рефакторинг", keys: ["Ctrl+Alt+KeyL"] },
   { id: "app.settings", title: "Настройки", category: "Приложение", keys: ["Ctrl+Alt+KeyS"] },
+  { id: "app.commandPalette", title: "Палитра команд", category: "Приложение", keys: ["Ctrl+Shift+KeyP"] },
   { id: "app.findAction", title: "Найти действие", category: "Приложение", keys: ["Ctrl+Shift+KeyA"] },
+  { id: "app.quickOpen", title: "Перейти к файлу…", category: "Приложение", keys: ["Ctrl+KeyP"] },
+  { id: "app.goToLine", title: "Перейти к строке…", category: "Приложение", keys: [] },
 ];
 
 export type KeymapOverrides = Partial<Record<ActionId, string[]>>;

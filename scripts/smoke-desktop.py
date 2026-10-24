@@ -42,13 +42,13 @@ try:
     # Native IPC has already parsed the example, producing these editable leaves.
     js("const e=document.querySelector('.visual-text'); e.focus(); e.textContent='Нативный тест 😀'; e.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText'})); return true")
     wait("return document.querySelector('.cm-content').innerText.includes('Нативный тест 😀')")
-    wait("return document.querySelector('.builder-caption small').textContent.includes('Синхронизирован')")
+    wait("return document.querySelector('.sync-state').textContent.includes('Синхронизирован')")
     # A structural command also needs the source snapshot carried across IPC.
     js("Array.from(document.querySelectorAll('[role=treeitem]')).find(e=>e.textContent.includes('Важная информация')).click(); return true")
     wait("return !!document.querySelector('[aria-label=\"Заголовок спойлера\"]')")
     js("const e=document.querySelector('[aria-label=\"Заголовок спойлера\"]'); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(e,'Native title'); e.dispatchEvent(new Event('input',{bubbles:true})); return true")
     js("document.querySelector('.properties form').requestSubmit(); return true")
-    wait("return document.querySelector('.cm-content').innerText.includes('[spoiler=Native title]')")
+    wait("return document.querySelector('.cm-content').innerText.includes('Native title')")
     # Ask the real Rust backend to diagnose malformed code through Tauri IPC.
     result = request("POST", prefix + "/execute/async", {"script": "const done=arguments[arguments.length-1]; window.__TAURI_INTERNALS__.invoke('analyze',{source:'[b]',documentId:'smoke',revision:1}).then(done).catch(e=>done({error:String(e)}));", "args": []})
     assert any(item["code"] == "unclosedTag" for item in result["analysis"]["diagnostics"]), result

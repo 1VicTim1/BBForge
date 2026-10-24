@@ -11,20 +11,22 @@ Range.prototype.getBoundingClientRect = () => new DOMRect();
 afterEach(() => { cleanup(); localStorage.clear(); });
 
 describe("BBForge shell", () => {
-  it("shows the editor, outline, preview and collapsed diagnostics regions", () => {
+  it("shows the editor, outline, view switch and problem counters", () => {
     render(<App />);
 
     expect(screen.getByRole("heading", { name: "BBForge" })).toBeTruthy();
     expect(screen.getByLabelText("Редактор BBCode")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Структура" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Конструктор" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Проблемы.*Ошибок не найдено/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ошибки: 0, предупреждения: 0" })).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Свойства" })).toBeTruthy();
   });
 
   it("can open, hide and restore the diagnostics panel", () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: /Проблемы.*Ошибок не найдено/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Ошибки: 0, предупреждения: 0" }));
     expect(screen.getByRole("heading", { name: /Проблемы/ })).toBeTruthy();
+    expect(screen.getByText("Ошибок не найдено")).toBeTruthy();
     const diagnostics = screen.getByRole("heading", { name: /Проблемы/ }).closest("section");
     fireEvent.click(within(diagnostics as HTMLElement).getByRole("button", { name: "Скрыть проблемы" }));
     expect(screen.queryByRole("heading", { name: /Проблемы/ })).toBeNull();

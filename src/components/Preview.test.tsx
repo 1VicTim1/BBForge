@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { Diagnostics } from "./Diagnostics";
-import { Outline } from "./Outline";
+import { ProblemsPanel } from "./ProblemsPanel";
+import { StructureTree } from "./StructureTree";
 import { Preview, safeExternalUrl } from "./Preview";
 import type { Analysis } from "../analysis/types";
 
@@ -37,7 +37,7 @@ describe("preview panels", () => {
 
   it("navigates from outline and diagnostics using byte spans", () => {
     const navigate = vi.fn();
-    render(<><Outline nodes={analysis.nodes} onNavigate={navigate} /><Diagnostics diagnostics={analysis.diagnostics} onNavigate={navigate} /></>);
+    render(<><StructureTree nodes={analysis.nodes} source={source} onNavigate={navigate} /><ProblemsPanel diagnostics={analysis.diagnostics} journal={[]} onNavigate={(item) => navigate(item.span)} onQuickFix={vi.fn()} canFix={() => false} unambiguous={0} onFixAll={vi.fn()} onClose={vi.fn()} onClearJournal={vi.fn()} /></>);
     fireEvent.click(screen.getByRole("treeitem", { name: /Важно/ }));
     fireEvent.click(screen.getByRole("button", { name: /Тег не закрыт/ }));
     expect(navigate).toHaveBeenNthCalledWith(1, analysis.nodes[0].span);

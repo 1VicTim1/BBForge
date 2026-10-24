@@ -1,8 +1,8 @@
 import { historyKeymap, defaultKeymap, undo, redo } from "@codemirror/commands";
 import { searchKeymap } from "@codemirror/search";
 import { bracketMatching, foldGutter, foldKeymap, foldService } from "@codemirror/language";
-import { Decoration, drawSelection, EditorView, highlightActiveLine, hoverTooltip, keymap, lineNumbers, placeholder, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
-import { StateEffect } from "@codemirror/state";
+import { Decoration, drawSelection, EditorView, gutter, GutterMarker, highlightActiveLine, highlightActiveLineGutter, hoverTooltip, keymap, lineNumbers, placeholder, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
+import { Compartment, RangeSet, StateEffect } from "@codemirror/state";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { bbcodeLanguage } from "./language";
 import { decodeDocument, type DocumentState, type LineEnding } from "../document/state";
@@ -52,10 +52,18 @@ interface EditorProps {
   storedSelection?: SourceRange;
   scroll?: ScrollPosition;
   onScrollPosition?(position: ScrollPosition): void;
+  /** The light bulb in the gutter was clicked: show quick fixes at this position. */
+  onQuickFix?(position: number): void;
+  dark?: boolean;
 }
 type Problem = { from: number; to: number; severity: string; message: string };
 /** IDE-style squiggles under diagnostics plus a hover tooltip with the message. */
-function problemMarks(snapshot: () => AnalysisSnapshot | null | undefined) {
+function problemMarks(snapshot: () => AnalysisSnapshot | null | undefined, onBulb: (position: number) => void) {
+  const marks = problemDecorations(snapshot);
+  // The gutter goes first (left of the line numbers); squiggles keep their place after the syntax marks.
+  return { gutter: problemGutter(marks.problemsOf, onBulb), decorations: marks.extensions };
+}
+function problemDecorations(snapshot: () => AnalysisSnapshot | null | undefined) {
   let cached: { snapshot: AnalysisSnapshot; problems: Problem[] } | null = null;
   const problemsOf = (view: EditorView): Problem[] => {
     const current = snapshot();
@@ -71,7 +79,7 @@ function problemMarks(snapshot: () => AnalysisSnapshot | null | undefined) {
     return problems;
   };
   const build = (view: EditorView): DecorationSet => Decoration.set(problemsOf(view).map((item) => Decoration.mark({ class: `cm-problem cm-problem-${item.severity}` }).range(item.from, item.to)), true);
-  return [
+  return { problemsOf, extensions: [
     ViewPlugin.fromClass(class {
       decorations: DecorationSet;
       constructor(view: EditorView) { this.decorations = build(view); }
@@ -87,8 +95,38 @@ function problemMarks(snapshot: () => AnalysisSnapshot | null | undefined) {
         return { dom };
       } };
     }, { hoverTime: 350 }),
-  ];
+  ] };
 }
+class ProblemMarker extends GutterMarker {
+  constructor(readonly severity: string, readonly bulb: boolean) { super(); }
+  eq(other: ProblemMarker) { return other.severity === this.severity && other.bulb === this.bulb; }
+  toDOM() {
+    const marker = document.createElement("span");
+    marker.className = this.bulb ? "cm-bulb" : `cm-problem-dot ${this.severity}`;
+    if (this.bulb) { marker.title = "Показать исправления (Alt+Enter)"; marker.setAttribute("aria-label", "Показать исправления"); marker.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>'; }
+    return marker;
+  }
+}
+/** Severity dots next to the line numbers; on the cursor line a light bulb opens the quick fixes. */
+function problemGutter(problemsOf: (view: EditorView) => Problem[], onBulb: (position: number) => void) {
+  return gutter({
+    class: "cm-problem-gutter",
+    markers(view) {
+      const lines = new Map<number, string>();
+      for (const item of problemsOf(view)) { const line = view.state.doc.lineAt(item.from).from, current = lines.get(line); if (current !== "error") lines.set(line, item.severity === "error" ? "error" : current ?? item.severity); }
+      const cursorLine = view.state.doc.lineAt(view.state.selection.main.head).from;
+      return RangeSet.of([...lines].sort((a, b) => a[0] - b[0]).map(([line, severity]) => new ProblemMarker(severity, line === cursorLine && view.hasFocus).range(line)));
+    },
+    lineMarkerChange: (update) => update.docChanged || update.selectionSet || update.focusChanged || update.transactions.some((transaction) => transaction.effects.some((effect) => effect.is(refreshMatching))),
+    domEventHandlers: {
+      mousedown(view, line, event) {
+        if (!(event.target as HTMLElement).closest(".cm-bulb")) return false;
+        event.preventDefault(); onBulb(line.from); return true;
+      },
+    },
+  });
+}
+const themeFlag = new Compartment();
 export function Editor(props: EditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const latest = useRef(props); latest.current = props;
@@ -97,8 +135,9 @@ export function Editor(props: EditorProps) {
   useEffect(() => {
     if (!host.current) return;
     const initial = props.document ?? { ...decodeDocument(new TextEncoder().encode(props.value)), endings: props.endings };
+    const problems = problemMarks(() => latest.current.snapshot, (position) => latest.current.onQuickFix?.(position));
     const extensions = [
-      lineNumbers(), drawSelection(), highlightActiveLine(), bracketMatching(), foldGutter(), bbcodeLanguage, matchingTags(() => latest.current.snapshot), problemMarks(() => latest.current.snapshot),
+      problems.gutter, lineNumbers(), highlightActiveLineGutter(), drawSelection(), highlightActiveLine(), bracketMatching(), foldGutter(), bbcodeLanguage, matchingTags(() => latest.current.snapshot), problems.decorations,
       foldService.of((state, lineStart, lineEnd) => {
         const snapshot = latest.current.snapshot;
         if (!snapshot || snapshot.source !== state.doc.toString()) return null;
@@ -126,7 +165,7 @@ export function Editor(props: EditorProps) {
         return false;
       } }),
       EditorView.updateListener.of((update) => { if (update.view.hasFocus && (update.selectionSet || update.docChanged)) latest.current.onSelection?.({ from: update.state.selection.main.from, to: update.state.selection.main.to }); }),
-      EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto", fontFamily: "JetBrains Mono, Consolas, monospace" } }),
+      themeFlag.of(EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto" } }, { dark: props.dark ?? true })),
     ];
     const stateFor = (document: DocumentState) => createEditorState(document, extensions, (text, endings) => latest.current.onChange(document.id, text, endings), latest.current.storedSelection);
     const view = new EditorView({ parent: host.current, state: stateFor(initial) }); viewRef.current = view;
@@ -142,5 +181,7 @@ export function Editor(props: EditorProps) {
   }, [props.document?.id]);
   useEffect(() => { if (props.selectionRequest) controllerRef.current?.select(props.selectionRequest); }, [props.selectionRequest]);
   useEffect(() => { viewRef.current?.dispatch({ effects: refreshMatching.of(null) }); }, [props.snapshot]);
+  // Colours come from CSS variables; only CodeMirror's own light/dark flag needs reconfiguring.
+  useEffect(() => { viewRef.current?.dispatch({ effects: themeFlag.reconfigure(EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto" } }, { dark: props.dark ?? true })) }); }, [props.dark]);
   return <div ref={host} className="editor" role="textbox" aria-label="Редактор BBCode" />;
 }

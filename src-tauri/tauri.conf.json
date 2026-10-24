@@ -11,7 +11,7 @@
   },
   "app": {
     "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:" },
-    "windows": [{ "title": "BBForge", "width": 1440, "height": 900, "minWidth": 960, "minHeight": 640 }]
+    "windows": [{ "title": "BBForge", "width": 1440, "height": 900, "minWidth": 960, "minHeight": 640, "decorations": false }]
   },
   "bundle": {
     "active": true,

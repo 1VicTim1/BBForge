@@ -13,7 +13,7 @@ test("visual Undo and Redo use the physical key in Russian layout", async ({ pag
 
 test("code Undo uses the physical key in Russian layout", async ({ page }) => {
   const code = page.locator(".cm-content"); await code.fill("hello");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await page.waitForTimeout(550);
   await code.press("End"); await page.keyboard.type("X");
   await code.dispatchEvent("keydown", { key: "я", code: "KeyZ", ctrlKey: true });
@@ -27,28 +27,28 @@ test("insert-in-spoiler keeps a draft until Enter or blur", async ({ page }) => 
   await expect(code).toHaveText("[spoiler=S][b]hello[/b][/spoiler]");
   await page.keyboard.press("Enter");
   await expect(code).toHaveText("[spoiler=S][b]hello[/b]tail[/spoiler]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await page.getByRole("button", { name: "+ Вставить в спойлер", exact: true }).click();
   await page.keyboard.type("more");
   await expect(code).toHaveText("[spoiler=S][b]hello[/b]tail[/spoiler]");
-  await page.locator(".builder-caption").click();
+  await page.locator(".sync-state").click();
   await expect(code).toHaveText("[spoiler=S][b]hello[/b]tailmore[/spoiler]");
 });
 
 test("repairs crossed closing runs without deleting formatting", async ({ page }) => {
-  await page.locator(".collapsed-problems").click();
+  await page.getByRole("button", { name: /^Ошибки: / }).click();
   const code = page.locator(".cm-content");
   for (const [source, expected] of [
     ["[size=1][color=grey]fire[/size][/color]", "[size=1][color=grey]fire[/color][/size]"],
     ['[i][color=green][b]текст [color="#0099FF"]ссылка[/color] текст[/color][/i][/b]', '[i][color=green][b]текст [color="#0099FF"]ссылка[/color] текст[/b][/color][/i]'],
   ]) {
     await code.fill(source);
-    await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
-    await page.getByRole("button", { name: "Исправить однозначные…", exact: true }).click();
-    await expect(page.getByRole("dialog", { name: "Предпросмотр исправления" })).toBeVisible();
-    await page.getByRole("button", { name: "Применить исправление", exact: true }).click();
+    await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+    await page.getByRole("button", { name: /^Исправить однозначные \(/ }).click();
+    await expect(page.getByRole("dialog", { name: "Исправить однозначные ошибки" })).toBeVisible();
+    await page.getByRole("button", { name: /^Применить \d/ }).click();
     await expect(code).toHaveText(expected);
-    await expect(page.locator(".diagnostics .count-badge")).toHaveText("0");
+    await expect(page.locator(".panel-tab.active .count-badge")).toHaveText("0");
   }
 });
 
@@ -56,7 +56,7 @@ test("does not render recovery closing tags as visual text", async ({ page }) =>
   const code = page.locator(".cm-content");
   const source = '[img]https://4pda.to/static/forum/style_images/f/281-firmware.png[/img] [size=1][color=grey]fire[/size][/color]\n[i][color=green][b]В теме нет куратора. [color="#0099FF"]модераторам[/color] раздела[/color][/i][/b]';
   await code.fill(source);
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   const visual = page.locator(".builder-page");
   await expect(visual).not.toContainText("Повреждённая разметка");
   await expect(visual).toContainText("В теме нет куратора");
@@ -66,12 +66,12 @@ test("does not render recovery closing tags as visual text", async ({ page }) =>
 });
 
 test("repairs a crossing tag without deleting the recovered formatting", async ({ page }) => {
-  await page.locator(".collapsed-problems").click();
+  await page.getByRole("button", { name: /^Ошибки: / }).click();
   const code = page.locator(".cm-content");
   await code.fill("[b][i]a[/b]tail[/i]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
-  await page.getByRole("button", { name: "Исправить однозначные…", exact: true }).click();
-  await page.getByRole("button", { name: "Применить исправление", exact: true }).click();
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  await page.getByRole("button", { name: /^Исправить однозначные \(/ }).click();
+  await page.getByRole("button", { name: /^Применить \d/ }).click();
   await expect(code).toHaveText("[b][i]a[/i][/b][i]tail[/i]");
 });
 
@@ -81,7 +81,7 @@ test("keeps visual typing coherent through Undo and formatting", async ({ page }
   await leaf.click(); await page.keyboard.press("End"); await page.keyboard.type("X");
   await page.keyboard.press("Control+z"); await page.keyboard.type("Q");
   await expect(code).toHaveText("[spoiler=S]helloQ[/spoiler]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await page.keyboard.press("Control+b");
   await expect(code).toHaveText("[spoiler=S]helloQ[b][/b][/spoiler]");
 });
@@ -108,9 +108,9 @@ test("rejects stale drag identity and list-item escape", async ({ page }) => {
   await page.getByRole("treeitem", { name: /B/ }).evaluate((element, value) => { const data = new DataTransfer(); data.setData("application/bbforge-node", value); element.parentElement!.dispatchEvent(new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true })); }, payload);
   await expect(code).toHaveText("[spoiler=C]c[/spoiler][spoiler=B]b[/spoiler]");
   await code.fill("[list][*]a[/list][spoiler=S]b[/spoiler]");
-  await expect(page.getByRole("treeitem", { name: "◇ *" })).toBeVisible();
-  const item = page.getByRole("treeitem", { name: "◇ *" });
-  await item.dragTo(page.getByRole("treeitem", { name: /S spoiler/ }));
+  await expect(page.getByRole("treeitem", { name: "* a" })).toBeVisible();
+  const item = page.getByRole("treeitem", { name: "* a" });
+  await item.dragTo(page.getByRole("treeitem", { name: /spoiler S/ }));
   await expect(code).toHaveText("[list][*]a[/list][spoiler=S]b[/spoiler]");
 });
 
@@ -140,21 +140,23 @@ test("roundtrips visual text and spoiler properties through Rust and shared Undo
   await expect(code).toHaveText("[spoiler=Parent]hello[spoiler=Child]world[/spoiler][/spoiler]");
 });
 test("previews a real Rust diagnostic fix, cancels it and then applies", async ({ page }) => {
-  await page.locator(".collapsed-problems").click();
+  await page.getByRole("button", { name: /^Ошибки: / }).click();
   const code = page.locator(".cm-content"); await code.fill("[b]текст");
   await expect(page.getByRole("button", { name: /Тег \[b\] не закрыт/ })).toBeVisible();
-  await page.getByRole("button", { name: "Исправить…", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Предпросмотр исправления" })).toBeVisible();
-  await page.getByRole("button", { name: "Отмена", exact: true }).click();
+  await page.locator(".diagnostic-row").getByRole("button", { name: "Исправить…", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Исправления" })).toBeVisible();
+  await expect(page.locator(".mini-diff")).toContainText("[b]текст[/b]");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Исправления" })).toBeHidden();
   await expect(code).toHaveText("[b]текст");
-  await page.getByRole("button", { name: "Исправить…", exact: true }).click();
-  await page.getByRole("button", { name: "Применить исправление", exact: true }).click();
+  await page.locator(".diagnostic-row").getByRole("button", { name: "Исправить…", exact: true }).click();
+  await page.keyboard.press("Enter");
   await expect(code).toHaveText("[b]текст[/b]");
 });
 test("creates an editable empty spoiler and retains its history between modes", async ({ page }) => {
   const code = page.locator(".cm-content"); await code.fill("");
-  await expect(page.getByRole("button", { name: "＋ Спойлер", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "＋ Спойлер", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Создать спойлер", exact: true })).toBeEnabled();
+  await page.getByRole("button", { name: "Создать спойлер", exact: true }).click();
   await page.getByRole("dialog", { name: "Создать спойлер" }).getByRole("textbox").fill("Новый");
   await page.getByRole("button", { name: "Создать", exact: true }).click();
   await expect(code).toHaveText("[spoiler=Новый][/spoiler]");
@@ -199,7 +201,7 @@ test("drags visual spoilers by their surface without handles", async ({ page }) 
   await page.setViewportSize({ width: 1440, height: 1100 });
   const code = page.locator(".cm-content");
   await code.fill("[spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await expect(page.locator(".visual-drag-handle")).toHaveCount(0);
   const drag = async (from: { x: number; y: number }, to: { x: number; y: number }, ctrl = false) => {
     await page.mouse.move(from.x, from.y); await page.mouse.down();
@@ -208,16 +210,16 @@ test("drags visual spoilers by their surface without handles", async ({ page }) 
     await page.mouse.up();
     if (ctrl) await page.keyboard.up("Control");
   };
-  const box = async (title: string, part = "summary") => { const head = page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^\\s*${title}\\s*spoiler$`) }); const result = await (part === "summary" ? head : page.locator(".builder-spoiler").filter({ has: page.locator(":scope > summary").filter({ hasText: new RegExp(`^\\s*${title}\\s*spoiler$`) }) })).first().boundingBox(); if (!result) throw new Error(`no spoiler ${title}`); return result; };
+  const box = async (title: string, part = "summary") => { const head = page.locator(".builder-spoiler > summary").filter({ has: page.locator(".spoiler-title", { hasText: new RegExp(`^${title}$`) }) }); const result = await (part === "summary" ? head : page.locator(".builder-spoiler").filter({ has: page.locator(":scope > summary").filter({ has: page.locator(".spoiler-title", { hasText: new RegExp(`^${title}$`) }) }) })).first().boundingBox(); if (!result) throw new Error(`no spoiler ${title}`); return result; };
   let a = await box("A"), b = await box("B", "block");
   await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: b.x + 40, y: b.y + b.height + 90 });
   await expect(code).toHaveText("[spoiler=B]b[/spoiler][spoiler=A]a[/spoiler]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   a = await box("A");
   const insertB = (await page.locator(".builder-spoiler").filter({ hasText: "B" }).getByRole("button", { name: "+ Вставить в спойлер" }).boundingBox())!;
   await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: insertB.x + insertB.width + 30, y: insertB.y + insertB.height / 2 });
   await expect(code).toHaveText("[spoiler=B]b[spoiler=A]a[/spoiler][/spoiler]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   a = await box("A"); b = await box("B");
   await drag({ x: a.x + a.width / 2, y: a.y + a.height / 2 }, { x: b.x + 40, y: b.y + 2 }, true);
   await expect(code).toHaveText("[spoiler=A]a[/spoiler][spoiler=B]b[spoiler=A]a[/spoiler][/spoiler]");
@@ -227,8 +229,8 @@ test("drops a spoiler between siblings, out of its parent and into text with a g
   await page.setViewportSize({ width: 1440, height: 1600 });
   const code = page.locator(".cm-content");
   await code.fill("[spoiler=P][spoiler=A]a[/spoiler][spoiler=B]b[/spoiler][spoiler=C]c[/spoiler][/spoiler]hello world");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
-  const summary = async (title: string) => (await page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^\\s*${title}\\s*spoiler$`) }).first().boundingBox())!;
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  const summary = async (title: string) => (await page.locator(".builder-spoiler > summary").filter({ has: page.locator(".spoiler-title", { hasText: new RegExp(`^${title}$`) }) }).first().boundingBox())!;
   const grab = async (title: string) => { const c = await summary(title); await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2); await page.mouse.down(); };
   await grab("C");
   const b = await summary("B");
@@ -237,14 +239,14 @@ test("drops a spoiler between siblings, out of its parent and into text with a g
   await expect(page.locator(".visual-drag-preview")).toBeVisible();
   await page.mouse.up();
   await expect(code).toHaveText("[spoiler=P][spoiler=A]a[/spoiler][spoiler=C]c[/spoiler][spoiler=B]b[/spoiler][/spoiler]hello world");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await expect(page.locator(".visual-drop-ghost")).toHaveCount(0);
   await grab("A");
   const p = await summary("P");
   await page.mouse.move(p.x + 60, p.y + 3, { steps: 10 });
   await page.mouse.up();
   await expect(code).toHaveText("[spoiler=A]a[/spoiler][spoiler=P][spoiler=C]c[/spoiler][spoiler=B]b[/spoiler][/spoiler]hello world");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await grab("B");
   const leaf = page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "hello world" });
   let text = (await leaf.boundingBox())!;
@@ -259,15 +261,17 @@ test("drops a spoiler between siblings, out of its parent and into text with a g
 test("drags a partially selected formatted fragment and copies it with Ctrl", async ({ page }) => {
   const code = page.locator(".cm-content");
   await code.fill("[b]very long[/b] plain");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   const leaves = page.getByRole("textbox", { name: "Текст блока" });
   const bold = await leaves.nth(0).boundingBox(), plain = await leaves.nth(1).boundingBox();
   if (!bold || !plain) throw new Error("visual leaves are not visible");
-  const charWidth = bold.width / "very long".length, y = bold.y + bold.height / 2;
-  await page.mouse.move(bold.x + charWidth * 5 + 1, y); await page.mouse.down();
+  const y = bold.y + bold.height / 2;
+  // Real glyph edges: Inter is proportional, so "character × average width" lands on the wrong letter.
+  const charLeft = (at: number) => leaves.nth(0).evaluate((element, index) => { const range = document.createRange(); range.setStart(element.firstChild!, index); range.setEnd(element.firstChild!, index + 1); return range.getBoundingClientRect().left; }, at);
+  await page.mouse.move(await charLeft(5) + 1, y); await page.mouse.down();
   await page.mouse.move(bold.x + bold.width - 1, y, { steps: 6 }); await page.mouse.up();
   await expect.poll(() => page.evaluate(() => CSS.highlights.has("bbforge-selection"))).toBe(true);
-  await page.mouse.move(bold.x + charWidth * 7, y); await page.mouse.down();
+  await page.mouse.move(await charLeft(7) + 1, y); await page.mouse.down();
   await page.mouse.move(plain.x + plain.width - 1, plain.y + plain.height / 2, { steps: 10 });
   await expect(page.locator(".visual-drop-caret")).toBeVisible();
   await page.mouse.up();
@@ -286,7 +290,7 @@ test("selects visual text across separate formatted fragments", async ({ page })
   await page.mouse.up();
   await expect.poll(() => page.evaluate(() => CSS.highlights.has("bbforge-selection"))).toBe(true);
   await page.getByRole("button", { name: "Жирный" }).click();
-  await page.getByRole("button", { name: "Применить исправление", exact: true }).click();
+  await page.getByRole("option", { name: /Применить ко всему выделению/ }).click();
   await expect(page.locator(".cm-content")).toHaveText("[b][url=https://example.com]AFH[/url] и [b]дальше[/b] конец[/b]");
 });
 test("shows the IDE workspace with real structure and saves a design capture", async ({ page }) => {
@@ -309,7 +313,8 @@ test("formats a visual Unicode selection with a chosen color", async ({ page }) 
 test("moves a spoiler inside another using keyboard-accessible properties", async ({ page }) => {
   const code = page.locator(".cm-content"); await code.fill("[spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
   await page.getByRole("treeitem", { name: /A/ }).click();
-  await page.getByRole("combobox", { name: "Целевой спойлер" }).selectOption({ label: "B" });
+  await page.getByRole("combobox", { name: "Целевой спойлер" }).click();
+  await page.getByRole("option", { name: "B" }).click();
   await page.getByRole("button", { name: "Переместить внутрь", exact: true }).click();
   await expect(code).toHaveText("[spoiler=B]b[spoiler=A]a[/spoiler][/spoiler]");
 });
@@ -338,7 +343,7 @@ test("inserts a newline as source text without browser block markup", async ({ p
 test("preview copy offers BBCode without and with surrounding formatting and source navigation", async ({ page, context }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:1420" });
   const code = page.locator(".cm-content"); await code.fill("[b]abcdef[/b]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await page.getByRole("button", { name: "Предпросмотр" }).click();
   const leaf = page.locator(".rendered-post [data-source-from='3'][data-source-to='9']");
   await leaf.evaluate((element) => {
@@ -362,7 +367,7 @@ test("preview context menu preserves and copies a selection across nested siblin
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:1420" });
   const source = "[b][i][color=Green]Куратор темы [/color][url=https://example.com][color=Blue]~VicTim~[/color][/url][color=Green] по вопросам наполнения и актуализации шапки обращаться в QMS[/color][/i][/b]";
   await page.locator(".cm-content").fill(source);
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await page.getByRole("button", { name: "Предпросмотр" }).click();
   const preview = page.locator(".rendered-post");
   await preview.evaluate((element) => {
@@ -387,15 +392,15 @@ test("preview context menu preserves and copies a selection across nested siblin
 });
 
 test("reports forum-escaped tags as info and lets the user remove them", async ({ page }) => {
-  await page.locator(".collapsed-problems").click();
+  await page.getByRole("button", { name: /^Ошибки: / }).click();
   const code = page.locator(".cm-content");
   await code.fill("a &#91;LIST&#93;b&#91;/LIST&#93;");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   const rows = page.locator(".diagnostic.info");
   await expect(rows).toHaveCount(2);
   await page.locator(".diagnostic-row").first().getByRole("button", { name: "Исправить…" }).click();
-  await expect(page.getByRole("radiogroup", { name: "Варианты исправления" })).toBeVisible();
-  await page.getByRole("button", { name: "Применить исправление", exact: true }).click();
+  await expect(page.getByRole("listbox", { name: "Варианты исправления" })).toBeVisible();
+  await page.keyboard.press("Enter");
   await expect(code).toHaveText("a b");
 });
 
@@ -403,8 +408,8 @@ test("a selected spoiler is not dragged as text, and an unchanged drop shows no 
   await page.setViewportSize({ width: 1440, height: 1100 });
   const code = page.locator(".cm-content");
   await code.fill("[spoiler=P][spoiler=A]alpha[/spoiler][spoiler=B]beta[/spoiler][/spoiler]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
-  const head = (title: string) => page.locator(".builder-spoiler > summary").filter({ hasText: new RegExp(`^\\s*${title}\\s*spoiler$`) });
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  const head = (title: string) => page.locator(".builder-spoiler > summary").filter({ has: page.locator(".spoiler-title", { hasText: new RegExp(`^${title}$`) }) });
   await head("P").click();
   await head("P").click();
   const alpha = (await page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "alpha" }).boundingBox())!;
@@ -424,7 +429,7 @@ test("a selected spoiler is not dragged as text, and an unchanged drop shows no 
 test("clicking the empty area of a spoiler starts typing there", async ({ page }) => {
   const code = page.locator(".cm-content");
   await code.fill("[spoiler=E][/spoiler]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   const body = (await page.locator(".spoiler-body").first().boundingBox())!;
   await page.mouse.click(body.x + body.width - 20, body.y + 6);
   await page.keyboard.type("hi");
@@ -435,7 +440,7 @@ test("clicking the empty area of a spoiler starts typing there", async ({ page }
 test("renames a spoiler by double-clicking its header and tidies its blank lines", async ({ page }) => {
   const code = page.locator(".cm-content");
   await code.fill("[spoiler=Old]\n\n\ntext\n\n[/spoiler]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   const summary = page.locator(".builder-spoiler > summary").first();
   await expect(summary).not.toContainText("▣");
   await summary.dblclick();
@@ -443,7 +448,7 @@ test("renames a spoiler by double-clicking its header and tidies its blank lines
   await input.fill("New title");
   await input.press("Enter");
   await expect(code).toHaveText("[spoiler=New title]\n\n\ntext\n\n[/spoiler]".replace(/\n/g, ""));
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await page.locator(".builder-spoiler > summary").first().click();
   await page.getByRole("button", { name: "Убрать пустые строки" }).click();
   await expect(page.locator(".cm-line")).toHaveCount(1);
@@ -451,25 +456,26 @@ test("renames a spoiler by double-clicking its header and tidies its blank lines
 });
 
 test("opens settings from the gear and applies them", async ({ page }) => {
-  await page.getByRole("button", { name: "Настройки" }).click();
-  const dialog = page.getByRole("dialog", { name: "Настройки" });
-  await dialog.getByRole("button", { name: "Редактор кода" }).click();
-  await dialog.getByRole("checkbox", { name: "Показывать номера строк" }).uncheck();
-  await dialog.getByRole("button", { name: "ОК" }).click();
+  await page.getByRole("button", { name: "Настройки", exact: true }).first().click();
+  const settings = page.getByRole("region", { name: "Настройки" });
+  await settings.getByRole("button", { name: "Редактор кода" }).click();
+  await settings.getByRole("checkbox", { name: "Показывать номера строк" }).uncheck();
+  await page.getByRole("button", { name: "Закрыть Настройки" }).click();
+  await expect(settings).toBeHidden();
   await expect(page.locator(".cm-lineNumbers")).toBeHidden();
   await page.keyboard.press("Control+Alt+KeyS");
-  await expect(page.getByRole("dialog", { name: "Настройки" })).toBeVisible();
-  await page.getByRole("dialog", { name: "Настройки" }).getByRole("button", { name: "Сбросить по умолчанию" }).click();
-  await page.getByRole("dialog", { name: "Настройки" }).getByRole("button", { name: "ОК" }).click();
+  await expect(settings).toBeVisible();
+  await settings.getByRole("button", { name: "Сбросить по умолчанию" }).click();
+  await page.getByRole("tab").first().click();
   await expect(page.locator(".cm-lineNumbers")).toBeVisible();
 });
 
 test("refactoring removes blank lines between and inside spoilers", async ({ page }) => {
   const code = page.locator(".cm-content");
   await code.fill("[spoiler=A]\n\na\n\n[/spoiler]\n\n\n[spoiler=B]b[/spoiler]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await page.locator(".app-menu > summary", { hasText: "Рефакторинг" }).click();
-  await page.getByRole("button", { name: "Убрать пустые строки в документе" }).click();
+  await page.getByRole("menuitem", { name: "Убрать пустые строки" }).click();
   await expect(code).toHaveText("[spoiler=A]a[/spoiler][spoiler=B]b[/spoiler]");
 });
 
@@ -495,22 +501,22 @@ test("menus close on outside click, Escape and when the pointer stays away", asy
 test("refactoring merges adjacent tags and reports when there is nothing to change", async ({ page }) => {
   const code = page.locator(".cm-content");
   await code.fill("[B]a[/B][b]b[/b]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   const open = async () => page.locator(".app-menu > summary", { hasText: "Рефакторинг" }).click();
-  await open(); await page.getByRole("button", { name: "Привести теги к нижнему регистру" }).click();
+  await open(); await page.getByRole("menuitem", { name: "Привести теги к нижнему регистру" }).click();
   await expect(code).toHaveText("[b]a[/b][b]b[/b]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
-  await open(); await page.getByRole("button", { name: "Склеить соседние одинаковые теги" }).click();
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  await open(); await page.getByRole("menuitem", { name: "Склеить соседние одинаковые теги" }).click();
   await expect(code).toHaveText("[b]ab[/b]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
-  await open(); await page.getByRole("button", { name: "Удалить пустые теги" }).click();
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  await open(); await page.getByRole("menuitem", { name: "Удалить пустые теги" }).click();
   await expect(page.getByRole("alert")).toContainText("изменять нечего");
 });
 
 test("highlights the matching opening tag when the cursor is on a closing tag", async ({ page }) => {
   const code = page.locator(".cm-content");
   await code.fill("[spoiler=[b]T[/b]][color=red]Text[/color][/spoiler]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await page.locator(".cm-line").first().click();
   await page.keyboard.press("End");
   for (let step = 0; step < 14; step++) await page.keyboard.press("ArrowLeft");
@@ -540,16 +546,16 @@ test("keyboard shortcuts close tabs, open Find Action and can be reassigned", as
   await page.keyboard.press("Control+KeyW");
   await expect(page.getByRole("tab")).toHaveCount(1);
   await page.keyboard.press("Control+Shift+KeyA");
-  const palette = page.getByRole("dialog", { name: "Найти действие" });
-  await palette.getByRole("textbox").fill("новый док");
+  const palette = page.getByRole("dialog", { name: "Палитра команд" });
+  await palette.locator("input").fill(">новый док");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("tab")).toHaveCount(2);
   await page.keyboard.press("Control+Alt+KeyS");
-  const settings = page.getByRole("dialog", { name: "Настройки" });
+  const settings = page.getByRole("region", { name: "Настройки" });
   await settings.getByRole("button", { name: "Сочетания клавиш" }).click();
   await settings.getByRole("button", { name: "Добавить сочетание для «Закрыть документ»" }).click();
   await page.keyboard.press("Alt+KeyQ");
-  await settings.getByRole("button", { name: "ОК", exact: true }).click();
+  await page.getByRole("button", { name: "Закрыть Настройки" }).click();
   await page.locator(".cm-content").click();
   await page.keyboard.press("Alt+KeyQ");
   await expect(page.getByRole("tab")).toHaveCount(1);
@@ -558,12 +564,12 @@ test("keyboard shortcuts close tabs, open Find Action and can be reassigned", as
 test("underlines problems in code and fixes them from the context menu", async ({ page }) => {
   const code = page.locator(".cm-content");
   await code.fill("[color=AAAAAA]x[/color] [b] [/b]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await expect(page.locator(".cm-problem-warning")).toHaveCount(2);
   await page.locator(".cm-problem-warning").first().click({ button: "right" });
   await page.getByRole("menuitem", { name: /Исправить: Добавить «#»/ }).click();
   await expect(code).toHaveText("[color=#AAAAAA]x[/color] [b] [/b]");
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await page.locator(".cm-problem-warning").first().click({ button: "right" });
   await page.getByRole("menuitem", { name: /Исправить: Удалить пустой тег \[b\]/ }).click();
   await expect(code).toHaveText("[color=#AAAAAA]x[/color]  ");
@@ -573,7 +579,7 @@ test("selecting past the end of a formatted line includes its closing tags", asy
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const line = '[b][color=Green]Куратор [/color][color=Blue][url="https://4pda.to/b"]QMS[/url][/color][/b]';
   await page.locator(".cm-content").fill(`intro\n${line}\nnext`);
-  await expect(page.locator(".builder-caption")).toContainText("Синхронизирован");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   const first = (await page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "Куратор" }).boundingBox())!;
   const qms = (await page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: /^QMS$/ }).boundingBox())!;
   await page.mouse.move(first.x - 6, first.y + first.height / 2); await page.mouse.down();
@@ -581,4 +587,25 @@ test("selecting past the end of a formatted line includes its closing tags", asy
   await expect.poll(() => page.evaluate(() => CSS.highlights.has("bbforge-selection"))).toBe(true);
   await page.keyboard.press("Control+KeyC");
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(line);
+});
+
+test("selection past the text column works when the engine finds no caret there (WebKitGTK)", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  // WebKitGTK has no caretPositionFromPoint and returns nothing outside the text column.
+  await page.addInitScript(() => {
+    Object.defineProperty(Document.prototype, "caretPositionFromPoint", { value: undefined, configurable: true });
+    const original = Document.prototype.caretRangeFromPoint;
+    Document.prototype.caretRangeFromPoint = function (x: number, y: number) { const hit = document.elementFromPoint(x, y); return hit?.closest(".visual-text") ? original.call(this, x, y) : null; };
+  });
+  await page.reload();
+  await page.setViewportSize({ width: 1800, height: 900 });
+  const line = '[b][color=Green]Куратор [/color][color=Blue][url="https://4pda.to/b"]QMS[/url][/color][/b]';
+  await page.locator(".cm-content").fill(`intro\n${line}\nnext`);
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  const first = (await page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "Куратор" }).boundingBox())!;
+  const pane = (await page.locator(".builder").boundingBox())!;
+  await page.mouse.move(first.x + 1, first.y + first.height / 2); await page.mouse.down();
+  await page.mouse.move(pane.x + pane.width - 30, first.y + first.height / 2, { steps: 12 }); await page.mouse.up();
+  await page.keyboard.press("Control+KeyC");
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(line.replace("[b][color=Green]", ""));
 });

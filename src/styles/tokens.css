@@ -1,0 +1,139 @@
+/*
+ * BBForge design tokens. Components use only these variables, never raw colours.
+ * Theme: :root[data-theme="dark" | "light"]; density: :root[data-density="compact"].
+ */
+@import "@fontsource-variable/inter";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+
+:root, :root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-canvas: #0E1013;
+  --bg-surface: #16181D;
+  --bg-editor: #1A1C22;
+  --bg-elevated: #20232A;
+  --bg-input: #121418;
+  --bg-hover: #23262E;
+  --bg-active: #2A2E38;
+  --bg-selected: #25304D;
+  --editor-line: #1F2229;
+  --editor-selection: #2C3E66;
+  --border-subtle: #23262D;
+  --border: #2F333C;
+  --border-strong: #434957;
+  --text: #E4E7EC;
+  --text-secondary: #A3AAB7;
+  --text-muted: #8A92A0;
+  --text-disabled: #4A505B;
+  --accent: #6D8DFF;
+  --accent-hover: #86A1FF;
+  --accent-subtle: rgba(109, 141, 255, .14);
+  --accent-fg: #0E1013;
+  --error: #F2685E;
+  --warning: #E6B04A;
+  --info: #5FA8F5;
+  --success: #4FC28A;
+  --error-subtle: rgba(242, 104, 94, .12);
+  --warning-subtle: rgba(230, 176, 74, .12);
+  --diff-added-bg: #1E3A2C;
+  --diff-added-fg: #7FDDA6;
+  --diff-removed-bg: #43242A;
+  --diff-removed-fg: #FF9A93;
+  --shadow-popup: 0 12px 32px rgba(0, 0, 0, .45);
+  --scrim: rgba(0, 0, 0, .5);
+  --link: #86A1FF;
+
+  /* BBCode syntax roles */
+  --syn-bracket: #7D8594;
+  --syn-inline: #82AAFF;
+  --syn-block: #C792EA;
+  --syn-media: #4FC1C9;
+  --syn-item: #F78C6C;
+  --syn-value: #E3B66A;
+  --syn-url: #7DCFB6;
+  --syn-text: #D5D9E0;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-canvas: #E9EBEF;
+  --bg-surface: #F6F7F9;
+  --bg-editor: #FFFFFF;
+  --bg-elevated: #FFFFFF;
+  --bg-input: #FFFFFF;
+  --bg-hover: #EDEFF3;
+  --bg-active: #E3E7EE;
+  --bg-selected: #DCE4FB;
+  --editor-line: #F5F7FB;
+  --editor-selection: #C9D7FA;
+  --border-subtle: #E2E5EA;
+  --border: #D2D6DD;
+  --border-strong: #B3B9C4;
+  --text: #1C2027;
+  --text-secondary: #4D5562;
+  --text-muted: #6E7684;
+  --text-disabled: #AEB4BE;
+  --accent: #3B5BDB;
+  --accent-hover: #324FC4;
+  --accent-subtle: rgba(59, 91, 219, .10);
+  --accent-fg: #FFFFFF;
+  --error: #C9303A;
+  --warning: #A86A0C;
+  --info: #2068C4;
+  --success: #1B7F52;
+  --error-subtle: rgba(201, 48, 58, .08);
+  --warning-subtle: rgba(168, 106, 12, .10);
+  --diff-added-bg: #DDF3E6;
+  --diff-added-fg: #176B43;
+  --diff-removed-bg: #FBE1E1;
+  --diff-removed-fg: #A8262F;
+  --shadow-popup: 0 12px 32px rgba(20, 28, 45, .16);
+  --scrim: rgba(20, 24, 33, .28);
+  --link: #3B5BDB;
+
+  --syn-bracket: #6E7684;
+  --syn-inline: #2F5BD3;
+  --syn-block: #8436C2;
+  --syn-media: #0E7C86;
+  --syn-item: #B4511F;
+  --syn-value: #9A5B00;
+  --syn-url: #0F7A5F;
+  --syn-text: #1C2027;
+}
+
+:root {
+  --font-ui: "Inter Variable", Inter, "Segoe UI", system-ui, sans-serif;
+  --font-code: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+  --radius-chip: 4px;
+  --radius: 6px;
+  --radius-popup: 8px;
+  --radius-island: 10px;
+  --gap-island: 6px;
+  --h-title: 40px;
+  --h-tabs: 34px;
+  --h-toolbar: 34px;
+  --h-row: 24px;
+  --h-problem: 26px;
+  --h-control: 28px;
+  --h-status: 26px;
+  --w-activity: 44px;
+  --w-sidebar: 256px;
+  --w-inspector: 264px;
+  --t-hover: 120ms;
+  --t-expand: 160ms;
+  --t-popup: 180ms;
+}
+
+:root[data-density="compact"] {
+  --h-row: 22px;
+  --h-problem: 24px;
+  --h-tabs: 32px;
+  --h-toolbar: 32px;
+  --h-control: 26px;
+  --h-status: 24px;
+  --gap-island: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-hover: 0ms; --t-expand: 0ms; --t-popup: 0ms; }
+}
