@@ -11,6 +11,7 @@ test.beforeEach(async ({ page }) => {
     });
   });
   await page.goto("/");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
 });
 
 test("edits Cyrillic BBCode, searches, undoes and updates diagnostics", async ({ page }) => {

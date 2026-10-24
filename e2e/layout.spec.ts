@@ -36,6 +36,7 @@ for (const theme of ["dark", "light"] as const) for (const [width, height] of [[
     await page.setViewportSize({ width, height });
     await page.addInitScript((value) => localStorage.setItem("bbforge.preferences", JSON.stringify({ theme: value })), theme);
     await page.goto("/");
+    await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
     await page.locator(".cm-content").fill(header);
     await expect(page.locator(".sync-state")).toContainText("Синхронизировано");
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
@@ -82,6 +83,7 @@ test("compact density keeps every control readable", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.addInitScript(() => localStorage.setItem("bbforge.preferences", JSON.stringify({ density: "compact" })));
   await page.goto("/");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await page.locator(".cm-content").fill(header);
   await expect(page.locator(".sync-state")).toContainText("Синхронизировано");
   await page.getByRole("button", { name: /^Ошибки: / }).click();

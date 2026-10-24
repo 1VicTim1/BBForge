@@ -125,6 +125,7 @@ test.beforeEach(async ({ page }) => {
     window.__BBFORGE_ANALYZE__ = async (request) => ({ ...request, analysis: await (window as unknown as { analyzeWithRust(source: string): Promise<import("../src/analysis/types").Analysis> }).analyzeWithRust(request.source) });
   });
   await page.goto("/");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
 });
 test("roundtrips visual text and spoiler properties through Rust and shared Undo", async ({ page }) => {
   await expect(page.getByRole("textbox", { name: "Текст блока" }).first()).toBeVisible();
