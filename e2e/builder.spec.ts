@@ -3,7 +3,8 @@ import { execFileSync } from "node:child_process";
 
 test("visual Undo and Redo use the physical key in Russian layout", async ({ page }) => {
   const code = page.locator(".cm-content"); await code.fill("[spoiler=S]hello[/spoiler]");
-  const leaf = page.getByRole("textbox", { name: "Текст блока" }); await expect(leaf).toHaveText("hello");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  const leaf = page.locator(".builder-spoiler").filter({ has: page.locator(".spoiler-title", { hasText: /^S$/ }) }).getByRole("textbox", { name: "Текст блока" }); await expect(leaf).toHaveText("hello");
   await leaf.fill("changed");
   await leaf.dispatchEvent("keydown", { key: "я", code: "KeyZ", ctrlKey: true });
   await expect(code).toHaveText("[spoiler=S]hello[/spoiler]");
@@ -22,13 +23,15 @@ test("code Undo uses the physical key in Russian layout", async ({ page }) => {
 
 test("insert-in-spoiler keeps a draft until Enter or blur", async ({ page }) => {
   const code = page.locator(".cm-content"); await code.fill("[spoiler=S][b]hello[/b][/spoiler]");
-  await page.getByRole("button", { name: "+ Вставить в спойлер", exact: true }).click();
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  const spoiler = page.locator(".builder-spoiler").filter({ has: page.locator(".spoiler-title", { hasText: /^S$/ }) });
+  await spoiler.getByRole("button", { name: "+ Вставить в спойлер", exact: true }).click();
   await page.keyboard.type("tail");
   await expect(code).toHaveText("[spoiler=S][b]hello[/b][/spoiler]");
   await page.keyboard.press("Enter");
   await expect(code).toHaveText("[spoiler=S][b]hello[/b]tail[/spoiler]");
   await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
-  await page.getByRole("button", { name: "+ Вставить в спойлер", exact: true }).click();
+  await spoiler.getByRole("button", { name: "+ Вставить в спойлер", exact: true }).click();
   await page.keyboard.type("more");
   await expect(code).toHaveText("[spoiler=S][b]hello[/b]tail[/spoiler]");
   await page.locator(".sync-state").click();
@@ -77,7 +80,8 @@ test("repairs a crossing tag without deleting the recovered formatting", async (
 
 test("keeps visual typing coherent through Undo and formatting", async ({ page }) => {
   const code = page.locator(".cm-content"); await code.fill("[spoiler=S]hello[/spoiler]");
-  const leaf = page.getByRole("textbox", { name: "Текст блока" }); await expect(leaf).toHaveText("hello");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  const leaf = page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "hello" }); await expect(leaf).toHaveText("hello");
   await leaf.click(); await page.keyboard.press("End"); await page.keyboard.type("X");
   await page.keyboard.press("Control+z"); await page.keyboard.type("Q");
   await expect(code).toHaveText("[spoiler=S]helloQ[/spoiler]");
@@ -88,7 +92,8 @@ test("keeps visual typing coherent through Undo and formatting", async ({ page }
 
 test("protects IME from toolbar history and pastes literal text inside code", async ({ page }) => {
   const code = page.locator(".cm-content"); await code.fill("[code]abc[/code]");
-  const leaf = page.getByRole("textbox", { name: "Текст блока" }); await expect(leaf).toHaveText("abc");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  const leaf = page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "abc" }); await expect(leaf).toHaveText("abc");
   await leaf.click(); await page.keyboard.press("End");
   await leaf.evaluate((element) => { const data = new DataTransfer(); data.setData("text/plain", "[b]literal[/b]"); element.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true })); });
   await expect(code).toHaveText("[code]abc[b]literal[/b][/code]");
@@ -182,7 +187,8 @@ test("creates a child spoiler inside the selected spoiler", async ({ page }) => 
 test("keeps a selected spoiler while toggling formatting and toggles a tag beside the code cursor", async ({ page }) => {
   const code = page.locator(".cm-content");
   await code.fill("[b][spoiler=S]text[/spoiler][/b]");
-  await page.locator(".builder-spoiler summary").click();
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  await page.locator(".builder-spoiler > summary").filter({ has: page.locator(".spoiler-title", { hasText: /^S$/ }) }).click();
   const bold = page.getByRole("button", { name: "Жирный" });
   await expect(bold).toHaveAttribute("aria-pressed", "true");
   await bold.click();
