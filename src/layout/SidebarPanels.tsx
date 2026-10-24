@@ -21,8 +21,8 @@ export function SearchPanel({ text, onNavigate }: { text: string; onNavigate(ran
   return <div className="search-panel">
     <label className="panel-filter"><Icon name="search" /><input autoFocus aria-label="Найти в документе" placeholder="Найти в документе" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && results[0]) onNavigate({ from: results[0].from, to: results[0].from + query.length }); }} /></label>
     <div className="search-options">
-      <button className={`text-button ${caseSensitive ? "active" : ""}`} aria-pressed={caseSensitive} onClick={() => setCaseSensitive(!caseSensitive)} title="Учитывать регистр">Aa</button>
-      <button className={`text-button ${tagsOnly ? "active" : ""}`} aria-pressed={tagsOnly} onClick={() => setTagsOnly(!tagsOnly)} title="Искать только внутри тегов">[ ] только теги</button>
+      <button className={`text-button ${caseSensitive ? "active" : ""}`} aria-pressed={caseSensitive} onClick={() => setCaseSensitive(!caseSensitive)} title={caseSensitive ? "Регистр учитывается — нажмите, чтобы искать без учёта регистра" : "Учитывать регистр"}>Aa</button>
+      <button className={`text-button ${tagsOnly ? "active" : ""}`} aria-pressed={tagsOnly} onClick={() => setTagsOnly(!tagsOnly)} title={tagsOnly ? "Ищутся только совпадения внутри [тегов]" : "Искать только внутри тегов"}>[ ] только теги</button>
     </div>
     {query && <p className="search-summary">{results.length ? plural(results.length, ["совпадение", "совпадения", "совпадений"]) + (results.length >= 500 ? "+" : "") : "Ничего не найдено"}</p>}
     <div className="search-results" role="list">{results.map((item) => <button role="listitem" key={item.from} className="search-result" onClick={() => onNavigate({ from: item.from, to: item.from + query.length })}>
