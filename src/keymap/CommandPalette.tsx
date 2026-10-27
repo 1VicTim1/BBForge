@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { scopeTitles, type Command, type RefactorScope } from "../commands/registry";
 import { plural, tagRole } from "../bbcode/tags";
 import { Icon } from "../components/Icon";
+import { PluginIcon } from "../plugins/context";
 import type { Span } from "../analysis/types";
 
 export interface PaletteFile { id: string; title: string; detail: string; active: boolean }
@@ -67,7 +68,7 @@ export function CommandPalette(props: Props) {
             {commands.filter((command) => command.category === category).map((command) => {
               const scope = scopeOf(command), places = count(command.count?.(scope));
               return <Cmdk.Item key={command.id} value={command.id} disabled={command.enabled === false} onSelect={() => props.onCommand(command, scope)}>
-                {command.icon && <Icon name={command.icon} />}
+                {command.icon && <PluginIcon icon={command.icon} owner={command.owner} />}
                 <span className="palette-title">{highlight(command.title, words)}</span>
                 {command.scoped && <button className="scope-chip" tabIndex={-1} title="Область действия (Tab)" onMouseDown={(event) => event.preventDefault()} onClick={(event) => { event.stopPropagation(); cycle(command); }}>{scopeTitles[scope]} ▾</button>}
                 {places && <span className={`palette-count ${places === "нечего" ? "none" : ""}`}>{places}</span>}

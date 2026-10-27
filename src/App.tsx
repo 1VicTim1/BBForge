@@ -50,7 +50,15 @@ import { ContextMenu } from "./context/ContextMenu";
 import { useContextMenu } from "./context/useContextMenu";
 import { extractPreviewBbcode, readPreviewSelection, type PreviewSelection } from "./components/previewSelection";
 import { nodeLabel } from "./bbcode/labels";
-import { activeProfile, builtinOf, profileVersion, subscribeProfiles, tagFor, tagSpec } from "./bbcode/profile";
+import { activeProfile, builtinOf, listProfiles, profileVersion, setActiveProfile, setPluginProfiles, subscribeProfiles, tagFor, tagSpec } from "./bbcode/profile";
+import { buildHost, type PluginAction, type PluginCommand } from "./plugins/host";
+import { createPluginStore } from "./plugins/store";
+import { applyTheme, BUILTIN_THEMES } from "./plugins/themes";
+import { normalizePatches, resolveSlot } from "./plugins/ui";
+import { slotIndex } from "./plugins/slots";
+import { PluginUiContext, type PluginUi } from "./plugins/context";
+import { InstallDialog, PluginsSettings } from "./plugins/PluginsSettings";
+import type { InstallPreview, InstalledPackage } from "./plugins/types";
 import "./ide.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
@@ -104,8 +112,27 @@ export default function App() {
   useEffect(() => { savePreferences(localStorage, preferences); }, [preferences]);
   const [prefersDark, setPrefersDark] = useState(() => typeof matchMedia === "undefined" || matchMedia("(prefers-color-scheme: dark)").matches);
   useEffect(() => { if (typeof matchMedia === "undefined") return; const query = matchMedia("(prefers-color-scheme: dark)"), change = () => setPrefersDark(query.matches); query.addEventListener?.("change", change); return () => query.removeEventListener?.("change", change); }, []);
-  const theme = resolvedTheme(preferences.theme, prefersDark);
-  useEffect(() => { const root = globalThis.document.documentElement; root.dataset.theme = theme; root.dataset.density = preferences.density; }, [theme, preferences.density]);
+  // Plugins and themes: installed packages → what they add to the interface (see src/plugins).
+  const pluginStore = useMemo(() => createPluginStore(isTauri() ? invoke : null), []);
+  const [installed, setInstalled] = useState<InstalledPackage[]>([]), [brokenPackages, setBrokenPackages] = useState<Array<{ id: string; error: string }>>([]);
+  const [pluginBusy, setPluginBusy] = useState(false), [installPreview, setInstallPreview] = useState<{ path: string; preview: InstallPreview } | null>(null);
+  const reloadPlugins = useCallback(async () => {
+    const listed = await pluginStore.list();
+    setInstalled(listed.flatMap((item) => item.status === "ok" ? [item] : []));
+    setBrokenPackages(listed.flatMap((item) => item.status === "broken" ? [{ id: item.id, error: item.error }] : []));
+  }, [pluginStore]);
+  useEffect(() => { void reloadPlugins().catch((reason) => setError(`Не удалось загрузить плагины: ${String(reason)}`)); }, [reloadPlugins]);
+  const host = useMemo(() => buildHost(installed), [installed]);
+  useEffect(() => { setPluginProfiles(host.profiles); }, [host]);
+  useEffect(() => { setActiveProfile(preferences.profile); }, [preferences.profile, host]);
+  const themes = useMemo(() => [...BUILTIN_THEMES, ...host.themes], [host]);
+  const activeTheme = themes.find((item) => item.id === resolvedTheme(preferences.theme, prefersDark)) ?? BUILTIN_THEMES[prefersDark || preferences.theme !== "system" ? 0 : 1];
+  const theme = activeTheme.base;
+  useEffect(() => { applyTheme(activeTheme); globalThis.document.documentElement.dataset.density = preferences.density; }, [activeTheme, preferences.density]);
+  useEffect(() => {
+    const elements = host.styles.map(({ owner, css }) => { const style = globalThis.document.createElement("style"); style.dataset.bbforgePlugin = owner; style.textContent = css; globalThis.document.head.append(style); return style; });
+    return () => elements.forEach((style) => style.remove());
+  }, [host]);
   useEffect(() => { if (isTauri()) void getCurrentWindow().setDecorations(preferences.systemFrame).catch(() => undefined); }, [preferences.systemFrame]);
   const keyMap = useMemo(() => buildKeymap(preferences.keymap), [preferences.keymap]);
   const restoreSession = useRef(preferences.restoreSession);
@@ -344,6 +371,12 @@ export default function App() {
     const shortcuts = (event: KeyboardEvent) => {
       if (event.defaultPrevented || keyRecording.current || (event as KeyboardEvent & { bbforgeInternal?: boolean }).bbforgeInternal) return;
       const chord = chordFromEvent(event), id = chord ? keyMap.get(chord) : undefined;
+      const pluginCommand = !id && chord ? pluginKeys.get(chord) : undefined;
+      if (pluginCommand) {
+        if ((event.target as HTMLElement).closest("input, textarea, select") && !(event.target as HTMLElement).closest(".cm-editor")) return;
+        if (composing()) return;
+        event.preventDefault(); event.stopPropagation(); runPluginCommand(pluginCommand); return;
+      }
       if (!id) return;
       const target = event.target as HTMLElement, inCode = !!target.closest(".cm-editor"), inField = !!target.closest("input, textarea, select") && !inCode;
       const editing = id.startsWith("edit.") || id.startsWith("format.");
@@ -429,7 +462,39 @@ export default function App() {
   useEffect(() => () => flushScroll(), [document.id, flushScroll]);
   const openSpoilerDialog = () => { if (composing()) return; spoilerOrigin.current = { ...identity(documentRef.current), ...spoilerSelection() }; setSpoilerDialog(true); };
   const switchTab = (step: number) => { const tabs = workspaceRef.current.tabs, at = tabs.findIndex((tab) => tab.document.id === workspaceRef.current.activeId); const next = tabs[(at + step + tabs.length) % tabs.length]; if (next) { showDocuments(); dispatchWorkspace({ type: "activate", documentId: next.document.id }); } };
-  const openSettings = () => setSettingsTab({ open: true, active: true });
+  const [settingsSection, setSettingsSection] = useState<{ section: "appearance" | "plugins"; nonce: number }>({ section: "appearance", nonce: 0 });
+  const openSettings = (section?: "appearance" | "plugins") => { if (section) setSettingsSection({ section, nonce: Date.now() }); setSettingsTab({ open: true, active: true }); };
+  // Plugin commands: declarative actions, each checked against the plugin's permissions in buildHost.
+  const runPluginAction = (command: PluginCommand) => {
+    const action: PluginAction = command.action;
+    if ("insert" in action) insertAtCursor(action.insert, command.title);
+    else if ("wrap" in action) { const range = commandSelection(), open = `[${action.wrap}${action.value ? `=${action.value}` : ""}]`, close = `[/${action.wrap}]`;
+      run(() => ({ ...identity(documentRef.current), label: command.title, changes: [{ from: range.from, to: range.from, insert: open }, { from: range.to, to: range.to, insert: close }], selection: { from: range.from + open.length, to: range.to + open.length } })); }
+    else if ("command" in action) runPluginCommand(action.command);
+    else if ("setProfile" in action) setPreferences((current) => ({ ...current, profile: action.setProfile }));
+    else if ("setTheme" in action) setPreferences((current) => ({ ...current, theme: action.setTheme }));
+  };
+  const installPackage = async (path: string, preview: InstallPreview) => {
+    setPluginBusy(true);
+    try {
+      const installed = await pluginStore.install(path, preview.digest);
+      setInstallPreview(null);
+      log(`Установлен ${installed.manifest.type === "theme" ? "пакет тем" : "плагин"} «${installed.manifest.name}» ${installed.manifest.version}`, "info");
+      await reloadPlugins();
+    } catch (reason) { setError(String(reason)); } finally { setPluginBusy(false); }
+  };
+  const installFromFile = async () => {
+    if (!pluginStore.available) return;
+    try {
+      const path = await openDialog({ multiple: false, filters: [{ name: "Плагин или тема BBForge", extensions: ["zip"] }] }) as string | null;
+      if (!path) return;
+      const preview = await pluginStore.preview(path);
+      // Packages signed with a trusted key install at once; anything else asks first, showing its permissions.
+      if (!preview.needsConfirmation && !preview.errors.length) await installPackage(path, preview);
+      else setInstallPreview({ path, preview });
+    } catch (reason) { setError(String(reason)); }
+  };
+  const pluginOperation = (operation: () => Promise<void>) => { setPluginBusy(true); void operation().then(reloadPlugins).catch((reason) => setError(String(reason))).finally(() => setPluginBusy(false)); };
   const toggleSidebar = (sidebarView: SidebarView) => setLayout((current) => current.showOutline && current.sidebarView === sidebarView ? { ...current, showOutline: false } : { ...current, showOutline: true, sidebarView });
   const insertAtCursor = (text: string, label: string) => { const range = commandSelection(); run(() => ({ ...identity(documentRef.current), label, changes: [{ from: range.from, to: range.to, insert: text.replace("$", documentRef.current.text.slice(range.from, range.to)) }] })); };
   const actions: Record<ActionId, () => void> = {
@@ -445,7 +510,7 @@ export default function App() {
     "view.problems": () => setLayout((current) => ({ ...current, showProblems: !current.showProblems })), "view.inspector": () => setLayout((current) => ({ ...current, showInspector: !current.showInspector })),
     "refactor.tidyDocument": () => refactor(refactorings[0]!), "refactor.trimTrailing": () => refactor(refactorings[1]!),
     "refactor.removeEmpty": () => refactor(refactorings[3]!), "refactor.merge": () => refactor(refactorings[4]!), "refactor.cleanup": cleanup,
-    "app.settings": openSettings, "app.findAction": () => setPalette(">"), "app.commandPalette": () => setPalette(">"), "app.quickOpen": () => setPalette(""), "app.goToLine": () => setPalette(":"),
+    "app.settings": () => openSettings(), "app.findAction": () => setPalette(">"), "app.commandPalette": () => setPalette(">"), "app.quickOpen": () => setPalette(""), "app.goToLine": () => setPalette(":"),
   };
   actionsRef.current = actions;
   const key = (id: ActionId) => shortcutLabel(id, preferences.keymap);
@@ -459,7 +524,7 @@ export default function App() {
     { id: "export.copy", title: "Копировать BBCode документа", category: "Файл", icon: "copy", run: () => void copyText(documentRef.current.text).then(() => log("BBCode скопирован в буфер обмена", "info")) },
     { id: "file.close", action: "file.close", title: "Закрыть вкладку", category: "Файл", run: actions["file.close"] },
     { id: "file.closeAll", action: "file.closeAll", title: "Закрыть все документы", category: "Файл", run: actions["file.closeAll"] },
-    { id: "app.settings", action: "app.settings", title: "Настройки…", category: "Приложение", icon: "settings", run: openSettings },
+    { id: "app.settings", action: "app.settings", title: "Настройки…", category: "Приложение", icon: "settings", run: () => openSettings() },
     { id: "edit.undo", action: "edit.undo", title: "Отменить", category: "Правка", icon: "undo", run: actions["edit.undo"] },
     { id: "edit.redo", action: "edit.redo", title: "Повторить", category: "Правка", icon: "redo", run: actions["edit.redo"] },
     { id: "edit.find", action: "edit.find", title: "Найти в коде", category: "Правка", icon: "search", run: focusSearch },
@@ -482,14 +547,44 @@ export default function App() {
     ...refactorings.filter((item): item is Refactoring => item !== null).map((item): Command => ({ id: item.id, action: item.action, title: item.title, category: "Рефакторинг", hint: item.hint, scoped: true, enabled, count: refactorCount(item), run: (scope) => refactor(item, scope) })),
     { id: "refactor.cleanup", action: "refactor.cleanup", title: "Очистка документа…", category: "Очистка", icon: "wand", enabled, hint: "Все операции рефакторинга с общим превью", run: cleanup },
     { id: "app.resetLayout", title: "Восстановить раскладку", category: "Инструменты", run: () => { setLayout({ ...defaultLayout }); setShowPreview(false); } },
+    { id: "app.plugins", title: "Плагины и темы…", category: "Приложение", icon: "puzzle", run: () => openSettings("plugins") },
+    { id: "app.installPlugin", title: "Установить плагин или тему…", category: "Приложение", icon: "package", enabled: pluginStore.available, run: () => void installFromFile() },
+    ...([["format.bold", "Жирный", "bold"], ["format.italic", "Курсив", "italic"], ["format.underline", "Подчёркнутый", "underline"], ["format.strike", "Зачёркнутый", "strike"], ["format.link", "Ссылка", "link"], ["format.quote", "Цитата", "quote"], ["format.code", "Блок кода", "code"], ["format.list", "Список", "list"], ["format.spoiler", "Создать спойлер", "spoiler"]] as const)
+      .map(([id, title, icon]): Command => ({ id, action: id, title, category: "Оформление", icon, enabled, run: actions[id] })),
+    ...host.commands.map((command): Command => ({ id: command.id, title: command.title, category: command.category, icon: command.icon, owner: command.owner, hint: command.hint, keys: command.keys.map(formatChord), run: () => runPluginAction(command) })),
   ], (id) => keysFor(id, preferences.keymap).map(formatChord));
-  const menus: MenuDefinition[] = [
-    { title: "Файл", items: menuItems(registry, ["file.new", "file.open", null, "file.save", "file.saveAs", "export.copy", null, "file.close", "file.closeAll", null, "app.settings"]) },
-    { title: "Правка", items: menuItems(registry, ["edit.undo", "edit.redo", null, "edit.find", "app.goToLine", null, "edit.fix", "edit.fixAll", null, "app.commandPalette"]).map((item) => item?.id === "app.commandPalette" ? { ...item, title: "Найти действие…" } : item) },
-    { title: "Вид", items: menuItems(registry, ["view.code", "view.builder", "view.preview", "view.split", null, "view.structure", "view.search", "view.blocks", "view.problems", "view.inspector", null, "view.theme", "view.density"]) },
-    { title: "Рефакторинг", items: [...refactorings.map((item) => item === null ? null : registry.find((command) => command.id === item.id)!), null, registry.find((command) => command.id === "refactor.cleanup")!] },
-    { title: "Инструменты", items: menuItems(registry, ["app.resetLayout", null, "edit.fixAll", "refactor.cleanup"]) },
+  const menuBase: Array<{ id: string; title: string; items: Array<string | null> }> = [
+    { id: "menu.file", title: "Файл", items: ["file.new", "file.open", null, "file.save", "file.saveAs", "export.copy", null, "file.close", "file.closeAll", null, "app.settings"] },
+    { id: "menu.edit", title: "Правка", items: ["edit.undo", "edit.redo", null, "edit.find", "app.goToLine", null, "edit.fix", "edit.fixAll", null, "app.commandPalette"] },
+    { id: "menu.view", title: "Вид", items: ["view.code", "view.builder", "view.preview", "view.split", null, "view.structure", "view.search", "view.blocks", "view.problems", "view.inspector", null, "view.theme", "view.density"] },
+    { id: "menu.refactor", title: "Рефакторинг", items: [...refactorings.map((item) => item?.id ?? null), null, "refactor.cleanup"] },
+    { id: "menu.tools", title: "Инструменты", items: ["app.resetLayout", null, "edit.fixAll", "refactor.cleanup", null, "app.plugins", "app.installPlugin"] },
   ];
+  const menuTitles: Record<string, string> = { "app.commandPalette": "Найти действие…" };
+  const commandIds = registry.map((command) => command.id).join("|");
+  const uiPatches = useMemo(() => normalizePatches([...host.patches, ...activeTheme.patches], (id) => slotIndex(Object.fromEntries(menuBase.map((menu) => [menu.id, menu.items.filter((item): item is string => item !== null)]))).get(id), new Set(commandIds.split("|"))), [host, activeTheme, commandIds]);
+  const runPluginCommand = (id: string) => { const command = registry.find((item) => item.id === id); if (command && command.enabled !== false) command.run(); };
+  // Plugin shortcuts never override the user's own or the built-in ones.
+  const pluginKeys = new Map(host.commands.flatMap((command) => command.keys.filter((key) => !keyMap.has(key)).map((key) => [key, command.id] as const)));
+  const pluginUi: PluginUi = {
+    patches: uiPatches, runCommand: runPluginCommand,
+    commandTitle: (id) => registry.find((item) => item.id === id)?.title, commandEnabled: (id) => registry.find((item) => item.id === id)?.enabled !== false,
+    asset: (owner, path) => installed.find((item) => item.manifest.id === owner)?.assets[path],
+    profiles: listProfiles(), themes: themes.map(({ id, name }) => ({ id, name })), profile: activeProfile().id, theme: activeTheme.id,
+    setProfile: (profile) => setPreferences((current) => ({ ...current, profile })), setTheme: (next) => setPreferences((current) => ({ ...current, theme: next })),
+  };
+  const menus: MenuDefinition[] = resolveSlot("titlebar.menus", menuBase.map((menu) => ({ id: menu.id, value: menu })), uiPatches).map((entry) => {
+    const base = entry.builtin?.items.map((id, at) => ({ id: id ?? `${entry.id}.sep${at}`, value: id })) ?? [];
+    const items = resolveSlot(entry.id, base, uiPatches).map((item) => {
+      const separator = item.builtin === null || item.item?.kind === "separator";
+      const commandId = item.builtin ?? item.item?.command;
+      const command = !separator && commandId ? registry.find((candidate) => candidate.id === commandId) : undefined;
+      if (separator) return null;
+      if (!command) return undefined;
+      return { ...command, title: item.title ?? item.item?.title ?? menuTitles[command.id] ?? command.title, icon: item.icon ?? item.item?.icon ?? command.icon, owner: item.icon || item.item?.icon ? item.owner : command.owner, uiId: item.id, className: item.className };
+    }).filter((item) => item !== undefined);
+    return { id: entry.id, title: entry.title ?? entry.builtin?.title ?? entry.item?.title ?? entry.id, className: entry.className, items: items.filter((item, at) => item !== null || (at > 0 && at < items.length - 1 && items[at - 1] !== null)) };
+  });
   const appearance = preferenceStyle(preferences);
   const counts = { errors: analysis.diagnostics.filter((item) => item.severity === "error").length, warnings: analysis.diagnostics.filter((item) => item.severity === "warning").length };
   const synced = !!snapshot && snapshot.documentId === document.id && snapshot.revision === document.revision;
@@ -520,21 +615,24 @@ export default function App() {
     : layout.sidebarView === "blocks" ? { title: "Блоки", content: <BlocksPanel actions={blockActions} /> }
     : { title: "Структура", content: <StructureTree busy={!currentSnapshot} identity={identity(document)} nodes={currentSnapshot?.analysis.nodes ?? snapshot?.analysis.nodes ?? []} source={currentSnapshot?.source ?? snapshot?.source ?? document.text} diagnostics={currentSnapshot ? analysis.diagnostics : []} selected={selected?.span} cursor={activeRange.from} onDragHint={setDragHint} onNavigate={selectNode} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, source, { node: { ...identity(document), span: target }, placement })); }} /> };
   const windowControls = isTauri() && !preferences.systemFrame ? { minimize: () => void getCurrentWindow().minimize(), toggleMaximize: () => void getCurrentWindow().toggleMaximize(), close: () => void getCurrentWindow().close() } : null;
-  return <PreferencesContext.Provider value={preferences}><main className={`app ${appearance.className}`} style={appearance.style as React.CSSProperties} onContextMenu={openContextMenu}>
-    <TitleBar menus={menus} documentName={documentName} onCommandCenter={() => setPalette("")} commandCenterKey={key("app.quickOpen")} onSettings={openSettings} settingsKey={key("app.settings")} windowControls={windowControls}
+  return <PreferencesContext.Provider value={preferences}><PluginUiContext.Provider value={pluginUi}><main className={`app ${appearance.className}`} style={appearance.style as React.CSSProperties} onContextMenu={openContextMenu}>
+    <TitleBar menus={menus} documentName={documentName} onCommandCenter={() => setPalette("")} commandCenterKey={key("app.quickOpen")} onSettings={() => openSettings()} settingsKey={key("app.settings")} windowControls={windowControls}
       exportPanel={{ diagnostics: analysis.diagnostics, onNavigate: (item) => navigate(item.span), actions: [
         { id: "copy", title: "Копировать BBCode", hint: "Весь документ в буфер обмена — для вставки в редактор форума", icon: "copy", run: () => void copyText(documentRef.current.text).then(() => log("BBCode скопирован в буфер обмена", "info")) },
         { id: "save", title: "Сохранить как .bbcode…", hint: isTauri() ? "Текстовый файл с исходной разметкой" : "Доступно в настольном приложении", icon: "file", disabled: !isTauri(), run: () => void saveCurrent(true) },
       ] }} />
     <div className="ide-shell">
-      <ActivityBar sidebar={layout.showOutline ? layout.sidebarView : null} onSidebar={toggleSidebar} problems={{ ...counts, open: layout.showProblems, onToggle: () => setLayout((current) => ({ ...current, showProblems: !current.showProblems })) }} onSettings={openSettings} settingsActive={settingsTab.active} />
+      <ActivityBar sidebar={layout.showOutline ? layout.sidebarView : null} onSidebar={toggleSidebar} problems={{ ...counts, open: layout.showProblems, onToggle: () => setLayout((current) => ({ ...current, showProblems: !current.showProblems })) }} onSettings={() => openSettings()} settingsActive={settingsTab.active} />
       <Workspace layout={layout} setLayout={setLayout} view={view} split={split} sidebar={sidebar}
         tabs={<div className="document-tabs-row"><TabStrip tabs={workspace.tabs} activeId={settingsTab.active ? "settings" : workspace.activeId} onActivate={(documentId) => { if (!composing()) { showDocuments(); dispatchWorkspace({ type: "activate", documentId }); } }} onClose={(documentId) => void closeDocument(documentId)} onReorder={(documentId, to) => dispatchWorkspace({ type: "reorder", documentId, to })}
-          extra={settingsTab.open ? [{ id: "settings", title: "Настройки", icon: "settings", active: settingsTab.active, onActivate: openSettings, onClose: () => setSettingsTab({ open: false, active: false }) }] : []} />
+          extra={settingsTab.open ? [{ id: "settings", title: "Настройки", icon: "settings", active: settingsTab.active, onActivate: () => openSettings(), onClose: () => setSettingsTab({ open: false, active: false }) }] : []} />
           <button className="new-tab-button" aria-label="Новый документ" title={`Новый документ${key("file.new") ? ` (${key("file.new")})` : ""}`} onClick={() => void newDocument()}><Icon name="plus" /></button></div>}
         editorBar={<EditorBar crumbs={crumbs} view={view} split={split} onView={setView} onSplit={toggleSplit} keys={{ code: key("view.code"), builder: key("view.builder"), preview: key("view.preview"), split: key("view.split") }} />}
         toolbar={<FormattingToolbar synced={synced} disabled={!currentSnapshot} states={formattingStates} onFormat={format} onSpoiler={openSpoilerDialog} onUndo={() => historyAction(false)} onRedo={() => historyAction(true)} />}
-        page={settingsTab.active ? <SettingsPage value={preferences} onChange={setPreferences} desktop={isTauri()} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}
+        page={settingsTab.active ? <SettingsPage key={settingsSection.nonce} initialSection={settingsSection.section} value={preferences} onChange={setPreferences} desktop={isTauri()}
+          themes={host.themes.map((item) => [item.id, item.name])} profiles={listProfiles().map((item) => [item.id, item.name])}
+          plugins={<PluginsSettings packages={host.packages} broken={brokenPackages} desktop={pluginStore.available} busy={pluginBusy} onInstall={() => void installFromFile()}
+            onToggle={(id, enabled) => pluginOperation(() => pluginStore.setEnabled(id, enabled))} onRemove={(id) => pluginOperation(() => pluginStore.remove(id))} onAcceptChanges={(id) => pluginOperation(() => pluginStore.acceptChanges(id))} />} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}
         editor={<Editor dark={theme === "dark"} document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} storedSelection={activeSession.ui.codeSelection} scroll={activeSession.ui.codeScroll} onScrollPosition={(codeScroll) => deferScroll(document.id, { codeScroll })} onChange={changeSource} onReady={setController} onQuickFix={showFixAt} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
         builder={<Builder key={document.id} document={document} snapshot={snapshot} selectedSpan={selected?.span} scroll={activeSession.ui.builderScroll} storedSelection={activeSession.ui.visualSelection} restoreFocus={activeSession.ui.activeSurface === "builder"} onScrollPosition={(builderScroll) => deferScroll(document.id, { builderScroll })} execute={execute} getDocument={() => documentRef.current} onSelect={(reference) => { setSelected(reference); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { selected: reference } }); }} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onFix={(range) => showFixAt(range.from)} onDragHint={setDragHint} onError={setError} onComposition={(active) => { composition.current = active; }} />}
         preview={<Preview document={document} source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} scroll={activeSession.ui.previewScroll} onScrollPosition={(previewScroll) => deferScroll(document.id, { previewScroll })} onSelection={setPreviewRange} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}
@@ -545,7 +643,7 @@ export default function App() {
         </div></> : null} />
     </div>
     {error && <div role="alert" className="error-banner"><span>{error.replace(/^Error: /, "")}</span><button aria-label="Закрыть сообщение" onClick={() => setErrorState(null)}><Icon name="close" /></button></div>}
-    <StatusBar document={document} position={activeRange.from} errors={counts.errors} warnings={counts.warnings} synced={synced} hint={dragHint} onProblems={() => setLayout((current) => ({ ...current, showProblems: !current.showProblems }))} onGoToLine={() => setPalette(":")} />
+    <StatusBar profile={activeProfile().name} document={document} position={activeRange.from} errors={counts.errors} warnings={counts.warnings} synced={synced} hint={dragHint} onProblems={() => setLayout((current) => ({ ...current, showProblems: !current.showProblems }))} onGoToLine={() => setPalette(":")} />
     {quickFix && <QuickFixPopover key={`${quickFix.diagnostic?.span.start}-${quickFix.fixes.map((item) => item.id).join()}`} document={document} diagnostic={quickFix.diagnostic} title={quickFix.title} fixes={quickFix.fixes} anchor={quickFix.anchor} sameEverywhere={sameEverywhere(quickFix.diagnostic)} onApply={(command) => { setQuickFix(null); run(() => command, true); }} onClose={() => setQuickFix(null)} />}
     {batch && <BatchPreview key={batch.title} title={batch.title} label={batch.label} document={document} items={batch.items} onApply={(command) => { setBatch(null); run(() => command, true); }} onClose={() => setBatch(null)} />}
     {spoilerDialog && <div className="modal-backdrop"><form className="dialog" role="dialog" aria-label="Создать спойлер" onSubmit={(event) => { event.preventDefault(); run(() => { const origin = spoilerOrigin.current; if (!origin || !currentSnapshot || origin.documentId !== documentRef.current.id || origin.revision !== documentRef.current.revision) throw new Error("Документ изменился. Выделите текст заново."); return createSpoiler(documentRef.current, origin, spoilerTitle, currentSnapshot); }); setSpoilerDialog(false); }}><h3>Создать спойлер</h3><label>Заголовок <input autoFocus value={spoilerTitle} onChange={(event) => setSpoilerTitle(event.target.value)} /></label><p>Выделенный текст станет содержимым спойлера.</p><footer><button type="button" onClick={() => setSpoilerDialog(false)}>Отмена</button><button type="submit">Создать</button></footer></form></div>}
@@ -557,6 +655,7 @@ export default function App() {
       onFile={(id) => { setPalette(null); showDocuments(); dispatchWorkspace({ type: "activate", documentId: id }); }}
       onTag={(span) => { setPalette(null); selectNode(span); }}
       onLine={(line) => { setPalette(null); const text = documentRef.current.text; let at = 0; for (let current = 1; current < line && at >= 0; current++) at = text.indexOf("\n", at) + 1 || -1; const from = Math.max(0, at); setActiveRange({ from, to: from }); navigateRange({ from, to: from }); }} />}
-  </main></PreferencesContext.Provider>;
+    {installPreview && <InstallDialog preview={installPreview.preview} busy={pluginBusy} onInstall={() => void installPackage(installPreview.path, installPreview.preview)} onCancel={() => setInstallPreview(null)} />}
+  </main></PluginUiContext.Provider></PreferencesContext.Provider>;
 }
 

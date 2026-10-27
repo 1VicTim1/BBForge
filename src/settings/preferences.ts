@@ -1,10 +1,13 @@
 import { createContext, useContext } from "react";
 import { validateOverrides, type KeymapOverrides } from "../keymap/keymap";
 
-export type Theme = "dark" | "light" | "system";
+/** "dark", "light", "system" or the id of a theme from a package. */
+export type Theme = string;
 export type Density = "comfortable" | "compact";
 export interface Preferences {
   theme: Theme;
+  /** Forum profile the document is checked against. */
+  profile: string;
   density: Density;
   /** Linux/Windows: the window manager's title bar instead of BBForge's own. */
   systemFrame: boolean;
@@ -25,7 +28,7 @@ export interface Preferences {
 }
 
 export const defaultPreferences: Preferences = {
-  theme: "dark", density: "comfortable", systemFrame: false,
+  theme: "dark", profile: "4pda", density: "comfortable", systemFrame: false,
   tooltips: true, animations: true,
   codeFontSize: 13, codeLineHeight: 1.54, codeWrap: true, codeLineNumbers: true, codeActiveLine: true,
   builderFontSize: 14, builderWidth: "medium", spoilerOpenDepth: 2, tagLabels: true,
@@ -33,13 +36,15 @@ export const defaultPreferences: Preferences = {
 };
 
 const KEY = "bbforge.preferences";
+const PACKAGE_ID = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const number = (value: unknown, low: number, high: number, fallback: number) => typeof value === "number" && Number.isFinite(value) ? Math.max(low, Math.min(high, value)) : fallback;
 const flag = (value: unknown, fallback: boolean) => typeof value === "boolean" ? value : fallback;
 
 export function validatePreferences(value: Partial<Preferences>): Preferences {
   const d = defaultPreferences;
   return {
-    theme: value.theme === "light" || value.theme === "system" ? value.theme : d.theme,
+    theme: typeof value.theme === "string" && PACKAGE_ID.test(value.theme) ? value.theme : d.theme,
+    profile: typeof value.profile === "string" && PACKAGE_ID.test(value.profile) ? value.profile : d.profile,
     density: value.density === "compact" ? "compact" : d.density,
     systemFrame: flag(value.systemFrame, d.systemFrame),
     tooltips: flag(value.tooltips, d.tooltips), animations: flag(value.animations, d.animations),
@@ -79,8 +84,8 @@ export function preferenceStyle(preferences: Preferences): { className: string; 
   };
 }
 
-/** The theme actually shown: "system" follows the OS setting. */
-export function resolvedTheme(theme: Theme, prefersDark: boolean): "dark" | "light" {
+/** The theme id actually shown: "system" follows the OS setting. */
+export function resolvedTheme(theme: Theme, prefersDark: boolean): string {
   return theme === "system" ? prefersDark ? "dark" : "light" : theme;
 }
 

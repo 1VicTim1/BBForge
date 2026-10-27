@@ -1,11 +1,13 @@
-import { useRef, useState, type ReactNode } from "react";
+import { Fragment, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../components/Icon";
 import { useMenuDismiss } from "../components/menuDismiss";
 import type { Command } from "../commands/registry";
 import type { Diagnostic } from "../analysis/types";
 import { plural } from "../bbcode/tags";
+import { PluginIcon, PluginItemView, useSlot } from "../plugins/context";
 
-export interface MenuDefinition { title: string; items: Array<Command | null> }
+/** A menu after plugin patches; `id` is its slot ("menu.file"). Items are commands or separators (null). */
+export interface MenuDefinition { id?: string; title: string; className?: string; items: Array<(Command & { uiId?: string; className?: string; owner?: string }) | null> }
 interface Props {
   menus: MenuDefinition[];
   documentName: string;
@@ -24,9 +26,9 @@ export function TitleBar(props: Props) {
   return <header className="toolbar titlebar" data-tauri-drag-region>
     <div className="brand-icon" aria-hidden="true">BF</div><h1 className="sr-only">BBForge</h1>
     <nav className="app-menus" aria-label="Главное меню" ref={menus}>
-      {props.menus.map((menu) => <details key={menu.title} className="app-menu"><summary>{menu.title}</summary><div className="app-menu-popup" role="menu">
-        {menu.items.map((item, at) => item === null ? <span key={at} className="menu-separator" /> : <button key={item.id} role="menuitem" title={item.hint} disabled={item.enabled === false} onClick={(event) => { close(event); item.run(); }}>
-          <span className="menu-label">{item.icon && <Icon name={item.icon} />}<span>{item.title}</span></span>{item.keys?.[0] && <kbd>{item.keys[0]}</kbd>}
+      {props.menus.map((menu) => <details key={menu.id ?? menu.title} className={["app-menu", menu.className].filter(Boolean).join(" ")} data-ui-id={menu.id}><summary>{menu.title}</summary><div className="app-menu-popup" role="menu">
+        {menu.items.map((item, at) => item === null ? <span key={at} className="menu-separator" /> : <button key={item.uiId ?? item.id} data-ui-id={item.uiId ?? item.id} className={item.className} role="menuitem" title={item.hint} disabled={item.enabled === false} onClick={(event) => { close(event); item.run(); }}>
+          <span className="menu-label">{item.icon && <PluginIcon icon={item.icon} owner={item.owner} />}<span>{item.title}</span></span>{item.keys?.[0] && <kbd>{item.keys[0]}</kbd>}
         </button>)}
       </div></details>)}
     </nav>
@@ -36,6 +38,7 @@ export function TitleBar(props: Props) {
       </button>
     </div>
     <div className="titlebar-actions">
+      <TitlebarActions />
       <ExportButton {...props.exportPanel} />
       <button className="icon-button" aria-label="Настройки" title={props.settingsKey ? `Настройки (${props.settingsKey})` : "Настройки"} onClick={props.onSettings}><Icon name="settings" /></button>
       {props.windowControls && <div className="window-controls">
@@ -45,6 +48,12 @@ export function TitleBar(props: Props) {
       </div>}
     </div>
   </header>;
+}
+
+/** Plugin buttons and selects placed in the title bar ("titlebar.actions"). */
+function TitlebarActions() {
+  const entries = useSlot("titlebar.actions", []);
+  return <>{entries.map((entry) => <Fragment key={entry.id}><PluginItemView entry={entry} variant="titlebar" /></Fragment>)}</>;
 }
 
 export interface ExportAction { id: string; title: string; hint?: string; icon?: Parameters<typeof Icon>[0]["name"]; disabled?: boolean; run(): void }

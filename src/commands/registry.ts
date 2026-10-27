@@ -9,7 +9,10 @@ export interface Command {
   id: string;
   title: string;
   category: string;
-  icon?: IconName;
+  /** A built-in icon name, or `asset:path` inside the plugin package (`owner`). */
+  icon?: IconName | string;
+  /** Plugin that added the command. */
+  owner?: string;
   /** Keymap action that triggers this command; its shortcuts come from the user's keymap. */
   action?: ActionId;
   /** Formatted shortcuts, filled in by `resolveCommands`. */

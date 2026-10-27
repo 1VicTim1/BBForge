@@ -1,16 +1,17 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { defaultPreferences, type Preferences } from "./preferences";
 import { KeymapEditor } from "../keymap/KeymapEditor";
 import { Icon } from "../components/Icon";
 import { Select } from "../components/Select";
 
-type Section = "appearance" | "code" | "builder" | "keymap" | "behavior";
-const sections: Array<[Section, string]> = [["appearance", "Внешний вид"], ["code", "Редактор кода"], ["builder", "Конструктор"], ["keymap", "Сочетания клавиш"], ["behavior", "Поведение"]];
+type Section = "appearance" | "code" | "builder" | "keymap" | "behavior" | "plugins";
+const sections: Array<[Section, string]> = [["appearance", "Внешний вид"], ["code", "Редактор кода"], ["builder", "Конструктор"], ["keymap", "Сочетания клавиш"], ["behavior", "Поведение"], ["plugins", "Плагины и темы"]];
 type Options = Array<[string | number, string]>;
 interface Setting { key: Exclude<keyof Preferences, "keymap">; section: Section; label: string; hint?: string; options?: Options; desktop?: boolean }
 const range = (low: number, high: number): Options => Array.from({ length: high - low + 1 }, (_, at) => [low + at, `${low + at} px`]);
 const settings: Setting[] = [
   { key: "theme", section: "appearance", label: "Тема", hint: "Системная следует настройке ОС", options: [["dark", "Тёмная"], ["light", "Светлая"], ["system", "Как в системе"]] },
+  { key: "profile", section: "behavior", label: "Профиль форума", hint: "Набор тегов, по которому проверяется документ; профили добавляют плагины", options: [] },
   { key: "density", section: "appearance", label: "Плотность интерфейса", hint: "Компактная уменьшает высоту строк и панелей", options: [["comfortable", "Обычная"], ["compact", "Компактная"]] },
   { key: "systemFrame", section: "appearance", label: "Системная рамка окна", hint: "Заголовок и кнопки окна от оконного менеджера вместо собственных", desktop: true },
   { key: "tooltips", section: "appearance", label: "Показывать подсказки к кнопкам", hint: "Описание и сочетание клавиш при наведении" },
@@ -30,8 +31,9 @@ const settings: Setting[] = [
 const modified = (value: Preferences, key: keyof Preferences) => JSON.stringify(value[key]) !== JSON.stringify(defaultPreferences[key]);
 
 /** Settings live in an editor tab and apply immediately; changed settings carry an accent bar. */
-export function SettingsPage({ value, onChange, onResetLayout, onRecording, desktop }: { value: Preferences; onChange(value: Preferences): void; onResetLayout(): void; onRecording?(active: boolean): void; desktop: boolean }) {
-  const [section, setSection] = useState<Section>("appearance"), [query, setQuery] = useState("");
+export function SettingsPage({ value, onChange, onResetLayout, onRecording, desktop, themes = [], profiles = [], plugins, initialSection = "appearance" }: { value: Preferences; onChange(value: Preferences): void; onResetLayout(): void; onRecording?(active: boolean): void; desktop: boolean; themes?: Options; profiles?: Options; plugins?: ReactNode; initialSection?: Section }) {
+  const [section, setSection] = useState<Section>(initialSection), [query, setQuery] = useState("");
+  const optionsFor = (item: Setting): Options => item.key === "theme" ? [...item.options!.slice(0, 2), ...themes, item.options![2]] : item.key === "profile" ? profiles : item.options!;
   const set = <K extends keyof Preferences>(key: K, next: Preferences[K]) => onChange({ ...value, [key]: next });
   const visible = settings.filter((item) => (!item.desktop || desktop) && (query ? `${item.label} ${item.hint ?? ""}`.toLowerCase().includes(query.toLowerCase()) : item.section === section));
   const changedIn = (id: Section) => settings.filter((item) => item.section === id && modified(value, item.key)).length + (id === "keymap" && Object.keys(value.keymap).length ? Object.keys(value.keymap).length : 0);
@@ -43,7 +45,7 @@ export function SettingsPage({ value, onChange, onResetLayout, onRecording, desk
     </label>;
     return <div key={item.key} className={`settings-row ${modified(value, item.key) ? "modified" : ""}`}>
       <label className="settings-label" htmlFor={`setting-${item.key}`}><span>{item.label}</span>{item.hint && <small>{item.hint}</small>}</label>
-      <div className="settings-control"><Select id={`setting-${item.key}`} label={item.label} value={current as string | number} options={item.options!.map(([option, title]) => ({ value: option, label: title }))} onChange={(option) => set(item.key, option as never)} /></div>
+      <div className="settings-control"><Select id={`setting-${item.key}`} label={item.label} value={current as string | number} options={optionsFor(item).map(([option, title]) => ({ value: option, label: title }))} onChange={(option) => set(item.key, option as never)} /></div>
     </div>;
   };
   return <div className="settings-page-view" role="region" aria-label="Настройки">
@@ -54,6 +56,7 @@ export function SettingsPage({ value, onChange, onResetLayout, onRecording, desk
     <div className="settings-content"><div className="settings-content-inner">
       <h4>{query ? "Результаты поиска" : sections.find(([id]) => id === section)![1]}</h4>
       {(query || section !== "keymap") && visible.map(row)}
+      {!query && section === "plugins" && plugins}
       {query && visible.length === 0 && <p className="settings-empty">Нет настроек, подходящих под «{query}»</p>}
       {!query && section === "keymap" && <KeymapEditor value={value.keymap} onChange={(keymap) => set("keymap", keymap)} onRecording={onRecording} />}
       {!query && section === "behavior" && <div className="settings-row"><span className="settings-label"><span>Раскладка окна</span><small>Панели, их размеры и режим редактора</small></span><div className="settings-control"><button className="secondary-button" onClick={onResetLayout}>Восстановить раскладку</button></div></div>}

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { SourceRange } from "../document/commands";
 import { plural } from "../bbcode/tags";
 import { Icon, type IconName } from "../components/Icon";
+import { PluginIcon, PluginItemView, uiAttributes, useSlot } from "../plugins/context";
 
 /** Find in the document: every match with its line, click jumps to it in the code. */
 export function SearchPanel({ text, onNavigate }: { text: string; onNavigate(range: SourceRange): void }) {
@@ -34,7 +35,8 @@ export function SearchPanel({ text, onNavigate }: { text: string; onNavigate(ran
 interface BlockAction { id: string; title: string; description: string; icon: IconName; tag: string; run(): void; disabled?: boolean }
 /** Insertable blocks: each wraps the selection (or inserts at the cursor) like the toolbar does. */
 export function BlocksPanel({ actions }: { actions: BlockAction[] }) {
-  return <div className="blocks-panel"><div className="blocks-list">{actions.map((action) => <button key={action.id} className="block-tile" disabled={action.disabled} onClick={action.run}>
-    <span className="tile-icon"><Icon name={action.icon} /></span><span><strong>{action.title}</strong><small>{action.description}</small><code>{action.tag}</code></span>
-  </button>)}</div></div>;
+  const entries = useSlot("sidebar.blocks", actions.map((action) => ({ id: `block.${action.id}`, value: action })));
+  return <div className="blocks-panel"><div className="blocks-list" data-ui-id="sidebar.blocks">{entries.map((entry) => { const action = entry.builtin; return action ? <button key={entry.id} {...uiAttributes(entry, "block-tile")} disabled={action.disabled} onClick={action.run}>
+    <span className="tile-icon">{entry.icon ? <PluginIcon icon={entry.icon} owner={entry.owner} /> : <Icon name={action.icon} />}</span><span><strong>{entry.title ?? action.title}</strong><small>{entry.tooltip ?? action.description}</small><code>{action.tag}</code></span>
+  </button> : <PluginItemView key={entry.id} entry={entry} variant="tile" />; })}</div></div>;
 }
