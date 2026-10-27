@@ -48,6 +48,13 @@ jobs:
       - name: Browser workflow tests
         if: runner.os == 'Linux'
         run: cargo build -p bbcode-core --example analyze && npx playwright install --with-deps chromium && npx playwright test
+      - name: Upload browser test traces
+        if: failure() && runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7
 
   package-linux:
     name: Linux packages (amd64)
