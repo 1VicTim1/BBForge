@@ -213,6 +213,11 @@ impl Store {
         self.save_registry(&registry)
     }
 
+    /// An installed package as it is on disk now (verified again).
+    pub fn installed(&self, id: &str) -> Result<InstalledPackage, String> {
+        self.load(id)
+    }
+
     fn load(&self, id: &str) -> Result<InstalledPackage, String> {
         let registry = self.registry();
         let entry = registry

@@ -2,6 +2,7 @@ pub mod catalog;
 pub mod commands;
 pub mod files;
 pub mod plugins;
+pub mod script_api;
 pub mod session;
 
 #[cfg(all(target_os = "linux", feature = "legacy-webkit"))]
@@ -25,7 +26,14 @@ pub fn run() {
             commands::plugin_set_enabled,
             commands::plugin_accept_changes,
             commands::catalog_list,
-            commands::catalog_download
+            commands::catalog_download,
+            commands::script_http_get,
+            commands::script_window_open,
+            commands::script_window_cookies,
+            commands::script_window_close,
+            commands::script_window_clear_data,
+            commands::script_storage_get,
+            commands::script_storage_set
         ])
         .run(tauri::generate_context!())
         .expect("ошибка запуска BBForge");
