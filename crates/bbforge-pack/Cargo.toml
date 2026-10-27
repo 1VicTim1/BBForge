@@ -1,0 +1,11 @@
+[package]
+name = "bbforge-pack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Packs and signs BBForge plugins and themes"
+
+[dependencies]
+bbforge-plugin = { path = "../bbforge-plugin" }
+clap = { version = "4", features = ["derive", "env"] }
+serde_json = "1"

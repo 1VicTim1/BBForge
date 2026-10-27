@@ -13,3 +13,6 @@ src-tauri/icons/ios/
 src-tauri/icons/mipmap-*/
 
 packages/
+
+# Plugin signing keys must never be committed
+*signing-key*.json
