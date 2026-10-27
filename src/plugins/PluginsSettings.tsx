@@ -72,6 +72,8 @@ export function PluginsSettings(props: Props) {
     <ul className="package-list">
       {props.packages.map(({ id, package: item, active, warnings, dependencyIssues }) => {
         const { manifest } = item, expanded = open === id;
+        // A newer signed version in the catalog: offered right next to "Удалить".
+        const update = props.catalog?.packages.find((entry) => entry.id === id && entry.signer && compareVersions(manifest.version, entry.version) < 0);
         return <li key={id} className={`package-card ${active ? "active" : ""}`} data-package-id={id}>
           <div className="package-head">
             <Icon name={manifest.type === "theme" ? "palette" : "puzzle"} />
@@ -87,8 +89,10 @@ export function PluginsSettings(props: Props) {
           <div className="package-actions">
             <button className="text-button" aria-expanded={expanded} onClick={() => setOpen(expanded ? null : id)}><Icon name={expanded ? "chevronDown" : "chevronRight"} />Разрешения ({manifest.permissions.length})</button>
             <span className="spacer" />
+            {update && <button className="text-button update-action" disabled={!props.desktop || props.busy} onClick={() => props.onInstallFromCatalog(update)}><Icon name="upload" />Обновить до {update.version}</button>}
             <button className="text-button danger-action" disabled={!props.desktop || props.busy} onClick={() => props.onRemove(id)}><Icon name="trash" />Удалить</button>
           </div>
+          {props.download?.id === id && <DownloadBar progress={props.download} />}
           {expanded && <PermissionList permissions={manifest.permissions} />}
         </li>;
       })}
@@ -104,11 +108,12 @@ function Catalog(props: Props) {
   const { catalog, catalogLoading, onLoadCatalog } = props;
   useEffect(() => { if (!catalog && !catalogLoading) onLoadCatalog(); }, []);
   const installed = new Map(props.packages.map((item) => [item.id, item.package.manifest.version]));
-  const offered = catalog?.packages.filter((entry) => { const current = installed.get(entry.id); return !current || compareVersions(current, entry.version) < 0; }) ?? [];
+  // Installed packages live in the list above (with their update button), not here.
+  const offered = catalog?.packages.filter((entry) => !installed.has(entry.id)) ?? [];
   return <section className="plugin-catalog" aria-label="Каталог">
     <div className="catalog-head"><h5 className="plugins-heading">Каталог</h5><button className="text-button" disabled={catalogLoading} onClick={onLoadCatalog}>{catalogLoading ? "Загрузка…" : "Обновить"}</button></div>
     {catalog?.errors.map((error) => <div key={error} className="package-alert" role="alert"><Icon name="warning" />Не удалось загрузить каталог: {error}</div>)}
-    {catalog && !offered.length && !catalog.errors.length && <p className="settings-empty">{catalog.packages.length ? "Все пакеты каталога уже установлены." : "Каталог пуст."}</p>}
+    {catalog && !offered.length && !catalog.errors.length && <p className="settings-empty">{catalog.packages.length ? "Все пакеты каталога уже установлены; обновления — у пакетов выше." : "Каталог пуст."}</p>}
     <ul className="package-list">{offered.map((entry) => {
       const current = installed.get(entry.id), downloading = props.download?.id === entry.id ? props.download : null;
       return <li key={`${entry.catalog}-${entry.id}`} className="package-card catalog-card" data-catalog-id={entry.id}>

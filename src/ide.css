@@ -830,3 +830,4 @@ div.bb-plain, blockquote.bb-plain, pre.bb-plain, details.bb-plain { margin: 4px 
 .convert-pane textarea, .dialog .convert-output { flex: 1; min-height: 0; margin: 0; padding: 8px 10px; color: var(--text); font: 12px/1.5 var(--font-code); background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); resize: none; }
 .dialog .convert-output { max-height: none; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .convert-dialog footer button { display: inline-flex; align-items: center; gap: 6px; }
+.package-actions .update-action { color: var(--accent); }
