@@ -614,3 +614,49 @@ test("selection past the text column works when the engine finds no caret there 
   const copied = await page.locator(".builder").evaluate((element) => { const data = new DataTransfer(); element.dispatchEvent(new ClipboardEvent("copy", { clipboardData: data, bubbles: true, cancelable: true })); return data.getData("text/plain"); });
   expect(copied).toBe(line.replace("[b][color=Green]", ""));
 });
+
+test("Backspace and typing replace a mouse selection in the builder, keeping formatting balanced", async ({ page }) => {
+  await page.locator(".cm-content").fill("[b]Жирный текст[/b] и обычный хвост");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  const bold = page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: /^Жирный текст$/ });
+  const plain = page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "обычный хвост" });
+  // From inside the bold text to the middle of the plain text.
+  const at = async (leaf: typeof bold, offset: number) => leaf.evaluate((element, index) => {
+    const range = document.createRange(); range.setStart(element.firstChild!, index); range.setEnd(element.firstChild!, index + 1);
+    const box = range.getBoundingClientRect(); return { x: box.left + 1, y: box.top + box.height / 2 };
+  }, offset);
+  const start = await at(bold, 7), end = await at(plain, 3);
+  await page.mouse.move(start.x, start.y); await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 10 }); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => CSS.highlights.has("bbforge-selection"))).toBe(true);
+  await page.keyboard.press("Backspace");
+  await expect(page.locator(".cm-content")).toHaveText("[b]Жирный [/b]обычный хвост");
+
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  const tail = page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: "обычный хвост" });
+  const from = await at(tail, 0), to = await at(tail, 7);
+  await page.mouse.move(from.x, from.y); await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 10 }); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => CSS.highlights.has("bbforge-selection"))).toBe(true);
+  // Playwright types Cyrillic without key events; a real keyboard sends keydown for every letter.
+  await page.keyboard.type("new");
+  await expect(page.locator(".cm-content")).toHaveText("[b]Жирный [/b]new хвост");
+});
+
+test("a link at the end of a line is erased with Backspace like plain text", async ({ page }) => {
+  await page.locator(".cm-content").fill('пишите сюда или в [url="https://github.com/x/issues"]issues[/url]\nдальше');
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  const link = page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: /^issues$/ });
+  const box = (await link.boundingBox())!;
+  // A click well past the end of the line puts the caret at the end of the link text.
+  const column = (await page.locator(".builder-page").boundingBox())!;
+  await page.mouse.click(column.x + column.width - 8, box.y + box.height / 2);
+  await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement).textContent)).toBe("issues");
+  for (let at = 0; at < 6; at++) { await page.keyboard.press("Backspace"); }
+  await expect(page.locator(".cm-content")).toContainText('пишите сюда или в [url="https://github.com/x/issues"][/url]');
+  await page.keyboard.press("Backspace");
+  await expect(page.locator(".cm-content")).toHaveText("пишите сюда или в дальше");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Backspace");
+  await expect(page.locator(".cm-content")).toHaveText("пишите сюда или дальше");
+});

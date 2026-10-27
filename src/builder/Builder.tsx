@@ -4,7 +4,7 @@ import type { DocumentState } from "../document/state";
 import type { EditCommand, SourceRange } from "../document/commands";
 import { identity } from "../document/commands";
 import { createPositionIndex } from "../document/positions";
-import { copyVisualRange, moveVisualRange, nodeRef, placeNodeAt, renameSpoiler, type NodeRef } from "../document/structure";
+import { copyVisualRange, moveVisualRange, nodeRef, placeNodeAt, renameSpoiler, replaceVisualRange, type NodeRef } from "../document/structure";
 import { EdgeAutoScroller } from "../drag/edgeAutoScroll";
 import { TextLeaf } from "./TextLeaf";
 import { literalPaste, textEditCommand } from "./input";
@@ -16,6 +16,7 @@ import type { ScrollPosition } from "../workspace/session";
 import { Icon } from "../components/Icon";
 import { stripTags } from "../bbcode/labels";
 import { builtinOf, isKnownTag, namesFor, profileVersion, tagFor, tagSpec, type BuiltinTag } from "../bbcode/profile";
+import { allNodes } from "../document/formatting";
 import { PlainTag } from "../components/Preview";
 
 // Selecting "the whole line" takes its formatting wrappers along, but never block tags like [/spoiler].
@@ -74,6 +75,24 @@ export function Builder(props: BuilderProps) {
       }
       return best?.at ?? null;
     };
+    /** Offsets (in the leaf's text) where the visual line of `line` starts and ends. */
+    const lineEdges = (leaf: HTMLElement, line: DOMRect): { start: number; end: number } => {
+      const text = leaf.firstChild, length = text?.textContent?.length ?? 0;
+      if (!text || text.nodeType !== Node.TEXT_NODE) return { start: 0, end: 0 };
+      const range = document.createRange(), middle = line.top + line.height / 2;
+      let start = -1, end = -1;
+      for (let at = 0; at < Math.min(length, 20000); at++) {
+        range.setStart(text, at); range.setEnd(text, at + 1);
+        const box = range.getBoundingClientRect();
+        if (!box.width || box.top > middle || box.bottom < middle || text.textContent![at] === "\n") continue;
+        if (start < 0) start = at;
+        end = at + 1;
+      }
+      if (start >= 0) return { start, end };
+      // An empty line part (the leaf starts with a line break): the place before that break.
+      const breakAt = text.textContent!.indexOf("\n");
+      return breakAt >= 0 && Math.abs(line.top - (leaf.getClientRects()[0]?.top ?? NaN)) < 1 ? { start: breakAt, end: breakAt } : { start: 0, end: length };
+    };
     const sourceOffsetAt = (x: number, y: number): number | null => {
       const hit = document.elementFromPoint(x, y) as HTMLElement | null;
       const hitLeaf = hit?.closest<HTMLElement>(".visual-text") ?? hit?.closest(".visual-text-node")?.querySelector<HTMLElement>(".visual-text");
@@ -91,8 +110,12 @@ export function Builder(props: BuilderProps) {
         }
         if (!best) return null;
         const from = Number(best.leaf.dataset.sourceFrom), to = Number(best.leaf.dataset.sourceTo), text = latest.current.getDocument().text;
-        if (x >= best.rect.right) return to + (inlinePatterns().close.exec(text.slice(to))?.[0].length ?? 0);
-        if (x <= best.rect.left) return from - (inlinePatterns().open.exec(text.slice(Math.max(0, from - 2000), from))?.[0].length ?? 0);
+        // A leaf can span several lines: past the right or left edge means the end or start of the
+        // line that was hit, not of the whole leaf. Only at the leaf's own edges do the adjacent
+        // formatting tags come along (selecting "the whole line").
+        const edges = lineEdges(best.leaf, best.rect);
+        if (x >= best.rect.right) return from + edges.end === to ? to + (inlinePatterns().close.exec(text.slice(to))?.[0].length ?? 0) : from + edges.end;
+        if (x <= best.rect.left) return from + edges.start === from ? from - (inlinePatterns().open.exec(text.slice(Math.max(0, from - 2000), from))?.[0].length ?? 0) : from + edges.start;
         return from + (offsetInLeaf(best.leaf, x, best.rect.top + best.rect.height / 2) ?? 0);
       };
       const caret = document.caretPositionFromPoint?.(x, y);
@@ -136,6 +159,14 @@ export function Builder(props: BuilderProps) {
     const setEditable = (enabled: boolean) => {
       for (const item of Array.from(host.querySelectorAll<HTMLElement>(".visual-text"))) item.contentEditable = enabled && item.dataset.visualEditable !== "false" ? "true" : "false";
     };
+    // The end of a line that ends with formatted text ("… [url=…]issues[/url]⏎") is one place for
+    // the user, but two for the source: after "issues" and after "[/url]". A caret there goes inside.
+    const insideFormatting = (offset: number) => {
+      const text = latest.current.getDocument().text;
+      if (offset !== text.length && text[offset] !== "\n") return offset;
+      const closing = new RegExp(`${inlinePatterns().close.source.slice(1)}$`, "i").exec(text.slice(Math.max(0, offset - 2000), offset));
+      return closing ? offset - closing[0].length : offset;
+    };
     const placeCaret = (leaf: HTMLElement, offset: number) => {
       highlightSelection(offset, offset); leaf.focus({ preventScroll: true }); restoreVisualSelection(host, { from: offset, to: offset }, true); select();
     };
@@ -171,7 +202,9 @@ export function Builder(props: BuilderProps) {
             const range = { from: Math.min(anchor, head), to: Math.max(anchor, head) };
             highlightSelection(range.from, range.to); setSelectedRange(range, true); (document.activeElement as HTMLElement | null)?.blur(); host.focus({ preventScroll: true }); latest.current.onRange({ ...identity(latest.current.getDocument()), ...range });
           }
-          else if (anchor !== null) placeCaret(leaf, anchor);
+          // A click (no drag) puts the caret into the leaf it hit, even past the end of a line:
+          // the jump over closing tags is only for selecting whole lines.
+          else if (anchor !== null) placeCaret(leaf, insideFormatting(Math.min(Math.max(anchor, Number(leaf.dataset.sourceFrom)), Number(leaf.dataset.sourceTo))));
         });
       };
       window.addEventListener("pointermove", move, true);
@@ -429,6 +462,67 @@ export function Builder(props: BuilderProps) {
     restoreVisualSelection(root.current, { from: at, to: at }, true);
   });
   const [paste, setPaste] = useState<{ range: SourceRange; text: string; documentId: string; revision: number } | null>(null);
+  const replaceSelection = (range: SourceRange, text: string) => {
+    const snapshot = snapshotRef.current;
+    if (!snapshot) return;
+    try {
+      props.execute(replaceVisualRange(props.getDocument(), snapshot, range, text));
+      setSelectedRange(null);
+      if (typeof CSS !== "undefined") (CSS as unknown as { highlights?: Map<string, unknown> }).highlights?.delete("bbforge-selection");
+      pendingCaret.current = range.from + text.length;
+    } catch (error) { props.onError(String(error)); }
+  };
+  /**
+   * Backspace at the start / Delete at the end of a text leaf. An empty leaf takes its empty
+   * formatting with it ([url=…][/url] left after erasing a link's text); otherwise the character
+   * on the other side of the tag edge goes, if it is in the same block.
+   */
+  const pendingEdge = useRef<{ key: "Backspace" | "Delete"; from: number; to: number; revision: number } | null>(null);
+  const edgeKey = (key: "Backspace" | "Delete", from: number, to: number): boolean => {
+    const document = props.getDocument(), snapshot = snapshotRef.current, host = root.current;
+    if (!host) return false;
+    // The structure is still being analysed after the last keystroke: do it once it is up to date.
+    if (!snapshot || snapshot.revision !== document.revision || snapshot.source !== document.text) { pendingEdge.current = { key, from, to, revision: document.revision }; return true; }
+    pendingEdge.current = null;
+    const index = createPositionIndex(document.text);
+    try {
+      if (from === to) {
+        const at = index.utf16ToByte(from), blank = (node: Node) => !stripTags(source.slice(index.byteToUtf16(node.contentSpan.start), index.byteToUtf16(node.contentSpan.end))).trim();
+        const empty = allNodes(snapshot.analysis.nodes).filter((node) => node.kind === "element" && node.wellFormed && node.closingSpan && tagSpec(node.name)?.role === "inline" && node.contentSpan.start <= at && at <= node.contentSpan.end && blank(node))
+          .sort((a, b) => (b.span.end - b.span.start) - (a.span.end - a.span.start))[0];
+        if (empty) {
+          const span = { from: index.byteToUtf16(empty.span.start), to: index.byteToUtf16(empty.span.end) };
+          props.execute({ ...identity(document), label: "Удалить пустое оформление", changes: [{ ...span, insert: "" }], selection: { from: span.from, to: span.from } });
+          pendingCaret.current = span.from;
+          return true;
+        }
+      }
+      const current = Array.from(host.querySelectorAll<HTMLElement>(".visual-text[data-source-from]")).find((leaf) => Number(leaf.dataset.sourceFrom) === from && Number(leaf.dataset.sourceTo) === to);
+      const block = (element: Element | null | undefined) => element?.closest(".spoiler-body, .builder-page, li, blockquote, pre");
+      const neighbours = Array.from(host.querySelectorAll<HTMLElement>(".visual-text[data-source-from]")).filter((leaf) => leaf !== current && leaf.dataset.visualEditable !== "false" && block(leaf) === block(current))
+        .map((leaf) => ({ from: Number(leaf.dataset.sourceFrom), to: Number(leaf.dataset.sourceTo) })).filter((leaf) => leaf.to > leaf.from);
+      if (key === "Backspace") {
+        const previous = neighbours.filter((leaf) => leaf.to <= from).sort((a, b) => b.to - a.to)[0];
+        if (!previous) return false;
+        const size = /[\uDC00-\uDFFF]/.test(document.text[previous.to - 1] ?? "") && previous.to - 2 >= previous.from ? 2 : 1;
+        props.execute(textEditCommand(document, { from: previous.to - size, to: previous.to }, "", document.text.slice(previous.to - size, previous.to)));
+        pendingCaret.current = previous.to - size;
+        return true;
+      }
+      const next = neighbours.filter((leaf) => leaf.from >= to).sort((a, b) => a.from - b.from)[0];
+      if (!next) return false;
+      const size = /[\uD800-\uDBFF]/.test(document.text[next.from] ?? "") && next.from + 2 <= next.to ? 2 : 1;
+      props.execute(textEditCommand(document, { from: next.from, to: next.from + size }, "", document.text.slice(next.from, next.from + size)));
+      pendingCaret.current = to;
+      return true;
+    } catch (error) { props.onError(String(error)); return true; }
+  };
+  useLayoutEffect(() => {
+    const pending = pendingEdge.current;
+    if (!pending || snapshot?.revision !== pending.revision || props.document.revision !== pending.revision) return;
+    pendingEdge.current = null;
+    edgeKey(pending.key, pending.from, pending.to);
+  });
   const select = () => { if (root.current) { const range = readVisualSelection(root.current, props.getDocument()); if (range) { setSelectedRange(range, true); props.onRange(range); } } };
   const run = (build: () => EditCommand) => { try { props.execute(build()); } catch (error) { props.onError(String(error)); } };
   const dragTarget = (reference: NodeRef, kind: "spoiler" | "list" | "item" | "text", from: number, to: number) => ({ "data-drag-kind": kind, "data-drag-start": reference.span.start, "data-drag-end": reference.span.end, "data-at-from": from, "data-at-to": to });
@@ -443,7 +537,7 @@ export function Builder(props: BuilderProps) {
       }
       if (text.length > 65536) return <button className="opaque-block" key={path} onClick={() => props.onNavigate({ from, to })}>Большой текстовый блок · Редактировать код</button>;
       const reference = movable ?? nodeRef(snapshot!, node);
-      return <span key={path} className="visual-text-node" {...dragTarget(reference, "text", from, to)}><TextLeaf autoFocus={path === insertionPath} literal={literal} onError={props.onError} editable={snapshot?.revision === props.document.revision} text={text} from={from} to={to} onEdit={(range, value, expected) => { try { props.execute(textEditCommand(props.getDocument(), range, value, expected)); } catch (error) { props.onError(String(error)); throw error; } }} onSelect={select} onComposition={props.onComposition} onPasteCode={(range, text) => setPaste({ range, text, ...identity(props.getDocument()) })} onEnterAtEnd={literal ? undefined : leaveLink} /></span>;
+      return <span key={path} className="visual-text-node" {...dragTarget(reference, "text", from, to)}><TextLeaf autoFocus={path === insertionPath} literal={literal} onError={props.onError} editable={snapshot?.revision === props.document.revision} text={text} from={from} to={to} onEdit={(range, value, expected) => { try { props.execute(textEditCommand(props.getDocument(), range, value, expected)); } catch (error) { props.onError(String(error)); throw error; } }} onSelect={select} onComposition={props.onComposition} onPasteCode={(range, text) => setPaste({ range, text, ...identity(props.getDocument()) })} onEnterAtEnd={literal ? undefined : leaveLink} onEdgeKey={edgeKey} /></span>;
     }
     const reference = nodeRef(snapshot!, node);
     const spec = tagSpec(node.name), raw = !!spec?.raw;
@@ -479,7 +573,28 @@ export function Builder(props: BuilderProps) {
     if (tag === "url") return <span key={path} data-at-from={from} data-at-to={to} className={safeExternalUrl(node.parameter ?? "") ? "builder-link" : ""} title={node.parameter ?? ""} onClick={selectNode}>{children()}</span>;
     return <span key={path} data-at-from={from} data-at-to={to} style={style} onClick={selectNode}>{children()}</span>;
   };
-  return <div className={`builder ${snapshot?.revision === props.document.revision ? "" : "syncing"}`} aria-busy={snapshot?.revision !== props.document.revision} tabIndex={-1} ref={root} onMouseUp={select} onCopy={(event) => { if (selectedRange && selectedRange.from !== selectedRange.to) { event.preventDefault(); event.clipboardData.setData("text/plain", props.document.text.slice(selectedRange.from, selectedRange.to)); } }} onScroll={(event) => props.onScrollPosition?.({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}>
+  return <div className={`builder ${snapshot?.revision === props.document.revision ? "" : "syncing"}`} aria-busy={snapshot?.revision !== props.document.revision} tabIndex={-1} ref={root} onMouseUp={select} onCopy={(event) => { if (selectedRange && selectedRange.from !== selectedRange.to) { event.preventDefault(); event.clipboardData.setData("text/plain", props.document.text.slice(selectedRange.from, selectedRange.to)); } }}
+    onCut={(event) => { const range = selectionRef.current; if (!range || range.from >= range.to) return; event.preventDefault(); event.clipboardData.setData("text/plain", props.document.text.slice(range.from, range.to)); replaceSelection(range, ""); }}
+    onKeyDown={(event) => {
+      // A selection made with the mouse is drawn by the builder, not by the browser: keys that
+      // would replace a selection have to do it here.
+      if (event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+      const text = event.key === "Backspace" || event.key === "Delete" ? "" : event.key === "Enter" ? "\n" : event.key.length === 1 ? event.key : null;
+      if (text === null) return;
+      const range = selectionRef.current;
+      if (range && range.from < range.to) { event.preventDefault(); event.stopPropagation(); replaceSelection(range, text); return; }
+      // Keys pressed right after a replacement, before the caret is back in the text: they go
+      // where the caret will be, so fast typing loses nothing.
+      const at = pendingCaret.current;
+      if (at === null || event.target !== event.currentTarget) return;
+      event.preventDefault(); event.stopPropagation();
+      try {
+        const document = props.getDocument();
+        if (event.key === "Backspace") { if (at > 0) { props.execute(textEditCommand(document, { from: at - 1, to: at }, "", document.text.slice(at - 1, at))); pendingCaret.current = at - 1; } }
+        else if (event.key === "Delete") { if (at < document.text.length) props.execute(textEditCommand(document, { from: at, to: at + 1 }, "", document.text.slice(at, at + 1))); }
+        else { props.execute(textEditCommand(document, { from: at, to: at }, text, "")); pendingCaret.current = at + text.length; }
+      } catch (error) { props.onError(String(error)); }
+    }} onScroll={(event) => props.onScrollPosition?.({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}>
     <div className="builder-page">{snapshot ? Array.from({ length: Math.ceil(snapshot.analysis.nodes.length / 30) }, (_, group) => <LazyBlockGroup key={`${props.document.id}-${group}`} eager={group === 0} count={Math.min(30, snapshot.analysis.nodes.length - group * 30)}>{() => snapshot.analysis.nodes.slice(group * 30, group * 30 + 30).map((node, at) => render(node, String(group * 30 + at)))}</LazyBlockGroup>) : <p>Анализ документа…</p>}{snapshot?.analysis.nodes.length === 0 && render({ kind: "text", name: null, parameter: null, span: { start: 0, end: 0 }, contentSpan: { start: 0, end: 0 }, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, "empty")}</div>
     {paste && <div className="modal-backdrop"><section className="dialog" role="dialog" aria-label="Вставить текст"><h3>В тексте найдены BBCode-теги</h3><pre>{paste.text}</pre><button onClick={() => { run(() => ({ ...paste, label: "Вставить BBCode", changes: [{ ...paste.range, insert: paste.text }] })); setPaste(null); }}>Вставить как BBCode</button><button onClick={() => { run(() => ({ ...paste, label: "Вставить буквальный текст", changes: [{ ...paste.range, insert: literalPaste(paste.text) }] })); setPaste(null); }}>Буквально в code</button><button onClick={() => setPaste(null)}>Отмена</button></section></div>}
   </div>;

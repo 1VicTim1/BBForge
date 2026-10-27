@@ -12,6 +12,8 @@ interface Props {
   onComposition(active: boolean): void;
   /** Enter with the caret at the end of the leaf; true when the builder handled it (e.g. left a link). */
   onEnterAtEnd?(to: number): boolean;
+  /** Backspace at the start or Delete at the end of the leaf: the builder works across the tag edge. */
+  onEdgeKey?(key: "Backspace" | "Delete", from: number, to: number): boolean;
 }
 export function TextLeaf(props: Props) {
   const host = useRef<HTMLSpanElement>(null), composing = useRef(false), focused = useRef(false);
@@ -69,6 +71,17 @@ export function TextLeaf(props: Props) {
     onCompositionEnd={() => { composing.current = false; props.onComposition(false); commit(); }}
     onInput={commit}
     onKeyDown={(event) => {
+      if ((event.key === "Backspace" || event.key === "Delete") && !composing.current && !event.nativeEvent.isComposing && props.onEdgeKey && host.current) {
+        const selection = window.getSelection(), range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+        if (range?.collapsed && host.current.contains(range.startContainer)) {
+          const before = window.document.createRange(); before.selectNodeContents(host.current); before.setEnd(range.startContainer, range.startOffset);
+          const offset = before.toString().length, length = (host.current.textContent ?? "").replace(/\n$/, "").length;
+          if ((event.key === "Backspace" && offset === 0) || (event.key === "Delete" && offset >= length)) {
+            commit();
+            if (props.onEdgeKey(event.key, state.current.from, state.current.to)) { event.preventDefault(); return; }
+          }
+        }
+      }
       if (event.key !== "Enter" || composing.current || event.nativeEvent.isComposing) return;
       event.preventDefault();
       const selection = window.getSelection(), range = selection?.rangeCount ? selection.getRangeAt(0) : null;

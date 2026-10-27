@@ -148,6 +148,20 @@ function formattedFragment(document: DocumentState, snapshot: AnalysisSnapshot, 
   return { insert, repair, endings: document.endings.slice(endingFrom, endingFrom + endingCount) };
 }
 
+/**
+ * Replaces a visual selection with typed text (empty for Backspace/Delete). Formatting the
+ * selection only partly covers stays balanced: [b]ab|c[/b]d|e → [b]ab[/b]e with the text typed
+ * inside the formatting the selection started in.
+ */
+export function replaceVisualRange(document: DocumentState, snapshot: AnalysisSnapshot, range: SourceRange, text: string): EditCommand {
+  const fragment = formattedFragment(document, snapshot, range);
+  return {
+    ...identity(document), label: text ? "Ввод текста" : "Удалить выделенное",
+    changes: [{ ...range, insert: text + fragment.repair }],
+    selection: { from: range.from + text.length, to: range.from + text.length },
+  };
+}
+
 export function moveVisualRange(document: DocumentState, snapshot: AnalysisSnapshot, range: SourceRange, at: number): EditCommand {
   if (at >= range.from && at <= range.to) throw new Error("Перетащите выделение в другое место");
   const fragment = formattedFragment(document, snapshot, range);
