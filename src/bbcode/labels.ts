@@ -1,6 +1,7 @@
 import type { Node } from "../analysis/types";
 import type { PositionIndex } from "../document/positions";
-import { isKnownTag, plural } from "./tags";
+import { plural } from "./tags";
+import { builtinOf, isKnownTag, tagSpec } from "./profile";
 
 export const stripTags = (value: string) => value.replace(/\[[^\]\n]*\]/g, "").replace(/\s+/g, " ").trim();
 
@@ -17,13 +18,13 @@ export function nodeText(node: Node, source: string, index: PositionIndex): stri
 
 /** Human caption of a block: spoiler → its title, url → domain/path, img → file name, color → text or value. */
 export function nodeLabel(node: Node, source: string, index: PositionIndex): string {
-  const name = node.name ?? "", text = () => nodeText(node, source, index);
+  const name = node.name ?? "", text = () => nodeText(node, source, index), builtin = builtinOf(name);
   if (!isKnownTag(name)) return node.wellFormed ? "неизвестный тег" : "повреждённая разметка";
-  if (name === "spoiler") return stripTags(node.parameter ?? "") || "Спойлер";
-  if (name === "url") return hostAndPath(node.parameter ?? text()) || text();
-  if (name === "img") { const value = text(); return value.split(/[\\/]/).at(-1)?.split("?")[0] || value; }
-  if (name === "list") return plural(node.children.filter((child) => child.name === "*").length, ["пункт", "пункта", "пунктов"]);
-  if (name === "color" || name === "background") return text() || (node.parameter ?? "");
-  if (name === "attachment") return node.parameter ?? "";
+  if (builtin === "spoiler") return stripTags(node.parameter ?? "") || tagSpec(name)?.label || "Спойлер";
+  if (builtin === "url") return hostAndPath(node.parameter ?? text()) || text();
+  if (builtin === "img") { const value = text(); return value.split(/[\\/]/).at(-1)?.split("?")[0] || value; }
+  if (builtin === "list") return plural(node.children.filter((child) => builtinOf(child.name) === "*").length, ["пункт", "пункта", "пунктов"]);
+  if (builtin === "color" || builtin === "background") return text() || (node.parameter ?? "");
+  if (builtin === "attachment") return node.parameter ?? "";
   return text() || (node.parameter ?? "");
 }

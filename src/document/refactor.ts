@@ -2,10 +2,15 @@ import type { AnalysisSnapshot, Node } from "../analysis/types";
 import { identity, type EditCommand } from "./commands";
 import { createPositionIndex } from "./positions";
 import type { DocumentState } from "./state";
+import { builtinOf, tagSpec, type BuiltinTag } from "../bbcode/profile";
 
 type Changes = EditCommand["changes"];
-const inline = new Set(["b", "i", "u", "s", "color", "background", "size", "font", "url", "sub", "sup", "left", "center", "right"]);
-const flags = new Set(["b", "i", "u", "s", "sub", "sup"]);
+const inlineTags = new Set<BuiltinTag>(["b", "i", "u", "s", "color", "background", "size", "font", "url", "sub", "sup", "left", "center", "right"]);
+const flagTags = new Set<BuiltinTag>(["b", "i", "u", "s", "sub", "sup"]);
+/** Formatting wrappers: built-in ones and plain inline tags of the profile. */
+const inline = { has: (tag: string) => { const spec = tagSpec(tag); return !!spec && (spec.builtin ? inlineTags.has(spec.builtin) : spec.role === "inline" && !spec.raw && !spec.leaf); } };
+const flags = { has: (tag: string) => { const builtin = builtinOf(tag); return !!builtin && flagTags.has(builtin); } };
+const isRaw = (node: Node) => !!tagSpec(node.name)?.raw;
 
 function context(document: DocumentState, snapshot: AnalysisSnapshot) {
   if (snapshot.documentId !== document.id || snapshot.revision !== document.revision || snapshot.source !== document.text) throw new Error("Дождитесь обновления структуры");
@@ -29,7 +34,7 @@ const plainText = (node: Node, raw: (span: Node["span"]) => string): string | nu
 export function removeEmptyTags(document: DocumentState, snapshot: AnalysisSnapshot): EditCommand | null {
   const { range, raw } = context(document, snapshot), changes: Changes = [];
   const visit = (nodes: Node[]) => { for (const node of nodes) {
-    if (node.kind === "text" || name(node) === "code") continue;
+    if (node.kind === "text" || isRaw(node)) continue;
     const text = inline.has(name(node)) && node.closingSpan ? plainText(node, raw) : null;
     if (text !== null && !text.trim()) { changes.push({ ...range(node.span), insert: text }); continue; }
     visit(node.children);
@@ -48,7 +53,7 @@ export function mergeAdjacentTags(document: DocumentState, snapshot: AnalysisSna
         && name(node) === name(next) && node.span.end === next.span.start && raw(node.openingSpan!).toLowerCase() === raw(next.openingSpan).toLowerCase()) {
         changes.push({ from: range(node.closingSpan).from, to: range(next.openingSpan).to, insert: "" });
       }
-      if (name(node) !== "code") visit(node.children);
+      if (!isRaw(node)) visit(node.children);
     });
   };
   visit(snapshot.analysis.nodes);
@@ -59,7 +64,7 @@ export function mergeAdjacentTags(document: DocumentState, snapshot: AnalysisSna
 export function removeRedundantNesting(document: DocumentState, snapshot: AnalysisSnapshot): EditCommand | null {
   const { range } = context(document, snapshot), changes: Changes = [];
   const visit = (nodes: Node[], active: Set<string>) => { for (const node of nodes) {
-    if (node.kind === "text" || name(node) === "code") continue;
+    if (node.kind === "text" || isRaw(node)) continue;
     const tag = name(node);
     if (flags.has(tag) && active.has(tag) && node.wellFormed && node.openingSpan && node.closingSpan) changes.push({ ...range(node.openingSpan), insert: "" }, { ...range(node.closingSpan), insert: "" });
     visit(node.children, flags.has(tag) ? new Set([...active, tag]) : active);
@@ -78,14 +83,14 @@ export function lowercaseTagNames(document: DocumentState, snapshot: AnalysisSna
     const start = range(span).from + match[0].length - match[1].length;
     changes.push({ from: start, to: start + match[1].length, insert: match[1].toLowerCase() });
   };
-  const visit = (nodes: Node[]) => { for (const node of nodes) { if (node.kind === "text") continue; fix(node.openingSpan); fix(node.closingSpan); if (name(node) !== "code") visit(node.children); } };
+  const visit = (nodes: Node[]) => { for (const node of nodes) { if (node.kind === "text") continue; fix(node.openingSpan); fix(node.closingSpan); if (!isRaw(node)) visit(node.children); } };
   visit(snapshot.analysis.nodes);
   return command(document, "Привести теги к нижнему регистру", changes);
 }
 
 function codeRanges(snapshot: AnalysisSnapshot, range: (span: Node["span"]) => { from: number; to: number }) {
   const result: Array<{ from: number; to: number }> = [];
-  const visit = (nodes: Node[]) => { for (const node of nodes) { if (name(node) === "code") result.push(range(node.span)); else visit(node.children); } };
+  const visit = (nodes: Node[]) => { for (const node of nodes) { if (isRaw(node)) result.push(range(node.span)); else visit(node.children); } };
   visit(snapshot.analysis.nodes);
   return result;
 }

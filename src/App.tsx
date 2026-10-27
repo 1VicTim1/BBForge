@@ -2,7 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { Editor } from "./editor/Editor";
 import { createAnalysisClient, type AnalysisRequest, type AnalysisResponse } from "./analysis/client";
 import { createTauriAnalyzer } from "./analysis/tauri";
@@ -50,6 +50,7 @@ import { ContextMenu } from "./context/ContextMenu";
 import { useContextMenu } from "./context/useContextMenu";
 import { extractPreviewBbcode, readPreviewSelection, type PreviewSelection } from "./components/previewSelection";
 import { nodeLabel } from "./bbcode/labels";
+import { activeProfile, builtinOf, profileVersion, subscribeProfiles, tagFor, tagSpec } from "./bbcode/profile";
 import "./ide.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
@@ -69,7 +70,8 @@ const refactorings: Array<Refactoring | null> = [
   null,
   { id: "refactor.escaped", title: "Удалить теги, преобразованные форумом", hint: "Все фрагменты вида &#91;…&#93;", build: scoped(removeEscapedTags) },
 ];
-const OUTLINE_TAGS = new Set(["spoiler", "quote", "code", "list", "*", "url", "img", "attachment", "size"]);
+const OUTLINE_BUILTINS = new Set<string>(["spoiler", "quote", "code", "list", "*", "url", "img", "attachment", "size"]);
+const isOutlineTag = (name: string | null) => { const spec = tagSpec(name); return !!spec && (spec.builtin ? OUTLINE_BUILTINS.has(spec.builtin) : spec.role !== "inline"); };
 let journalId = 0;
 
 export default function App() {
@@ -137,8 +139,9 @@ export default function App() {
     return () => { active = false; };
   }, [workspaceStore]);
   useEffect(() => { if (workspaceReady) workspaceStore.schedule(workspace); }, [workspace, workspaceReady, workspaceStore]);
+  const profileRevision = useSyncExternalStore(subscribeProfiles, profileVersion);
   const analyze = useMemo(() => isTauri()
-    ? createTauriAnalyzer<Analysis>(invoke)
+    ? createTauriAnalyzer<Analysis>(invoke, () => activeProfile().analyzer)
     : window.__BBFORGE_ANALYZE__ ?? (async (request: AnalysisRequest): Promise<AnalysisResponse<Analysis>> => ({ ...request, analysis: emptyAnalysis() })), []);
   const client = useMemo(() => createAnalysisClient(analyze, (result, response) => {
     setAnalyses((current) => ({ ...current, [response.documentId]: result }));
@@ -151,7 +154,7 @@ export default function App() {
   ), []);
   useEffect(() => {
     client.update({ source: document.text, documentId: document.id, revision: document.revision });
-  }, [client, document.id, document.revision, document.text]);
+  }, [client, document.id, document.revision, document.text, profileRevision]);
   useEffect(() => () => client.dispose(), [client]);
 
   const changeSource = (documentId: string, value: string, endings: LineEnding[]) => {
@@ -386,9 +389,9 @@ export default function App() {
   // The scope a refactoring would use: the selection, the spoiler around the cursor (or the selected one), or the document.
   const currentSpoiler = (): NodeRef | null => {
     if (!currentSnapshot) return null;
-    if (selected) { try { const node = allNodes(currentSnapshot.analysis.nodes).find((item) => item.span.start === selected.span.start && item.span.end === selected.span.end); if (node?.name === "spoiler") return selected; } catch { /* stale */ } }
+    if (selected) { try { const node = allNodes(currentSnapshot.analysis.nodes).find((item) => item.span.start === selected.span.start && item.span.end === selected.span.end); if (builtinOf(node?.name) === "spoiler") return selected; } catch { /* stale */ } }
     const index = createPositionIndex(document.text), at = index.utf16ToByte(activeRange.from);
-    const spoiler = allNodes(currentSnapshot.analysis.nodes).filter((node) => node.name === "spoiler" && node.wellFormed && node.span.start <= at && at < node.span.end).at(-1);
+    const spoiler = allNodes(currentSnapshot.analysis.nodes).filter((node) => builtinOf(node.name) === "spoiler" && node.wellFormed && node.span.start <= at && at < node.span.end).at(-1);
     return spoiler ? nodeRef(currentSnapshot, spoiler) : null;
   };
   const scopeTarget = (kind: RefactorScope): ScopeTarget => {
@@ -496,8 +499,8 @@ export default function App() {
     if (!currentSnapshot) return [];
     const index = createPositionIndex(currentSnapshot.source), at = index.utf16ToByte(Math.min(activeRange.from, currentSnapshot.source.length)), path: Node[] = [];
     let level = currentSnapshot.analysis.nodes;
-    for (let found = true; found;) { found = false; for (const node of level) if (node.kind === "element" && node.span.start <= at && at < node.span.end) { if (OUTLINE_TAGS.has(node.name ?? "")) path.push(node); level = node.children; found = true; break; } }
-    return path.slice(-4).map((node) => ({ tag: node.name ?? "", label: node.name === "spoiler" || node.name === "url" || node.name === "img" ? nodeLabel(node, currentSnapshot.source, index) : "", onClick: () => selectNode(node.span) }));
+    for (let found = true; found;) { found = false; for (const node of level) if (node.kind === "element" && node.span.start <= at && at < node.span.end) { if (isOutlineTag(node.name)) path.push(node); level = node.children; found = true; break; } }
+    return path.slice(-4).map((node) => ({ tag: node.name ?? "", label: ["spoiler", "url", "img"].includes(builtinOf(node.name) ?? "") ? nodeLabel(node, currentSnapshot.source, index) : "", onClick: () => selectNode(node.span) }));
   }, [currentSnapshot, activeRange.from]);
   const paletteTags: PaletteTag[] = useMemo(() => {
     if (!currentSnapshot || palette === null) return [];
@@ -505,12 +508,12 @@ export default function App() {
     return allNodes(currentSnapshot.analysis.nodes).filter((node) => node.kind === "element").map((node) => { const from = index.byteToUtf16(node.span.start); return { key: String(node.span.start) + node.name, tag: node.name ?? "", label: nodeLabel(node, currentSnapshot.source, index) || node.name || "", line: (currentSnapshot.source.slice(0, from).match(/\n/g)?.length ?? 0) + 1, span: node.span }; });
   }, [currentSnapshot, palette]);
   const blockActions = [
-    { id: "spoiler", title: "Спойлер", description: "Сворачиваемый блок с заголовком; оборачивает выделение", icon: "spoiler" as const, tag: "[spoiler=…]", run: openSpoilerDialog, disabled: !enabled },
-    { id: "quote", title: "Цитата", description: "Оформить выделение как цитату", icon: "quote" as const, tag: "[quote]", run: () => format("quote"), disabled: !enabled },
-    { id: "code", title: "Блок кода", description: "Моноширинный текст без разметки", icon: "code" as const, tag: "[code]", run: () => format("code"), disabled: !enabled },
-    { id: "list", title: "Список", description: "Каждая строка выделения станет пунктом", icon: "list" as const, tag: "[list][*]", run: () => format("list"), disabled: !enabled },
-    { id: "url", title: "Ссылка", description: "Сделать выделенный текст ссылкой", icon: "link" as const, tag: "[url=…]", run: () => window.dispatchEvent(new Event("bbforge:link")), disabled: !enabled },
-    { id: "img", title: "Изображение", description: "Вставить картинку по адресу в позицию курсора", icon: "image" as const, tag: "[img]…[/img]", run: () => insertAtCursor("[img]https://$[/img]", "Вставить изображение"), disabled: !enabled },
+    { id: "spoiler", title: "Спойлер", description: "Сворачиваемый блок с заголовком; оборачивает выделение", icon: "spoiler" as const, tag: `[${tagFor("spoiler")}=…]`, run: openSpoilerDialog, disabled: !enabled },
+    { id: "quote", title: "Цитата", description: "Оформить выделение как цитату", icon: "quote" as const, tag: `[${tagFor("quote")}]`, run: () => format("quote"), disabled: !enabled },
+    { id: "code", title: "Блок кода", description: "Моноширинный текст без разметки", icon: "code" as const, tag: `[${tagFor("code")}]`, run: () => format("code"), disabled: !enabled },
+    { id: "list", title: "Список", description: "Каждая строка выделения станет пунктом", icon: "list" as const, tag: `[${tagFor("list")}][${tagFor("*")}]`, run: () => format("list"), disabled: !enabled },
+    { id: "url", title: "Ссылка", description: "Сделать выделенный текст ссылкой", icon: "link" as const, tag: `[${tagFor("url")}=…]`, run: () => window.dispatchEvent(new Event("bbforge:link")), disabled: !enabled },
+    { id: "img", title: "Изображение", description: "Вставить картинку по адресу в позицию курсора", icon: "image" as const, tag: `[${tagFor("img")}]…[/${tagFor("img")}]`, run: () => insertAtCursor(`[${tagFor("img")}]https://$[/${tagFor("img")}]`, "Вставить изображение"), disabled: !enabled },
   ];
   const sidebar = !layout.showOutline ? null
     : layout.sidebarView === "search" ? { title: "Поиск", content: <SearchPanel text={document.text} onNavigate={(range) => { setActiveRange(range); navigateRange(range); }} /> }

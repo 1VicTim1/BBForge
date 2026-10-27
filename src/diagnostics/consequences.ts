@@ -3,25 +3,26 @@
  * used to compare fix candidates before the real analysis runs.
  */
 const TAG = /\[(\/)?([a-z*][\w*-]*)(?:=(?:"[^"]*"|[^\]])*)?\]/gi;
-const LEAF = new Set(["*", "attachment"]);
+import { activeProfile } from "../bbcode/profile";
 
 export function countStructuralErrors(text: string): number {
-  const stack: string[] = [];
+  const stack: string[] = [], tags = activeProfile().tags;
+  const builtin = (name: string) => tags.get(name)?.builtin ?? null;
   let errors = 0;
   TAG.lastIndex = 0;
   for (let match = TAG.exec(text); match; match = TAG.exec(text)) {
     const closing = Boolean(match[1]), name = match[2].toLowerCase();
     if (!closing) {
-      if (name === "code") {
-        const end = text.toLowerCase().indexOf("[/code]", TAG.lastIndex);
+      if (tags.get(name)?.raw) {
+        const closingTag = `[/${name}]`, end = text.toLowerCase().indexOf(closingTag, TAG.lastIndex);
         if (end < 0) { errors++; break; }
-        TAG.lastIndex = end + "[/code]".length; continue;
+        TAG.lastIndex = end + closingTag.length; continue;
       }
-      if (name === "*") { if (stack.at(-1) === "*") stack.pop(); stack.push("*"); continue; }
-      if (LEAF.has(name)) continue;
+      if (builtin(name) === "*") { if (stack.at(-1) === "*") stack.pop(); stack.push("*"); continue; }
+      if (tags.get(name)?.leaf) continue;
       stack.push(name); continue;
     }
-    if (name === "list" && stack.at(-1) === "*") stack.pop();
+    if (builtin(name) === "list" && stack.at(-1) === "*") stack.pop();
     const at = stack.lastIndexOf(name);
     if (at < 0) { errors++; continue; }
     if (at !== stack.length - 1) errors++;

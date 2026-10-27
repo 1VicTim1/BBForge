@@ -8,7 +8,7 @@ describe("Tauri analysis adapter", () => {
 
     const response = await analyze({ source: "[b]", documentId: "doc", revision: 3 });
 
-    expect(invoke).toHaveBeenCalledWith("analyze", { source: "[b]", documentId: "doc", revision: 3 });
+    expect(invoke).toHaveBeenCalledWith("analyze", { source: "[b]", documentId: "doc", revision: 3, profile: null });
     expect(response.revision).toBe(3);
     expect(response.source).toBe("[b]");
   });

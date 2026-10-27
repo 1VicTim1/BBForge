@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { Node, Span } from "../analysis/types";
 import { createPositionIndex, type PositionIndex } from "../document/positions";
 import { decodeDocument, type DocumentState } from "../document/state";
 import { readPreviewSelection, type PreviewSelection } from "./previewSelection";
 import type { ScrollPosition } from "../workspace/session";
+import { renderStyle, tagSpec, type ResolvedTag } from "../bbcode/profile";
 
 interface PreviewProps { document?: DocumentState; source: string; nodes: Node[]; scroll?: ScrollPosition; onScrollPosition?(position: ScrollPosition): void; onNavigate(span: Span): void; onSelection?(range: PreviewSelection): void; openExternal?(url: string): void }
 
@@ -28,30 +29,31 @@ function RenderNode({ node, source, positions, onNavigate, openExternal }: { nod
   const from = positions.byteToUtf16(node.span.start), to = positions.byteToUtf16(node.span.end);
   if (node.kind === "text") return <span data-source-from={from} data-source-to={to}>{source.slice(from, to)}</span>;
   const children = node.children.map((child, index) => <RenderNode key={`${child.span.start}-${index}`} node={child} source={source} positions={positions} onNavigate={onNavigate} openExternal={openExternal} />);
-  const name = node.name ?? "";
+  const name = node.name ?? "", spec = tagSpec(name), tag = spec?.builtin ?? null;
   let rendered: ReactNode;
-  if (name === "b") rendered = <strong>{children}</strong>;
-  else if (name === "i") rendered = <em>{children}</em>;
-  else if (name === "u") rendered = <u>{children}</u>;
-  else if (name === "s") rendered = <s>{children}</s>;
-  else if (name === "sub") rendered = <sub>{children}</sub>;
-  else if (name === "sup") rendered = <sup>{children}</sup>;
-  else if (name === "quote") rendered = <blockquote>{children}</blockquote>;
-  else if (name === "code") rendered = <pre className="bb-code">{children}</pre>;
-  else if (name === "list") rendered = <ul>{children}</ul>;
-  else if (name === "*") rendered = <li>{children}</li>;
-  else if (name === "spoiler") rendered = <details><summary onDoubleClick={() => onNavigate(node.span)}>{formatTitle(node.parameter ?? "Спойлер")}</summary><div>{children}</div></details>;
-  else if (name === "img") rendered = <span className="media-placeholder" data-context-surface="media" data-source-value={plainText(node, source, positions)}>▧ {plainText(node, source, positions).split(/[\\/]/).at(-1)?.split("?")[0] || "Изображение"}</span>;
-  else if (name === "attachment") rendered = <span className="media-placeholder" data-context-surface="media" data-source-value={node.parameter ?? ""}>Вложение: {node.parameter}</span>;
-  if (name === "url") {
+  if (tag === "b") rendered = <strong>{children}</strong>;
+  else if (tag === "i") rendered = <em>{children}</em>;
+  else if (tag === "u") rendered = <u>{children}</u>;
+  else if (tag === "s") rendered = <s>{children}</s>;
+  else if (tag === "sub") rendered = <sub>{children}</sub>;
+  else if (tag === "sup") rendered = <sup>{children}</sup>;
+  else if (tag === "quote") rendered = <blockquote>{children}</blockquote>;
+  else if (tag === "code") rendered = <pre className="bb-code">{children}</pre>;
+  else if (tag === "list") rendered = <ul>{children}</ul>;
+  else if (tag === "*") rendered = <li>{children}</li>;
+  else if (tag === "spoiler") rendered = <details><summary onDoubleClick={() => onNavigate(node.span)}>{formatTitle(node.parameter ?? spec?.label ?? "Спойлер")}</summary><div>{children}</div></details>;
+  else if (tag === "img") rendered = <span className="media-placeholder" data-context-surface="media" data-source-value={plainText(node, source, positions)}>▧ {plainText(node, source, positions).split(/[\\/]/).at(-1)?.split("?")[0] || "Изображение"}</span>;
+  else if (tag === "attachment") rendered = <span className="media-placeholder" data-context-surface="media" data-source-value={node.parameter ?? ""}>Вложение: {node.parameter}</span>;
+  if (tag === "url") {
     const raw = node.parameter ?? plainText(node, source, positions);
     const safe = safeExternalUrl(raw);
     rendered = safe ? <a href={safe} data-context-surface="link" onClick={(event) => { event.preventDefault(); openExternal?.(safe); }}>{children}</a> : <span>{children}</span>;
   }
+  if (rendered === undefined && spec && !tag && spec.render) rendered = <PlainTag spec={spec} value={node.parameter}>{children}</PlainTag>;
   if (rendered === undefined) {
-    const style = safeStyle(name, node.parameter);
+    const style = tag ? safeStyle(tag, node.parameter) : null;
     if (style) rendered = <span style={style}>{children}</span>;
-    else if (["left", "center", "right"].includes(name)) rendered = <div style={{ textAlign: name as CSSProperties["textAlign"] }}>{children}</div>;
+    else if (tag === "left" || tag === "center" || tag === "right") rendered = <div style={{ textAlign: tag as CSSProperties["textAlign"] }}>{children}</div>;
     else rendered = <span>{children}</span>;
   }
   return <span className="preview-source-node" data-source-span data-source-from={from} data-source-to={to}>{rendered}</span>;
@@ -78,3 +80,10 @@ function safeStyle(name: string, parameter: string | null): CSSProperties | null
 }
 
 function safeColor(value: string): boolean { return /^(#[0-9a-f]{3,8}|[a-z]{1,20})$/i.test(value); }
+
+/** A tag a plugin profile describes only by its render spec: whitelisted element and styles. */
+export function PlainTag({ spec, value, children, ...attributes }: { spec: ResolvedTag; value: string | null; children: ReactNode } & Record<`data-${string}`, string | number | undefined> & { onClick?(event: React.MouseEvent): void }) {
+  const render = spec.render!, caption = render.caption?.replace("{value}", value ?? "").trim();
+  const inner = render.element === "details" ? <><summary>{caption || spec.label || spec.name}</summary><div>{children}</div></> : <>{caption && <span className="bb-plain-caption">{caption} </span>}{children}</>;
+  return createElement(render.element, { className: ["bb-plain", `bb-tag-${spec.name.replace(/[^\w-]/g, "")}`, render.className].filter(Boolean).join(" "), style: renderStyle(spec, value), ...attributes }, inner);
+}

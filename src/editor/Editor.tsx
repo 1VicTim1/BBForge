@@ -1,4 +1,6 @@
 import { historyKeymap, defaultKeymap, undo, redo } from "@codemirror/commands";
+import { builtinOf, subscribeProfiles } from "../bbcode/profile";
+import { refreshHighlighting } from "./highlight";
 import { searchKeymap } from "@codemirror/search";
 import { bracketMatching, foldGutter, foldKeymap, foldService } from "@codemirror/language";
 import { Decoration, drawSelection, EditorView, gutter, GutterMarker, highlightActiveLine, highlightActiveLineGutter, hoverTooltip, keymap, lineNumbers, placeholder, ViewPlugin, type DecorationSet, type ViewUpdate } from "@codemirror/view";
@@ -142,7 +144,7 @@ export function Editor(props: EditorProps) {
         const snapshot = latest.current.snapshot;
         if (!snapshot || snapshot.source !== state.doc.toString()) return null;
         const index = createPositionIndex(snapshot.source);
-        const node = allNodes(snapshot.analysis.nodes).find((node) => node.name === "spoiler" && node.wellFormed && index.byteToUtf16(node.contentSpan.start) >= lineStart && index.byteToUtf16(node.contentSpan.start) <= lineEnd && node.contentSpan.start < node.contentSpan.end);
+        const node = allNodes(snapshot.analysis.nodes).find((node) => builtinOf(node.name) === "spoiler" && node.wellFormed && index.byteToUtf16(node.contentSpan.start) >= lineStart && index.byteToUtf16(node.contentSpan.start) <= lineEnd && node.contentSpan.start < node.contentSpan.end);
         return node ? { from: index.byteToUtf16(node.contentSpan.start), to: index.byteToUtf16(node.contentSpan.end) } : null;
       }),
       placeholder("Вставьте BBCode шапки…"), keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap]), EditorView.lineWrapping,
@@ -181,6 +183,7 @@ export function Editor(props: EditorProps) {
   }, [props.document?.id]);
   useEffect(() => { if (props.selectionRequest) controllerRef.current?.select(props.selectionRequest); }, [props.selectionRequest]);
   useEffect(() => { viewRef.current?.dispatch({ effects: refreshMatching.of(null) }); }, [props.snapshot]);
+  useEffect(() => subscribeProfiles(() => viewRef.current?.dispatch({ effects: refreshHighlighting.of(null) })), []);
   // Colours come from CSS variables; only CodeMirror's own light/dark flag needs reconfiguring.
   useEffect(() => { viewRef.current?.dispatch({ effects: themeFlag.reconfigure(EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto" } }, { dark: props.dark ?? true })) }); }, [props.dark]);
   return <div ref={host} className="editor" role="textbox" aria-label="Редактор BBCode" />;

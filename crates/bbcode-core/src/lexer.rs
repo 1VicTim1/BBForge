@@ -1,6 +1,6 @@
-use crate::{Span, Token, TokenKind};
+use crate::{Span, Token, TokenKind, profile::Profile};
 
-pub(crate) fn lex(source: &str) -> Vec<Token> {
+pub(crate) fn lex(source: &str, profile: &Profile) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut cursor = 0;
     while cursor < source.len() {
@@ -15,12 +15,13 @@ pub(crate) fn lex(source: &str) -> Vec<Token> {
             break;
         };
         let raw = &source[start + 1..end - 1];
-        let Some((kind, name, parameter)) = tag_parts(raw) else {
+        let Some((kind, name, parameter)) = tag_parts(raw, profile) else {
             push_text(&mut tokens, start, end);
             cursor = end;
             continue;
         };
-        let is_code = kind == TokenKind::OpeningTag && name == "code";
+        let raw_tag =
+            (kind == TokenKind::OpeningTag && profile.is_raw(&name)).then(|| name.clone());
         tokens.push(Token {
             kind,
             span: Span { start, end },
@@ -28,21 +29,21 @@ pub(crate) fn lex(source: &str) -> Vec<Token> {
             parameter,
         });
         cursor = end;
-        if is_code {
-            if let Some(relative_close) = find_ascii_case_insensitive(&source[cursor..], "[/code]")
-            {
+        if let Some(raw_tag) = raw_tag {
+            let closing = format!("[/{raw_tag}]");
+            if let Some(relative_close) = find_ascii_case_insensitive(&source[cursor..], &closing) {
                 let close_start = cursor + relative_close;
                 push_text(&mut tokens, cursor, close_start);
                 tokens.push(Token {
                     kind: TokenKind::ClosingTag,
                     span: Span {
                         start: close_start,
-                        end: close_start + 7,
+                        end: close_start + closing.len(),
                     },
-                    name: Some("code".into()),
+                    name: Some(raw_tag),
                     parameter: None,
                 });
-                cursor = close_start + 7;
+                cursor = close_start + closing.len();
             } else {
                 push_text(&mut tokens, cursor, source.len());
                 break;
@@ -94,7 +95,7 @@ fn tag_end(source: &str, start: usize) -> Option<usize> {
     None
 }
 
-fn tag_parts(raw: &str) -> Option<(TokenKind, String, Option<String>)> {
+fn tag_parts(raw: &str, profile: &Profile) -> Option<(TokenKind, String, Option<String>)> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
@@ -125,7 +126,7 @@ fn tag_parts(raw: &str) -> Option<(TokenKind, String, Option<String>)> {
     let name = name.to_ascii_lowercase();
     let kind = if closing {
         TokenKind::ClosingTag
-    } else if name == "attachment" {
+    } else if profile.is_leaf(&name) {
         TokenKind::LeafTag
     } else {
         TokenKind::OpeningTag

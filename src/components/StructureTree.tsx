@@ -4,6 +4,7 @@ import type { NodeRef } from "../document/structure";
 import type { DocumentIdentity } from "../document/commands";
 import { createPositionIndex, type PositionIndex } from "../document/positions";
 import { isKnownTag, plural, tagRole } from "../bbcode/tags";
+import { builtinOf, tagSpec } from "../bbcode/profile";
 import { hostAndPath, nodeLabel } from "../bbcode/labels";
 import { EdgeAutoScroller } from "../drag/edgeAutoScroll";
 import { Icon } from "./Icon";
@@ -33,8 +34,11 @@ interface Row {
   errors: number; warnings: number; wellFormed: boolean; children: Row[];
 }
 
-const OUTLINE_TAGS = new Set(["spoiler", "quote", "code", "list", "*", "size", "img", "attachment", "url"]);
-const CONTAINERS = new Set(["spoiler", "quote", "list", "left", "center", "right"]);
+const OUTLINE_BUILTINS = new Set<string>(["spoiler", "quote", "code", "list", "*", "size", "img", "attachment", "url"]);
+const CONTAINER_BUILTINS = new Set<string>(["spoiler", "quote", "list", "left", "center", "right"]);
+/** Structural tags shown in the outline: built-in ones and plain block or media tags of the profile. */
+const OUTLINE_TAGS = { has: (name: string) => { const spec = tagSpec(name); return !!spec && (spec.builtin ? OUTLINE_BUILTINS.has(spec.builtin) : spec.role !== "inline"); } };
+const CONTAINERS = { has: (name: string) => { const spec = tagSpec(name); return !!spec && (spec.builtin ? CONTAINER_BUILTINS.has(spec.builtin) : spec.role === "block"); } };
 /** Builds the visible rows: which tags become nodes, their captions, problem dots and groups of repeats. */
 function buildRows(nodes: Node[], source: string, index: PositionIndex, mode: TreeMode, diagnostics: Diagnostic[], expanded: Map<string, boolean>, filter: { tag: string | null; text: string }, collapseDepth: number): Row[] {
   const shown = (node: Node) => node.kind === "element" && (mode === "all" || OUTLINE_TAGS.has(node.name ?? "") || !isKnownTag(node.name) || !node.wellFormed);
@@ -51,12 +55,12 @@ function buildRows(nodes: Node[], source: string, index: PositionIndex, mode: Tr
     const items = lifted(children), rows: Row[] = [];
     for (let at = 0; at < items.length; at++) {
       const node = items[at], name = node.name ?? "";
-      let run = 1; while (name !== "spoiler" && items[at + run]?.name === name && run < 1000) run++;
+      let run = 1; while (builtinOf(name) !== "spoiler" && items[at + run]?.name === name && run < 1000) run++;
       if (run >= 3 && mode === "outline" && !filtering) {
         const members = items.slice(at, at + run), key = `g${members[0].span.start}`;
-        const hosts = new Set(members.map((member) => name === "url" ? hostAndPath(member.parameter ?? "").split("/")[0] : ""));
+        const hosts = new Set(members.map((member) => builtinOf(name) === "url" ? hostAndPath(member.parameter ?? "").split("/")[0] : ""));
         const span = { start: members[0].span.start, end: members.at(-1)!.span.end };
-        const group: Row = { key, depth, tag: name, label: name === "url" ? `${hosts.size === 1 ? [...hosts][0] : "ссылки"} — ${hosts.size === 1 ? "навигация" : "разные адреса"}` : label(members[0]), span, node: null, parent, count: `×${run}`, expandable: true, expanded: expanded.get(key) ?? false, ...problems(span), wellFormed: true, children: [] };
+        const group: Row = { key, depth, tag: name, label: builtinOf(name) === "url" ? `${hosts.size === 1 ? [...hosts][0] : "ссылки"} — ${hosts.size === 1 ? "навигация" : "разные адреса"}` : label(members[0]), span, node: null, parent, count: `×${run}`, expandable: true, expanded: expanded.get(key) ?? false, ...problems(span), wellFormed: true, children: [] };
         group.children = members.map((member) => toRow(member, depth + 1, group));
         rows.push(group); at += run - 1; continue;
       }
@@ -69,7 +73,7 @@ function buildRows(nodes: Node[], source: string, index: PositionIndex, mode: Tr
     row.children = build(node.children, depth + 1, row);
     row.expandable = row.children.length > 0;
     row.expanded = filtering || (expanded.get(key) ?? depth < collapseDepth);
-    if (CONTAINERS.has(row.tag) && node.name !== "list") row.count = String(lifted(node.children).length || "");
+    if (CONTAINERS.has(row.tag) && builtinOf(node.name) !== "list") row.count = String(lifted(node.children).length || "");
     return row;
   };
   return build(nodes, 0, null);
@@ -155,7 +159,7 @@ export function StructureTree(props: StructureTreeProps) {
                 if (dragged && row.node.span.start >= dragged.start && row.node.span.end <= dragged.end) { setDrop(null); props.onDragHint?.("Нельзя переместить блок внутрь самого себя"); return; }
                 event.preventDefault(); if (viewport.current) scroller.update(viewport.current, event.clientY);
                 const rect = event.currentTarget.getBoundingClientRect();
-                const placement: Placement = event.clientY < rect.top + rect.height / 3 ? "before" : event.clientY > rect.bottom - rect.height / 3 || row.tag !== "spoiler" ? "after" : "inside";
+                const placement: Placement = event.clientY < rect.top + rect.height / 3 ? "before" : event.clientY > rect.bottom - rect.height / 3 || builtinOf(row.tag) !== "spoiler" ? "after" : "inside";
                 if (drop?.key !== row.key || drop.placement !== placement) { setDrop({ key: row.key, placement }); props.onDragHint?.(hint(row, placement)); }
               }}
               onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Element | null)) setDrop((value) => value?.key === row.key ? null : value); }}

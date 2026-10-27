@@ -1,0 +1,28 @@
+{
+  "id": "4pda",
+  "name": "4PDA",
+  "description": "Разметка форума 4PDA",
+  "tags": [
+    { "name": "b", "role": "inline", "label": "Жирный", "blankCheck": true },
+    { "name": "i", "role": "inline", "label": "Курсив", "blankCheck": true },
+    { "name": "u", "role": "inline", "label": "Подчёркнутый", "blankCheck": true },
+    { "name": "s", "role": "inline", "label": "Зачёркнутый", "blankCheck": true },
+    { "name": "sub", "role": "inline", "label": "Нижний индекс", "blankCheck": true },
+    { "name": "sup", "role": "inline", "label": "Верхний индекс", "blankCheck": true },
+    { "name": "size", "role": "inline", "label": "Размер", "value": "required", "valueFormat": "size", "blankCheck": true },
+    { "name": "color", "role": "inline", "label": "Цвет текста", "value": "required", "valueFormat": "color", "blankCheck": true },
+    { "name": "background", "role": "inline", "label": "Цвет фона", "value": "required", "valueFormat": "color", "blankCheck": true },
+    { "name": "font", "role": "inline", "label": "Шрифт", "value": "required", "valueFormat": "font", "blankCheck": true },
+    { "name": "url", "role": "inline", "label": "Ссылка", "value": "optional", "valueFormat": "url" },
+    { "name": "left", "role": "block", "label": "По левому краю", "blankCheck": true },
+    { "name": "center", "role": "block", "label": "По центру", "blankCheck": true },
+    { "name": "right", "role": "block", "label": "По правому краю", "blankCheck": true },
+    { "name": "img", "role": "media", "label": "Изображение" },
+    { "name": "attachment", "role": "media", "label": "Вложение", "value": "optional", "leaf": true },
+    { "name": "spoiler", "role": "block", "label": "Спойлер", "value": "optional" },
+    { "name": "quote", "role": "block", "label": "Цитата", "value": "optional" },
+    { "name": "code", "role": "block", "label": "Код", "raw": true },
+    { "name": "list", "role": "block", "label": "Список", "value": "optional" },
+    { "name": "*", "role": "item", "label": "Пункт списка" }
+  ]
+}

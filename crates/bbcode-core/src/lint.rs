@@ -1,35 +1,17 @@
 use std::collections::HashSet;
 
-use crate::{Diagnostic, DiagnosticCode, Node, NodeKind, Severity};
+use crate::{
+    Diagnostic, DiagnosticCode, Node, NodeKind, Severity, ValueFormat, ValueRule, profile::Profile,
+};
 
-const KNOWN_TAGS: &[&str] = &[
-    "b",
-    "i",
-    "u",
-    "s",
-    "size",
-    "color",
-    "font",
-    "background",
-    "url",
-    "img",
-    "spoiler",
-    "list",
-    "*",
-    "quote",
-    "code",
-    "attachment",
-    "left",
-    "center",
-    "right",
-    "sub",
-    "sup",
-];
-const VALUE_TAGS: &[&str] = &["size", "color", "font", "background"];
-
-pub(crate) fn lint(source: &str, nodes: &[Node], diagnostics: &mut Vec<Diagnostic>) {
+pub(crate) fn lint(
+    source: &str,
+    nodes: &[Node],
+    profile: &Profile,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     let mut links = HashSet::new();
-    visit(source, nodes, diagnostics, &mut links);
+    visit(source, nodes, profile, diagnostics, &mut links);
     escaped_tags(source, diagnostics);
 }
 
@@ -72,6 +54,7 @@ fn escaped_tags(source: &str, diagnostics: &mut Vec<Diagnostic>) {
 fn visit(
     source: &str,
     nodes: &[Node],
+    profile: &Profile,
     diagnostics: &mut Vec<Diagnostic>,
     links: &mut HashSet<String>,
 ) {
@@ -80,7 +63,8 @@ fn visit(
             continue;
         }
         let name = node.name.as_deref().unwrap_or_default();
-        if !KNOWN_TAGS.contains(&name) {
+        let spec = profile.tag(name);
+        if spec.is_none() {
             warning(
                 diagnostics,
                 DiagnosticCode::UnknownTag,
@@ -88,7 +72,10 @@ fn visit(
                 node,
             );
         }
-        if VALUE_TAGS.contains(&name) && node.parameter.as_deref().is_none_or(str::is_empty) {
+        if spec
+            .is_some_and(|spec| spec.value == ValueRule::Required && spec.builtin() != Some("url"))
+            && node.parameter.as_deref().is_none_or(str::is_empty)
+        {
             warning(
                 diagnostics,
                 DiagnosticCode::MissingParameter,
@@ -96,7 +83,7 @@ fn visit(
                 node,
             );
         }
-        if (name == "color" || name == "background")
+        if spec.is_some_and(|spec| spec.value_format == Some(ValueFormat::Color))
             && let Some(value) = node
                 .parameter
                 .as_deref()
@@ -113,10 +100,10 @@ fn visit(
                 column: 0,
             });
         }
-        if BLANK_CHECKED_TAGS.contains(&name)
+        if profile.blank_checked(name)
             && node.well_formed
             && node.closing_span.is_some()
-            && is_blank(source, node)
+            && is_blank(source, node, profile)
         {
             warning(
                 diagnostics,
@@ -126,7 +113,7 @@ fn visit(
             );
             continue;
         }
-        if name == "url" {
+        if profile.builtin(name) == Some("url") {
             let address = node
                 .parameter
                 .clone()
@@ -148,33 +135,17 @@ fn visit(
                 );
             }
         }
-        visit(source, &node.children, diagnostics, links);
+        visit(source, &node.children, profile, diagnostics, links);
     }
 }
 
-const BLANK_CHECKED_TAGS: &[&str] = &[
-    "b",
-    "i",
-    "u",
-    "s",
-    "color",
-    "background",
-    "size",
-    "font",
-    "sub",
-    "sup",
-    "left",
-    "center",
-    "right",
-];
-
 /// A formatting tag whose content is only whitespace (possibly inside other such tags).
-fn is_blank(source: &str, node: &Node) -> bool {
+fn is_blank(source: &str, node: &Node, profile: &Profile) -> bool {
     node.children.iter().all(|child| match child.kind {
         NodeKind::Text => source[child.span.start..child.span.end].trim().is_empty(),
         _ => {
-            BLANK_CHECKED_TAGS.contains(&child.name.as_deref().unwrap_or_default())
-                && is_blank(source, child)
+            profile.blank_checked(child.name.as_deref().unwrap_or_default())
+                && is_blank(source, child, profile)
         }
     })
 }

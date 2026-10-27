@@ -15,11 +15,18 @@ import { InsertionDraft } from "./InsertionDraft";
 import type { ScrollPosition } from "../workspace/session";
 import { Icon } from "../components/Icon";
 import { stripTags } from "../bbcode/labels";
+import { builtinOf, isKnownTag, namesFor, profileVersion, tagFor, tagSpec, type BuiltinTag } from "../bbcode/profile";
+import { PlainTag } from "../components/Preview";
 
 // Selecting "the whole line" takes its formatting wrappers along, but never block tags like [/spoiler].
-const INLINE = "b|i|u|s|color|size|font|background|url|sub|sup";
-const INLINE_CLOSE = new RegExp(`^(?:\\[\\/(?:${INLINE})\\])+`, "i");
-const INLINE_OPEN = new RegExp(`(?:\\[(?:${INLINE})(?:=[^\\]\\n]*)?\\])+$`, "i");
+let inlineCache: { version: number; close: RegExp; open: RegExp } | null = null;
+function inlinePatterns() {
+  if (inlineCache?.version === profileVersion()) return inlineCache;
+  const names = namesFor("b", "i", "u", "s", "color", "size", "font", "background", "url", "sub", "sup").map((name) => name.replace(/[*-]/g, "\\$&")).join("|") || "(?!)";
+  inlineCache = { version: profileVersion(), close: new RegExp(`^(?:\\[\\/(?:${names})\\])+`, "i"), open: new RegExp(`(?:\\[(?:${names})(?:=[^\\]\\n]*)?\\])+$`, "i") };
+  return inlineCache;
+}
+const is = (node: Node | null | undefined, ...tags: BuiltinTag[]) => { const tag = builtinOf(node?.name); return tag !== null && tags.includes(tag); };
 export interface BuilderProps {
   document: DocumentState; snapshot: AnalysisSnapshot | null;
   execute(command: EditCommand): void; getDocument(): DocumentState;
@@ -84,8 +91,8 @@ export function Builder(props: BuilderProps) {
         }
         if (!best) return null;
         const from = Number(best.leaf.dataset.sourceFrom), to = Number(best.leaf.dataset.sourceTo), text = latest.current.getDocument().text;
-        if (x >= best.rect.right) return to + (INLINE_CLOSE.exec(text.slice(to))?.[0].length ?? 0);
-        if (x <= best.rect.left) return from - (INLINE_OPEN.exec(text.slice(Math.max(0, from - 2000), from))?.[0].length ?? 0);
+        if (x >= best.rect.right) return to + (inlinePatterns().close.exec(text.slice(to))?.[0].length ?? 0);
+        if (x <= best.rect.left) return from - (inlinePatterns().open.exec(text.slice(Math.max(0, from - 2000), from))?.[0].length ?? 0);
         return from + (offsetInLeaf(best.leaf, x, best.rect.top + best.rect.height / 2) ?? 0);
       };
       const caret = document.caretPositionFromPoint?.(x, y);
@@ -105,8 +112,8 @@ export function Builder(props: BuilderProps) {
       // Past the end (or before the start) of a line, take the adjacent closing (opening) tags too, so
       // selecting "the whole line" includes its formatting wrappers.
       const rects = Array.from(element.getClientRects()), text = latest.current.getDocument().text;
-      if (offset === Number(element.dataset.sourceTo) && rects.length && x > rects[rects.length - 1].right) return offset + (INLINE_CLOSE.exec(text.slice(offset))?.[0].length ?? 0);
-      if (offset === Number(element.dataset.sourceFrom) && rects.length && x < rects[0].left) return offset - (INLINE_OPEN.exec(text.slice(Math.max(0, offset - 2000), offset))?.[0].length ?? 0);
+      if (offset === Number(element.dataset.sourceTo) && rects.length && x > rects[rects.length - 1].right) return offset + (inlinePatterns().close.exec(text.slice(offset))?.[0].length ?? 0);
+      if (offset === Number(element.dataset.sourceFrom) && rects.length && x < rects[0].left) return offset - (inlinePatterns().open.exec(text.slice(Math.max(0, offset - 2000), offset))?.[0].length ?? 0);
       return offset;
     };
     const highlightSelection = (from: number, to: number) => {
@@ -284,7 +291,7 @@ export function Builder(props: BuilderProps) {
       else {
         // A 28px chip: tag, title and how many blocks move with it.
         const kind = payload.element.dataset.dragKind === "spoiler" ? "spoiler" : payload.element.dataset.dragKind === "item" ? "*" : payload.element.dataset.dragKind ?? "";
-        const tag = document.createElement("span"); tag.className = `tag-name role-${kind === "spoiler" || kind === "list" ? "block" : "item"}`; tag.textContent = kind;
+        const tag = document.createElement("span"); tag.className = `tag-name role-${kind === "spoiler" || kind === "list" ? "block" : "item"}`; tag.textContent = kind === "spoiler" || kind === "*" || kind === "list" ? tagFor(kind) : kind;
         const title = document.createElement("span"); title.textContent = payload.element.querySelector(":scope > summary .spoiler-title")?.textContent?.trim() || payload.element.textContent?.trim().slice(0, 60) || "";
         preview.append(tag, title);
         const count = payload.element.querySelector(":scope > summary .spoiler-count")?.textContent;
@@ -409,7 +416,7 @@ export function Builder(props: BuilderProps) {
   // A new line typed at the end of a link starts after the link (as in word processors), not inside it.
   const pendingCaret = useRef<number | null>(null);
   const leaveLink = (to: number) => {
-    const document = props.getDocument(), closing = /^(?:\[\/(?!url\])[^\]\n]+\])*\[\/url\]/i.exec(document.text.slice(to));
+    const url = tagFor("url").replace(/[*-]/g, "\\$&"), document = props.getDocument(), closing = new RegExp(`^(?:\\[\\/(?!${url}\\])[^\\]\\n]+\\])*\\[\\/${url}\\]`, "i").exec(document.text.slice(to));
     if (!closing) return false;
     const at = to + closing[0].length;
     try { props.execute(textEditCommand(document, { from: at, to: at }, "\n", "")); pendingCaret.current = at + 1; } catch (error) { props.onError(String(error)); }
@@ -439,36 +446,37 @@ export function Builder(props: BuilderProps) {
       return <span key={path} className="visual-text-node" {...dragTarget(reference, "text", from, to)}><TextLeaf autoFocus={path === insertionPath} literal={literal} onError={props.onError} editable={snapshot?.revision === props.document.revision} text={text} from={from} to={to} onEdit={(range, value, expected) => { try { props.execute(textEditCommand(props.getDocument(), range, value, expected)); } catch (error) { props.onError(String(error)); throw error; } }} onSelect={select} onComposition={props.onComposition} onPasteCode={(range, text) => setPaste({ range, text, ...identity(props.getDocument()) })} onEnterAtEnd={literal ? undefined : leaveLink} /></span>;
     }
     const reference = nodeRef(snapshot!, node);
-    const structural = ["spoiler", "list", "*", "quote", "code", "img", "attachment"].includes(node.name ?? "");
-    const children = () => node.children.length ? node.children.map((child, at) => render(child, `${path}.${at}`, literal || node.name === "code", structural ? undefined : reference)) : render({ kind: "text", name: null, parameter: null, span: node.contentSpan, contentSpan: node.contentSpan, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, `${path}.empty`, literal || node.name === "code", structural ? undefined : reference);
+    const spec = tagSpec(node.name), raw = !!spec?.raw;
+    const structural = is(node, "spoiler", "list", "*", "quote", "code", "img", "attachment") || (!!spec && !spec.builtin && spec.role !== "inline");
+    const children = () => node.children.length ? node.children.map((child, at) => render(child, `${path}.${at}`, literal || raw, structural ? undefined : reference)) : render({ kind: "text", name: null, parameter: null, span: node.contentSpan, contentSpan: node.contentSpan, openingSpan: null, closingSpan: null, wellFormed: true, children: [] }, `${path}.empty`, literal || raw, structural ? undefined : reference);
     const selectNode = (event: React.MouseEvent) => { event.stopPropagation(); const range = { from, to }; setSelectedRange(range); props.onRange({ ...identity(props.document), ...range }); props.onSelect(reference); };
-    const known = ["b", "i", "u", "s", "color", "background", "url", "quote", "code", "list", "*", "spoiler", "size", "font", "left", "center", "right", "sub", "sup", "img", "attachment"];
     const isSelected = props.selectedSpan?.start === node.span.start && props.selectedSpan?.end === node.span.end;
     // Unknown or broken markup is inert: shown as its source with ways out, never as half-rendered content.
-    if (!node.wellFormed || !known.includes(node.name ?? "")) return <div key={path} className={`opaque-block ${isSelected ? "is-selected" : ""}`} data-at-from={from} data-at-to={to} onClick={selectNode}><Icon name="warning" /><span className="opaque-block-text"><span>{node.wellFormed ? "Неизвестный тег" : "Повреждённая разметка"}</span><code>{source.slice(from, Math.min(to, from + 600))}{to - from > 600 ? "…" : ""}</code></span><button onClick={(event) => { event.stopPropagation(); props.onNavigate({ from, to }); }}>В коде</button>{props.onFix && <button onClick={(event) => { event.stopPropagation(); props.onFix!({ from, to }); }}>Исправить…</button>}</div>;
-    if (node.name === "spoiler") {
+    if (!node.wellFormed || !isKnownTag(node.name)) return <div key={path} className={`opaque-block ${isSelected ? "is-selected" : ""}`} data-at-from={from} data-at-to={to} onClick={selectNode}><Icon name="warning" /><span className="opaque-block-text"><span>{node.wellFormed ? "Неизвестный тег" : "Повреждённая разметка"}</span><code>{source.slice(from, Math.min(to, from + 600))}{to - from > 600 ? "…" : ""}</code></span><button onClick={(event) => { event.stopPropagation(); props.onNavigate({ from, to }); }}>В коде</button>{props.onFix && <button onClick={(event) => { event.stopPropagation(); props.onFix!({ from, to }); }}>Исправить…</button>}</div>;
+    if (is(node, "spoiler")) {
       const insertPath = `${path}.insert`;
       const insertAt = index.byteToUtf16(node.contentSpan.end);
       const blocks = node.children.filter((child) => child.kind === "element" || source.slice(index.byteToUtf16(child.span.start), index.byteToUtf16(child.span.end)).trim()).length;
-      return <SpoilerBlock key={path} blocks={blocks} selected={isSelected} title={node.parameter ?? "Спойлер"} onRename={node.parameter !== null ? (title) => run(() => renameSpoiler(props.getDocument(), snapshotRef.current!, reference, title)) : undefined} depth={path.split(".").length - 1} dragTarget={dragTarget(reference, "spoiler", from, to)} contentEnd={insertAt} onSelect={selectNode} onInsert={() => { props.onRange({ ...identity(props.document), from: insertAt, to: insertAt }); props.onSelect(reference); setInsertionPath(insertPath); }}>{() => <>{children()}{insertionPath === insertPath && <InsertionDraft onCommit={(value) => { setInsertionPath(null); run(() => textEditCommand(props.getDocument(), { from: insertAt, to: insertAt }, value, "")); }} onCancel={() => setInsertionPath(null)} />}</>}</SpoilerBlock>;
+      return <SpoilerBlock key={path} tag={node.name ?? ""} blocks={blocks} selected={isSelected} title={node.parameter ?? "Спойлер"} onRename={node.parameter !== null ? (title) => run(() => renameSpoiler(props.getDocument(), snapshotRef.current!, reference, title)) : undefined} depth={path.split(".").length - 1} dragTarget={dragTarget(reference, "spoiler", from, to)} contentEnd={insertAt} onSelect={selectNode} onInsert={() => { props.onRange({ ...identity(props.document), from: insertAt, to: insertAt }); props.onSelect(reference); setInsertionPath(insertPath); }}>{() => <>{children()}{insertionPath === insertPath && <InsertionDraft onCommit={(value) => { setInsertionPath(null); run(() => textEditCommand(props.getDocument(), { from: insertAt, to: insertAt }, value, "")); }} onCancel={() => setInsertionPath(null)} />}</>}</SpoilerBlock>;
     }
-    if (node.name === "img" || node.name === "attachment") return <button key={path} className="media-placeholder" data-at-from={from} data-at-to={to} onClick={selectNode}><Icon name={node.name === "img" ? "image" : "file"} />{node.name === "img" ? (stripTags(source.slice(index.byteToUtf16(node.contentSpan.start), index.byteToUtf16(node.contentSpan.end))).split(/[\\/]/).at(-1)?.split("?")[0] || "Изображение") : `Вложение ${node.parameter ?? ""}`}</button>;
-    if (node.name === "code") return <pre className="builder-code" key={path} data-at-from={from} data-at-to={to} onClick={selectNode}>{children()}</pre>;
-    if (node.name === "quote") return <blockquote key={path} data-at-from={from} data-at-to={to} onClick={selectNode}>{children()}</blockquote>;
-    if (node.name === "list") return <ul key={path} {...dragTarget(reference, "list", from, to)} onClick={selectNode}>{children()}</ul>;
-    if (node.name === "*") return <li key={path} {...dragTarget(reference, "item", from, to)} onClick={selectNode}>{children()}</li>;
-    const style: React.CSSProperties = {};
-    if (node.name === "b") style.fontWeight = 700;
-    if (node.name === "i") style.fontStyle = "italic";
-    if (node.name === "sub" || node.name === "sup") { style.verticalAlign = node.name; style.fontSize = "smaller"; }
-    if (node.name === "u") style.textDecoration = "underline";
-    if (node.name === "s") style.textDecoration = "line-through";
-    if (node.name === "color" && /^(#[\da-f]{3,8}|[a-z]{1,20})$/i.test(node.parameter ?? "")) style.color = node.parameter!;
-    if (node.name === "background" && /^(#[\da-f]{3,8}|[a-z]{1,20})$/i.test(node.parameter ?? "")) style.backgroundColor = node.parameter!;
-    if (node.name === "size" && /^\d+$/.test(node.parameter ?? "")) style.fontSize = `${Math.min(48, Math.max(8, Number(node.parameter) * 4))}px`;
-    if (node.name === "font" && /^[\w -]{1,40}$/.test(node.parameter ?? "")) style.fontFamily = node.parameter!;
-    if (["left", "center", "right"].includes(node.name ?? "")) return <div key={path} data-at-from={from} data-at-to={to} style={{ textAlign: node.name as "left" | "center" | "right" }} onClick={selectNode}>{children()}</div>;
-    if (node.name === "url") return <span key={path} data-at-from={from} data-at-to={to} className={safeExternalUrl(node.parameter ?? "") ? "builder-link" : ""} title={node.parameter ?? ""} onClick={selectNode}>{children()}</span>;
+    if (is(node, "img", "attachment")) return <button key={path} className="media-placeholder" data-at-from={from} data-at-to={to} onClick={selectNode}><Icon name={is(node, "img") ? "image" : "file"} />{is(node, "img") ? (stripTags(source.slice(index.byteToUtf16(node.contentSpan.start), index.byteToUtf16(node.contentSpan.end))).split(/[\\/]/).at(-1)?.split("?")[0] || "Изображение") : `Вложение ${node.parameter ?? ""}`}</button>;
+    if (is(node, "code") || (raw && !spec?.render)) return <pre className="builder-code" key={path} data-at-from={from} data-at-to={to} onClick={selectNode}>{children()}</pre>;
+    if (is(node, "quote")) return <blockquote key={path} data-at-from={from} data-at-to={to} onClick={selectNode}>{children()}</blockquote>;
+    if (is(node, "list")) return <ul key={path} {...dragTarget(reference, "list", from, to)} onClick={selectNode}>{children()}</ul>;
+    if (is(node, "*")) return <li key={path} {...dragTarget(reference, "item", from, to)} onClick={selectNode}>{children()}</li>;
+    if (spec && !spec.builtin && spec.render) return <PlainTag key={path} spec={spec} value={node.parameter} data-at-from={from} data-at-to={to} onClick={selectNode}>{children()}</PlainTag>;
+    const style: React.CSSProperties = {}, tag = builtinOf(node.name);
+    if (tag === "b") style.fontWeight = 700;
+    if (tag === "i") style.fontStyle = "italic";
+    if (tag === "sub" || tag === "sup") { style.verticalAlign = tag; style.fontSize = "smaller"; }
+    if (tag === "u") style.textDecoration = "underline";
+    if (tag === "s") style.textDecoration = "line-through";
+    if (tag === "color" && /^(#[\da-f]{3,8}|[a-z]{1,20})$/i.test(node.parameter ?? "")) style.color = node.parameter!;
+    if (tag === "background" && /^(#[\da-f]{3,8}|[a-z]{1,20})$/i.test(node.parameter ?? "")) style.backgroundColor = node.parameter!;
+    if (tag === "size" && /^\d+$/.test(node.parameter ?? "")) style.fontSize = `${Math.min(48, Math.max(8, Number(node.parameter) * 4))}px`;
+    if (tag === "font" && /^[\w -]{1,40}$/.test(node.parameter ?? "")) style.fontFamily = node.parameter!;
+    if (tag === "left" || tag === "center" || tag === "right") return <div key={path} data-at-from={from} data-at-to={to} style={{ textAlign: tag }} onClick={selectNode}>{children()}</div>;
+    if (tag === "url") return <span key={path} data-at-from={from} data-at-to={to} className={safeExternalUrl(node.parameter ?? "") ? "builder-link" : ""} title={node.parameter ?? ""} onClick={selectNode}>{children()}</span>;
     return <span key={path} data-at-from={from} data-at-to={to} style={style} onClick={selectNode}>{children()}</span>;
   };
   return <div className={`builder ${snapshot?.revision === props.document.revision ? "" : "syncing"}`} aria-busy={snapshot?.revision !== props.document.revision} tabIndex={-1} ref={root} onMouseUp={select} onCopy={(event) => { if (selectedRange && selectedRange.from !== selectedRange.to) { event.preventDefault(); event.clipboardData.setData("text/plain", props.document.text.slice(selectedRange.from, selectedRange.to)); } }} onScroll={(event) => props.onScrollPosition?.({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft })}>

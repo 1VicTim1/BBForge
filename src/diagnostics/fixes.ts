@@ -4,21 +4,24 @@ import { identity, validateCommand, type EditCommand } from "../document/command
 import { sourceRange } from "../document/structure";
 import { applyChanges, type DocumentState } from "../document/state";
 import { countStructuralErrors, describeImpact } from "./consequences";
+import { behavesAs, builtinOf } from "../bbcode/profile";
+const isItem = (name: string | null | undefined) => builtinOf(name) === "*";
+const isList = (name: string | null | undefined) => builtinOf(name) === "list";
 export interface FixSuggestion { id: string; title: string; command: EditCommand; needsParameter?: "url" | "color" | "title" | "size" | "font"; impact?: string }
 function closingOrderFixes(document: DocumentState, snapshot: AnalysisSnapshot): FixSuggestion[] {
   const fixes: FixSuggestion[] = [], stack: AnalysisSnapshot["analysis"]["tokens"] = [], tokens = snapshot.analysis.tokens;
   for (let at = 0; at < tokens.length; at++) {
     const token = tokens[at];
     if (token.kind === "openingTag") {
-      if (token.name === "*" && stack.at(-1)?.name === "*") stack.pop();
+      if (isItem(token.name) && isItem(stack.at(-1)?.name)) stack.pop();
       stack.push(token); continue;
     }
     if (token.kind !== "closingTag") continue;
     const run = [token];
     while (tokens[at + 1]?.kind === "closingTag" && tokens[at + 1].span.start === run.at(-1)!.span.end) run.push(tokens[++at]);
     const frames = stack.slice(-run.length), expected = frames.map((item) => item.name ?? "").reverse(), actual = run.map((item) => item.name ?? "");
-    if (expected.length === run.length && !expected.includes("*") && new Set(expected).size === expected.length && [...actual].sort().join("|") === [...expected].sort().join("|") && actual.some((name, index) => name !== expected[index])) {
-      const styledLink = actual.includes("url") && actual.some((name) => name === "color" || name === "background");
+    if (expected.length === run.length && !expected.some(isItem) && new Set(expected).size === expected.length && [...actual].sort().join("|") === [...expected].sort().join("|") && actual.some((name, index) => name !== expected[index])) {
+      const styledLink = actual.some((name) => behavesAs(name, "url")) && actual.some((name) => behavesAs(name, "color", "background"));
       const adjacentOpenings = frames.every((frame, index) => index === 0 || frames[index - 1].span.end === frame.span.start);
       if (styledLink && adjacentOpenings) {
         const rawOpenings = new Map(frames.map((frame) => [frame.name, document.text.slice(sourceRange(document, frame.span).from, sourceRange(document, frame.span).to)]));
@@ -31,7 +34,7 @@ function closingOrderFixes(document: DocumentState, snapshot: AnalysisSnapshot):
       stack.splice(stack.length - run.length); continue;
     }
     for (const closing of run) {
-      if (closing.name === "list" && stack.at(-1)?.name === "*") stack.pop();
+      if (isList(closing.name) && isItem(stack.at(-1)?.name)) stack.pop();
       const index = stack.map((item) => item.name ?? "").lastIndexOf(closing.name ?? ""); if (index >= 0) stack.splice(index);
     }
   }
@@ -42,21 +45,21 @@ function crossedFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagn
   const raw = (token: (typeof tokens)[number]) => { const range = sourceRange(document, token.span); return document.text.slice(range.from, range.to); };
   for (let at = 0; at < tokens.length; at++) {
     const token = tokens[at];
-    if (token.kind === "openingTag") { if (token.name === "*" && stack.at(-1)?.name === "*") stack.pop(); stack.push(token); continue; }
+    if (token.kind === "openingTag") { if (isItem(token.name) && isItem(stack.at(-1)?.name)) stack.pop(); stack.push(token); continue; }
     if (token.kind !== "closingTag") continue;
-    if (token.name === "list" && stack.at(-1)?.name === "*") stack.pop();
+    if (isList(token.name) && isItem(stack.at(-1)?.name)) stack.pop();
     const index = stack.map((item) => item.name ?? "").lastIndexOf(token.name ?? "");
     if (index < 0) continue;
     if (token.span.start !== diagnostic.span.start) { stack.splice(index); continue; }
     const inner = stack.slice(index + 1), range = sourceRange(document, token.span);
     const removal: FixSuggestion = { id: `drop-${token.span.start}`, title: `Удалить пересекающий тег [/${token.name}]`, command: { ...identity(document), label: "Удалить пересекающий тег", changes: [{ ...range, insert: "" }] } };
-    if (!inner.length || inner.some((item) => item.name === "*")) return [removal];
+    if (!inner.length || inner.some((item) => isItem(item.name))) return [removal];
     // Reopen an inner tag only if its own closing tag comes before the enclosing tags close; otherwise
     // the reopened tag would cross them and produce a new error (e.g. [b][i][color]x[/i][/b] … [/color]).
     const outer = new Set(stack.slice(0, index).map((item) => item.name ?? "")), pending = new Set(inner.map((item) => item.name ?? "")), reopenNames = new Set<string>(), local: string[] = [];
     for (const next of tokens.slice(at + 1)) {
       if (!pending.size) break;
-      if (next.kind === "openingTag" && next.name !== "*") { local.push(next.name ?? ""); continue; }
+      if (next.kind === "openingTag" && !isItem(next.name)) { local.push(next.name ?? ""); continue; }
       if (next.kind !== "closingTag") continue;
       const name = next.name ?? "", own = local.lastIndexOf(name);
       if (own >= 0) { local.splice(own); continue; }
@@ -119,7 +122,7 @@ function rawFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagnosti
   if (diagnostic.code === "unexpectedClosingTag") return [{ id: `remove-${diagnostic.span.start}`, title: "Удалить лишний закрывающий тег", command: { ...base, changes: [{ ...sourceRange(document, diagnostic.span), insert: "" }] } }];
   if (diagnostic.code === "unclosedTag") {
     // The forum may have escaped exactly the closing tag we are missing: &#91;/b&#93; after an unclosed [b].
-    const open = allNodes(snapshot.analysis.nodes).find((node) => node.openingSpan?.start === diagnostic.span.start && !node.closingSpan && node.name && node.name !== "*");
+    const open = allNodes(snapshot.analysis.nodes).find((node) => node.openingSpan?.start === diagnostic.span.start && !node.closingSpan && node.name && !isItem(node.name));
     const escaped = open ? (() => {
       const after = sourceRange(document, open.openingSpan!).to, needle = `&#91;/${open.name!.toLowerCase()}&#93;`, at = document.text.toLowerCase().indexOf(needle, after);
       return at < 0 ? null : { from: at, to: at + needle.length };
@@ -130,7 +133,7 @@ function rawFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagnosti
   return otherFixes(document, snapshot, diagnostic, base);
 }
 function unclosedFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagnostic: Diagnostic, base: { label: string } & ReturnType<typeof identity>): FixSuggestion[] {
-  const nodes = allNodes(snapshot.analysis.nodes), broken = nodes.filter((node) => node.kind === "element" && !node.wellFormed && !node.closingSpan && node.name !== "*");
+  const nodes = allNodes(snapshot.analysis.nodes), broken = nodes.filter((node) => node.kind === "element" && !node.wellFormed && !node.closingSpan && !isItem(node.name));
   if (broken.length !== 1 || snapshot.analysis.diagnostics.some((item) => item.code === "crossedClosingTag")) return [];
   const node = broken[0];
   if (node.openingSpan?.start !== diagnostic.span.start || !/^[a-z][a-z\d-]*$/i.test(node.name ?? "")) return [];
@@ -158,8 +161,9 @@ function otherFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagnos
   }
   if (diagnostic.code === "missingParameter") {
     const node = allNodes(snapshot.analysis.nodes).find((item) => item.openingSpan?.start === diagnostic.span.start && !item.parameter);
-    if (node?.openingSpan && ["url", "color", "background", "spoiler", "size", "font"].includes(node.name ?? "")) {
-      return [{ id: `parameter-${node.span.start}`, title: "Указать параметр тега", needsParameter: node.name === "url" ? "url" : node.name === "spoiler" ? "title" : node.name === "size" ? "size" : node.name === "font" ? "font" : "color", command: { ...base, changes: [{ ...sourceRange(document, node.openingSpan), insert: `[${node.name}=$VALUE]` }] } }];
+    const builtin = builtinOf(node?.name);
+    if (node?.openingSpan && builtin && ["url", "color", "background", "spoiler", "size", "font"].includes(builtin)) {
+      return [{ id: `parameter-${node.span.start}`, title: "Указать параметр тега", needsParameter: builtin === "url" ? "url" : builtin === "spoiler" ? "title" : builtin === "size" ? "size" : builtin === "font" ? "font" : "color", command: { ...base, changes: [{ ...sourceRange(document, node.openingSpan), insert: `[${node.name}=$VALUE]` }] } }];
     }
   }
   return [];

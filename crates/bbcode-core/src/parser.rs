@@ -1,12 +1,19 @@
 use crate::{
     Analysis, Diagnostic, DiagnosticCode, Node, NodeKind, Severity, Span, Token, TokenKind,
-    lexer::lex, lint::lint,
+    lexer::lex, lint::lint, profile::Profile,
 };
 
 const MAX_DEPTH: usize = 256;
 
+/// Parses with the built-in 4PDA profile.
 pub fn parse(source: &str) -> Analysis {
-    let tokens = lex(source);
+    parse_with(source, Profile::default_profile())
+}
+
+pub fn parse_with(source: &str, profile: &Profile) -> Analysis {
+    let tokens = lex(source, profile);
+    let is_item =
+        |node: &Node| node.name.as_deref().and_then(|name| profile.builtin(name)) == Some("*");
     let mut roots = Vec::new();
     let mut stack: Vec<Node> = Vec::new();
     let mut diagnostics = Vec::new();
@@ -15,8 +22,10 @@ pub fn parse(source: &str) -> Analysis {
         match token.kind {
             TokenKind::Text => append(&mut roots, &mut stack, text_node(token.span)),
             TokenKind::LeafTag => append(&mut roots, &mut stack, element_node(token)),
-            TokenKind::OpeningTag if token.name.as_deref() == Some("*") => {
-                if stack.last().and_then(|node| node.name.as_deref()) == Some("*") {
+            TokenKind::OpeningTag
+                if token.name.as_deref().and_then(|name| profile.builtin(name)) == Some("*") =>
+            {
+                if stack.last().is_some_and(is_item) {
                     finish_top(&mut roots, &mut stack, token.span.start, true);
                 }
                 stack.push(element_node(token));
@@ -37,6 +46,7 @@ pub fn parse(source: &str) -> Analysis {
                 }
             }
             TokenKind::ClosingTag => close_tag(
+                profile,
                 token,
                 &mut roots,
                 &mut stack,
@@ -59,7 +69,7 @@ pub fn parse(source: &str) -> Analysis {
         node.well_formed = false;
         append(&mut roots, &mut stack, node);
     }
-    lint(source, &roots, &mut diagnostics);
+    lint(source, &roots, profile, &mut diagnostics);
     for diagnostic in &mut diagnostics {
         (diagnostic.line, diagnostic.column) = line_column(source, diagnostic.span.start);
     }
@@ -71,6 +81,7 @@ pub fn parse(source: &str) -> Analysis {
 }
 
 fn close_tag(
+    profile: &Profile,
     token: &Token,
     roots: &mut Vec<Node>,
     stack: &mut Vec<Node>,
@@ -78,7 +89,12 @@ fn close_tag(
     recovered: &mut Vec<String>,
 ) {
     let name = token.name.as_deref().unwrap_or_default();
-    if name == "list" && stack.last().and_then(|node| node.name.as_deref()) == Some("*") {
+    let is_item = stack
+        .last()
+        .and_then(|node| node.name.as_deref())
+        .and_then(|name| profile.builtin(name))
+        == Some("*");
+    if profile.builtin(name) == Some("list") && is_item {
         finish_top(roots, stack, token.span.start, true);
     }
     let Some(index) = stack

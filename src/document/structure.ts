@@ -2,6 +2,9 @@ import type { AnalysisSnapshot, Node, Span } from "../analysis/types";
 import { createPositionIndex } from "./positions";
 import { identity, validateCommand, type DocumentIdentity, type EditCommand, type SourceRange } from "./commands";
 import type { DocumentState } from "./state";
+import { builtinOf, tagFor, tagSpec, type BuiltinTag } from "../bbcode/profile";
+const is = (node: Node | null | undefined, tag: BuiltinTag) => builtinOf(node?.name) === tag;
+const isRaw = (node: Node) => !!tagSpec(node.name)?.raw;
 export interface NodeRef extends DocumentIdentity { span: Span }
 export interface DropTarget { node: NodeRef; placement: "before" | "inside" | "after" }
 export function nodeRef(snapshot: AnalysisSnapshot, node: Node): NodeRef { return { documentId: snapshot.documentId, revision: snapshot.revision, span: node.span }; }
@@ -25,15 +28,15 @@ export function sourceRange(document: DocumentState, span: Span): SourceRange {
 }
 export function createSpoiler(document: DocumentState, range: SourceRange, title: string, snapshot: AnalysisSnapshot): EditCommand {
   validateWrap(document, snapshot, range);
-  const opening = `[spoiler=${title}]`;
-  return { ...identity(document), label: "Создать спойлер", changes: range.from === range.to ? [{ from: range.from, to: range.to, insert: `${opening}[/spoiler]` }] : [{ from: range.from, to: range.from, insert: opening }, { from: range.to, to: range.to, insert: "[/spoiler]" }], selection: { from: range.from + opening.length, to: range.to + opening.length } };
+  const name = tagFor("spoiler"), opening = `[${name}=${title}]`, closing = `[/${name}]`;
+  return { ...identity(document), label: "Создать спойлер", changes: range.from === range.to ? [{ from: range.from, to: range.to, insert: `${opening}${closing}` }] : [{ from: range.from, to: range.from, insert: opening }, { from: range.to, to: range.to, insert: closing }], selection: { from: range.from + opening.length, to: range.to + opening.length } };
 }
 export function nestedSpoilerRange(document: DocumentState, snapshot: AnalysisSnapshot, range: SourceRange, selected: NodeRef | null): SourceRange {
   if (!selected) return range;
   try {
     const { node } = resolveNode(document, snapshot, selected);
     const span = sourceRange(document, node.span);
-    if (node.name !== "spoiler" || range.from !== span.from || range.to !== span.to) return range;
+    if (!is(node, "spoiler") || range.from !== span.from || range.to !== span.to) return range;
     const content = sourceRange(document, node.contentSpan);
     return { from: content.to, to: content.to };
   } catch {
@@ -51,14 +54,14 @@ export function validateWrap(document: DocumentState, snapshot: AnalysisSnapshot
     }
     if ((range.from < span.from && range.to > content.from && range.to < span.to) || (range.from > span.from && range.from < content.to && range.to > span.to)) throw new Error("Выделите целый блок");
     if (!node.wellFormed && range.from < span.to && range.to > span.from) throw new Error("Сначала исправьте разметку");
-    if (node.name === "code" && range.from >= content.from && range.to <= content.to) throw new Error("Внутри code создание блоков недоступно");
+    if (isRaw(node) && range.from >= content.from && range.to <= content.to) throw new Error(`Внутри ${node.name} создание блоков недоступно`);
     visit(node.children);
   } }; visit(snapshot.analysis.nodes);
 }
 export function renameSpoiler(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef, title: string): EditCommand {
   const { node } = resolveNode(document, snapshot, reference);
-  if (node.name !== "spoiler" || !node.openingSpan) throw new Error("Выберите спойлер");
-  return { ...identity(document), label: "Изменить заголовок", changes: [{ ...sourceRange(document, node.openingSpan), insert: `[spoiler=${title}]` }] };
+  if (!is(node, "spoiler") || !node.openingSpan) throw new Error("Выберите спойлер");
+  return { ...identity(document), label: "Изменить заголовок", changes: [{ ...sourceRange(document, node.openingSpan), insert: `[${node.name}=${title}]` }] };
 }
 export function unwrapNode(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef): EditCommand {
   const { node } = resolveNode(document, snapshot, reference);
@@ -78,23 +81,23 @@ function placeAt(document: DocumentState, node: Node, at: number, copy: boolean)
 }
 function placeNode(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef, target: DropTarget, copy: boolean): EditCommand {
   const { node } = resolveNode(document, snapshot, reference), resolved = resolveNode(document, snapshot, target.node), destination = resolved.node;
-  if (node.name === "*" && (target.placement === "inside" || destination.name !== "*" || resolved.parent?.name !== "list")) throw new Error("Элемент списка можно перемещать только рядом с другим элементом списка");
+  if (is(node, "*") && (target.placement === "inside" || !is(destination, "*") || !is(resolved.parent, "list"))) throw new Error("Элемент списка можно перемещать только рядом с другим элементом списка");
   if (!copy && destination.span.start >= node.span.start && destination.span.end <= node.span.end) throw new Error("Нельзя переместить блок в самого себя или потомка");
-  if (target.placement === "inside" && (destination.name !== "spoiler" || !destination.closingSpan)) throw new Error("Вложить можно в корректный спойлер");
+  if (target.placement === "inside" && (!is(destination, "spoiler") || !destination.closingSpan)) throw new Error("Вложить можно в корректный спойлер");
   const index = createPositionIndex(document.text);
   return placeAt(document, node, index.byteToUtf16(target.placement === "before" ? destination.span.start : target.placement === "after" ? destination.span.end : destination.contentSpan.end), copy);
 }
 /** Moves or copies a whole block to an arbitrary UTF-16 position between tags or inside text. */
 export function placeNodeAt(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef, at: number, copy: boolean): EditCommand | null {
   const { node } = resolveNode(document, snapshot, reference);
-  if (node.name === "*") throw new Error("Элемент списка можно перемещать только рядом с другим элементом списка");
+  if (is(node, "*")) throw new Error("Элемент списка можно перемещать только рядом с другим элементом списка");
   validateCommand(document, { ...identity(document), label: "range", changes: [{ from: at, to: at, insert: "" }] });
   const index = createPositionIndex(document.text);
   const visit = (nodes: Node[]) => { for (const candidate of nodes) {
     for (const part of [candidate.openingSpan, candidate.closingSpan]) {
       if (part && at > index.byteToUtf16(part.start) && at < index.byteToUtf16(part.end)) throw new Error("Сюда нельзя вставить блок: место внутри тега");
     }
-    if (candidate.name === "code" && at > index.byteToUtf16(candidate.contentSpan.start) && at < index.byteToUtf16(candidate.contentSpan.end)) throw new Error("Внутри code вставка блоков недоступна");
+    if (isRaw(candidate) && at > index.byteToUtf16(candidate.contentSpan.start) && at < index.byteToUtf16(candidate.contentSpan.end)) throw new Error(`Внутри ${candidate.name} вставка блоков недоступна`);
     visit(candidate.children);
   } };
   visit(snapshot.analysis.nodes);
@@ -105,11 +108,13 @@ export function moveNode(document: DocumentState, snapshot: AnalysisSnapshot, re
 export function copyNode(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef, target: DropTarget): EditCommand { return placeNode(document, snapshot, reference, target, true); }
 export function extractNode(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef): EditCommand {
   const { parent } = resolveNode(document, snapshot, reference);
-  if (!parent || parent.name !== "spoiler") throw new Error("Нет родительского спойлера");
+  if (!parent || !is(parent, "spoiler")) throw new Error("Нет родительского спойлера");
   return moveNode(document, snapshot, reference, { node: nodeRef(snapshot, parent), placement: "after" });
 }
 
-const portableFormatting = new Set(["b", "i", "u", "s", "color", "background", "url", "quote", "code", "size", "font", "left", "center", "right", "sub", "sup"]);
+const portableTags = new Set<string>(["b", "i", "u", "s", "color", "background", "url", "quote", "code", "size", "font", "left", "center", "right", "sub", "sup"]);
+/** Wrappers that travel with moved text: built-in formatting and plain inline tags of the profile. */
+const portableFormatting = { has: (name: string) => { const spec = tagSpec(name); return !!spec && (spec.builtin ? portableTags.has(spec.builtin) : spec.role === "inline" && !spec.leaf); } };
 
 function activeFormatting(document: DocumentState, snapshot: AnalysisSnapshot, position: number, edge: "start" | "end"): Array<{ node: Node; content: SourceRange }> {
   const index = createPositionIndex(document.text), active: Array<{ node: Node; content: SourceRange }> = [];
@@ -170,9 +175,9 @@ function tidyContainer(document: DocumentState, index: ReturnType<typeof createP
     if (child.kind !== "text") return;
     const from = index.byteToUtf16(child.span.start), to = index.byteToUtf16(child.span.end), text = document.text.slice(from, to);
     const before = children[at - 1], after = children[at + 1];
-    const blockOrEdge = (node: Node | undefined) => node ? node.name === "spoiler" : edges;
+    const blockOrEdge = (node: Node | undefined) => node ? is(node, "spoiler") : edges;
     let next: string;
-    if (!text.trim() && blockOrEdge(before) && blockOrEdge(after) && (before?.name === "spoiler" || after?.name === "spoiler")) next = "";
+    if (!text.trim() && blockOrEdge(before) && blockOrEdge(after) && (is(before, "spoiler") || is(after, "spoiler"))) next = "";
     else {
       next = text.replace(/\n(?:[ \t]*\n)+/g, "\n\n");
       if (edges && at === 0) next = next.replace(/^\s*\n/, "");
@@ -183,8 +188,8 @@ function tidyContainer(document: DocumentState, index: ReturnType<typeof createP
 }
 function tidyNested(document: DocumentState, index: ReturnType<typeof createPositionIndex>, nodes: Node[], changes: EditCommand["changes"]) {
   for (const node of nodes) {
-    if (node.kind === "text" || !node.wellFormed || node.name === "code") continue;
-    if (node.name === "spoiler") tidyContainer(document, index, node.children, true, changes);
+    if (node.kind === "text" || !node.wellFormed || isRaw(node)) continue;
+    if (is(node, "spoiler")) tidyContainer(document, index, node.children, true, changes);
     tidyNested(document, index, node.children, changes);
   }
 }
@@ -192,7 +197,7 @@ function tidyNested(document: DocumentState, index: ReturnType<typeof createPosi
 /** Removes blank lines at the edges of a spoiler, between its nested spoilers, and collapses runs of blank lines. */
 export function tidyBlankLines(document: DocumentState, snapshot: AnalysisSnapshot, reference: NodeRef): EditCommand | null {
   const { node } = resolveNode(document, snapshot, reference);
-  if (node.name !== "spoiler") throw new Error("Выберите спойлер");
+  if (!is(node, "spoiler")) throw new Error("Выберите спойлер");
   const index = createPositionIndex(document.text), changes: EditCommand["changes"] = [];
   tidyContainer(document, index, node.children, true, changes);
   tidyNested(document, index, node.children, changes);

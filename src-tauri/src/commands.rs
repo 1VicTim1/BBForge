@@ -1,4 +1,4 @@
-use bbcode_core::{Analysis, parse};
+use bbcode_core::{Analysis, Profile, TagProfile, parse, parse_with};
 use serde::Serialize;
 #[cfg(feature = "desktop-runtime")]
 use std::path::PathBuf;
@@ -13,11 +13,20 @@ pub struct AnalysisResponse {
     pub analysis: Analysis,
 }
 
-pub fn analyze_document(source: String, document_id: String, revision: u64) -> AnalysisResponse {
+pub fn analyze_document(
+    source: String,
+    document_id: String,
+    revision: u64,
+    profile: Option<TagProfile>,
+) -> AnalysisResponse {
+    let analysis = match profile {
+        Some(profile) => parse_with(&source, &Profile::new(&profile)),
+        None => parse(&source),
+    };
     AnalysisResponse {
         document_id,
         revision,
-        analysis: parse(&source),
+        analysis,
     }
 }
 
@@ -27,10 +36,13 @@ pub async fn analyze(
     source: String,
     document_id: String,
     revision: u64,
+    profile: Option<TagProfile>,
 ) -> Result<AnalysisResponse, String> {
-    tauri::async_runtime::spawn_blocking(move || analyze_document(source, document_id, revision))
-        .await
-        .map_err(|error| format!("Не удалось проанализировать документ: {error}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        analyze_document(source, document_id, revision, profile)
+    })
+    .await
+    .map_err(|error| format!("Не удалось проанализировать документ: {error}"))
 }
 
 #[cfg(feature = "desktop-runtime")]

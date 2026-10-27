@@ -5,13 +5,14 @@ import { identity, validateCommand, type EditCommand } from "./commands";
 import { createPositionIndex } from "./positions";
 import { sourceRange } from "./structure";
 import type { DocumentState } from "./state";
+import { builtinOf, tagFor, tagSpec } from "../bbcode/profile";
 export type FormatTag = "b" | "i" | "u" | "s" | "color" | "background" | "url" | "quote" | "code" | "list";
 export interface FormattingActionState { state: "on" | "off" | "mixed" | "disabled"; reason?: string }
 export function allNodes(nodes: Node[]): Node[] { return nodes.flatMap((node) => [node, ...allNodes(node.children)]); }
 export function formatState(snapshot: AnalysisSnapshot, range: VisualRange, tag: FormatTag): "on" | "off" | "mixed" {
   if (range.documentId !== snapshot.documentId || range.revision !== snapshot.revision) return "off";
   const index = createPositionIndex(snapshot.source), from = index.utf16ToByte(range.from), to = index.utf16ToByte(range.to);
-  const matches = allNodes(snapshot.analysis.nodes).filter((node) => node.name === tag);
+  const matches = allNodes(snapshot.analysis.nodes).filter((node) => builtinOf(node.name) === tag);
   if (matches.some((node) => from === to ? node.span.start <= from && node.span.end >= to : node.contentSpan.start <= from && node.contentSpan.end >= to)) return "on";
   return matches.some((node) => node.span.start < to && node.span.end > from) ? "mixed" : "off";
 }
@@ -36,10 +37,11 @@ export function applyFormat(document: DocumentState, snapshot: AnalysisSnapshot,
     }
   }
   const commandRange = { from: index.byteToUtf16(from), to: index.byteToUtf16(to) };
-  const adjacent = from === to ? nodes.filter((node) => node.name === tag && node.openingSpan && node.closingSpan && node.span.start <= from && node.span.end >= to).sort((a, b) => (a.span.end - a.span.start) - (b.span.end - b.span.start))[0] : undefined;
-  const exact = nodes.find((node) => node.name === tag && node.openingSpan && node.closingSpan && ((node.contentSpan.start === from && node.contentSpan.end === to) || (node.span.start === from && node.span.end === to)));
+  const adjacent = from === to ? nodes.filter((node) => builtinOf(node.name) === tag && node.openingSpan && node.closingSpan && node.span.start <= from && node.span.end >= to).sort((a, b) => (a.span.end - a.span.start) - (b.span.end - b.span.start))[0] : undefined;
+  const exact = nodes.find((node) => builtinOf(node.name) === tag && node.openingSpan && node.closingSpan && ((node.contentSpan.start === from && node.contentSpan.end === to) || (node.span.start === from && node.span.end === to)));
   const existing = adjacent ?? exact;
-  const opening = `[${tag}${parameter === undefined ? "" : `=${tag === "url" ? `"${parameter.replace(/"/g, "%22")}"` : parameter}`}]`;
+  const name = existing?.name ?? tagFor(tag);
+  const opening = `[${name}${parameter === undefined ? "" : `=${tag === "url" ? `"${parameter.replace(/"/g, "%22")}"` : parameter}`}]`;
   if (existing?.openingSpan) {
     if (parameter !== undefined) return { ...identity(document), label: "Изменить оформление", changes: [{ ...sourceRange(document, existing.openingSpan), insert: opening }] };
     return { ...identity(document), label: "Снять оформление", changes: [existing.openingSpan, existing.closingSpan!].map((span) => ({ ...sourceRange(document, span), insert: "" })) };
@@ -53,8 +55,8 @@ export function applyFormat(document: DocumentState, snapshot: AnalysisSnapshot,
     const crosses = (from < node.span.start && to > node.contentSpan.start && to < node.span.end) || (from > node.span.start && from < node.contentSpan.end && to > node.span.end);
     if (crosses) throw new Error("Выделите целый блок, чтобы не разрезать структуру");
     if (!node.wellFormed && node.span.start < to && node.span.end > from) throw new Error("Сначала исправьте повреждённую разметку");
-    if (node.name === "code" && from >= node.contentSpan.start && to <= node.contentSpan.end) throw new Error("Внутри code форматирование недоступно");
+    if (tagSpec(node.name)?.raw && from >= node.contentSpan.start && to <= node.contentSpan.end) throw new Error(`Внутри ${node.name} форматирование недоступно`);
   }
-  const start = tag === "list" ? `${opening}[*]` : opening;
-  return { ...identity(document), label: "Применить оформление", changes: commandRange.from === commandRange.to ? [{ from: commandRange.from, to: commandRange.to, insert: `${start}[/${tag}]` }] : [{ from: commandRange.from, to: commandRange.from, insert: start }, { from: commandRange.to, to: commandRange.to, insert: `[/${tag}]` }], selection: { from: commandRange.from + start.length, to: commandRange.to + start.length } };
+  const start = tag === "list" ? `${opening}[${tagFor("*")}]` : opening;
+  return { ...identity(document), label: "Применить оформление", changes: commandRange.from === commandRange.to ? [{ from: commandRange.from, to: commandRange.to, insert: `${start}[/${name}]` }] : [{ from: commandRange.from, to: commandRange.from, insert: start }, { from: commandRange.to, to: commandRange.to, insert: `[/${name}]` }], selection: { from: commandRange.from + start.length, to: commandRange.to + start.length } };
 }
