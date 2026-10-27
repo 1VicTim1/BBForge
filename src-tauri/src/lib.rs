@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod files;
+pub mod plugins;
 pub mod session;
 
 #[cfg(all(target_os = "linux", feature = "legacy-webkit"))]
@@ -15,7 +16,13 @@ pub fn run() {
             commands::read_document,
             commands::write_document,
             commands::read_workspace_session,
-            commands::write_workspace_session
+            commands::write_workspace_session,
+            commands::plugin_preview,
+            commands::plugin_install,
+            commands::plugin_list,
+            commands::plugin_remove,
+            commands::plugin_set_enabled,
+            commands::plugin_accept_changes
         ])
         .run(tauri::generate_context!())
         .expect("ошибка запуска BBForge");

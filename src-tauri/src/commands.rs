@@ -83,3 +83,56 @@ pub fn write_workspace_session(app: tauri::AppHandle, payload: String) -> Result
         .join("workspace-v1.json");
     crate::session::write(&path, &payload)
 }
+
+#[cfg(feature = "desktop-runtime")]
+fn plugin_store(app: &tauri::AppHandle) -> Result<crate::plugins::Store, String> {
+    Ok(crate::plugins::Store::new(
+        app.path()
+            .app_data_dir()
+            .map_err(|error| error.to_string())?
+            .join("plugins"),
+    ))
+}
+
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub fn plugin_preview(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<crate::plugins::InstallPreview, String> {
+    plugin_store(&app)?.preview(&PathBuf::from(path))
+}
+
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub fn plugin_install(
+    app: tauri::AppHandle,
+    path: String,
+    digest: String,
+) -> Result<crate::plugins::InstalledPackage, String> {
+    plugin_store(&app)?.install(&PathBuf::from(path), &digest)
+}
+
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub fn plugin_list(app: tauri::AppHandle) -> Result<Vec<crate::plugins::Listed>, String> {
+    Ok(plugin_store(&app)?.list())
+}
+
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub fn plugin_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    plugin_store(&app)?.remove(&id)
+}
+
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub fn plugin_set_enabled(app: tauri::AppHandle, id: String, enabled: bool) -> Result<(), String> {
+    plugin_store(&app)?.set_enabled(&id, enabled)
+}
+
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub fn plugin_accept_changes(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    plugin_store(&app)?.accept_changes(&id)
+}

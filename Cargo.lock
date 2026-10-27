@@ -304,7 +304,10 @@ name = "bbforge-app"
 version = "0.3.0"
 dependencies = [
  "atomic-write-file",
+ "base64 0.22.1",
  "bbcode-core",
+ "bbforge-plugin",
+ "semver",
  "serde",
  "serde_json",
  "tauri",
@@ -312,6 +315,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
  "tempfile",
+ "zip",
 ]
 
 [[package]]
