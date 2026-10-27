@@ -1,6 +1,6 @@
 import { validateProfile, type TagProfile } from "../bbcode/profile";
 import { validateTheme, type ThemeDef } from "./themes";
-import { PERMISSIONS, type InstalledPackage } from "./types";
+import { knownPermission, type InstalledPackage } from "./types";
 import { patchPermission, validatePatch, type OwnedPatch, type UiPatch } from "./ui";
 import { satisfies } from "./semver";
 import { validateConverter, type Converter } from "./convert";
@@ -17,7 +17,8 @@ export type PluginAction =
   | { command: string }
   | { setProfile: string }
   | { setTheme: string }
-  | { convert: string };
+  | { convert: string }
+  | { script: string; args?: unknown };
 export interface PluginCommand { id: string; title: string; category: string; icon?: string; hint?: string; keys: string[]; action: PluginAction; owner: string }
 export interface SlotInfo { id: string; title: string; owner: string }
 /** Why a dependency keeps a package from loading. */
@@ -48,10 +49,21 @@ export interface PluginHost {
   patches: OwnedPatch[];
   commands: PluginCommand[];
   converters: Converter[];
+  /** Plugin scripts that may run (the package has the "scripts" permission). */
+  scripts: ScriptDef[];
 }
-export const emptyHost = (): PluginHost => ({ packages: [], profiles: [], themes: [], styles: [], slots: [], patches: [], commands: [], converters: [] });
+export interface ScriptDef {
+  owner: string;
+  code: string;
+  /** Functions packages depending on this one may call. */
+  exports: string[];
+  /** Permissions the package has (and BBForge knows). */
+  permissions: string[];
+  dependencies: Record<string, string>;
+}
+export const emptyHost = (): PluginHost => ({ packages: [], profiles: [], themes: [], styles: [], slots: [], patches: [], commands: [], converters: [], scripts: [] });
 
-const KNOWN = new Set(PERMISSIONS.map((item) => item.id));
+const FUNCTION = /^[A-Za-z_]\w{0,63}$/;
 const CHORD = /^(Ctrl\+)?(Alt\+)?(Shift\+)?[A-Za-z0-9]+$/;
 
 /** Dependencies first (all of them are loadable at this point); a cycle only produces a warning. */
@@ -82,7 +94,7 @@ export function buildHost(installed: InstalledPackage[]): PluginHost {
   for (const item of loadOrder(loadable, warn)) {
     const { manifest, files } = item, owner = manifest.id, state = states.get(owner)!;
     state.active = true;
-    const granted = new Set(manifest.permissions.filter((permission) => KNOWN.has(permission)));
+    const granted = new Set(manifest.permissions.filter(knownPermission));
     const allowed = (permission: string, what: string) => { if (granted.has(permission)) return true; warn(owner, `${what}: нет разрешения «${permission}», пропущено`); return false; };
     const contributes = manifest.contributes ?? {};
     const list = (key: string): unknown[] => Array.isArray(contributes[key]) ? contributes[key] as unknown[] : [];
@@ -128,7 +140,18 @@ export function buildHost(installed: InstalledPackage[]): PluginHost {
       if (converter) host.converters.push(converter);
     }
     host.patches.push(...patches(list("ui"), "Интерфейс"));
+    if (manifest.main && allowed("scripts", "Скрипт")) {
+      const code = files[manifest.main];
+      if (code === undefined) warn(owner, `Скрипт: нет файла ${manifest.main}`);
+      else host.scripts.push({ owner, code, exports: (manifest.exports ?? []).filter((name) => FUNCTION.test(name)), permissions: [...granted], dependencies: manifest.dependencies ?? {} });
+    }
   }
+  // Script commands need the package's script.
+  host.commands = host.commands.filter((command) => {
+    if (!("script" in command.action) || host.scripts.some((script) => script.owner === command.owner)) return true;
+    warn(command.owner, `Команда ${command.id}: у пакета нет работающего скрипта, пропущена`);
+    return false;
+  });
   host.packages = [...states.values()];
   return host;
 }
@@ -191,8 +214,9 @@ function validateCommand(raw: unknown, owner: string, warn: (text: string) => vo
     else if (typeof run.setProfile === "string") action = { setProfile: run.setProfile };
     else if (typeof run.setTheme === "string") action = { setTheme: run.setTheme };
     else if (typeof run.convert === "string") action = { convert: run.convert };
+    else if (typeof run.script === "string" && FUNCTION.test(run.script)) action = { script: run.script, args: run.args };
   }
-  if (!action) { warn(`Команда ${id}: run должен содержать insert, wrap, command, setProfile, setTheme или convert`); return null; }
+  if (!action) { warn(`Команда ${id}: run должен содержать insert, wrap, command, setProfile, setTheme, convert или script`); return null; }
   const keys = Array.isArray(value.keys) ? value.keys.filter((key): key is string => typeof key === "string" && CHORD.test(key)).slice(0, 3) : [];
   return {
     id, title: value.title.slice(0, 80), category: typeof value.category === "string" ? value.category.slice(0, 40) : "Плагины",

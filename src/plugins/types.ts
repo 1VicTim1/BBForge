@@ -4,7 +4,17 @@ import permissions from "../../crates/bbforge-plugin/permissions.json";
 
 export interface PermissionInfo { id: string; title: string; description: string; risk: "low" | "medium" | "high" }
 export const PERMISSIONS = permissions as PermissionInfo[];
-export const permissionInfo = (id: string): PermissionInfo | undefined => PERMISSIONS.find((item) => item.id === id);
+const NETWORK = /^network:([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/;
+/** Description of a permission; "network:<domain>" gets its domain filled in. */
+export function permissionInfo(id: string): PermissionInfo | undefined {
+  const host = NETWORK.exec(id)?.[1];
+  const info = PERMISSIONS.find((item) => item.id === (host ? "network:*" : id));
+  if (!info || (!host && info.id.endsWith("*"))) return undefined;
+  return host ? { ...info, id, title: info.title.replace("{host}", host), description: info.description.replaceAll("{host}", host) } : info;
+}
+export const knownPermission = (id: string) => permissionInfo(id) !== undefined;
+/** Domains of "network:<domain>" permissions. */
+export const networkHosts = (permissions: string[]) => permissions.flatMap((id) => { const host = NETWORK.exec(id)?.[1]; return host ? [host] : []; });
 
 export type SignatureStatus =
   | { state: "unsigned" }
@@ -25,6 +35,10 @@ export interface Manifest {
   permissions: string[];
   dependencies: Record<string, string>;
   contributes: Record<string, unknown>;
+  /** Script of the plugin (runs sandboxed with the "scripts" permission). */
+  main?: string;
+  /** Script functions packages depending on this one may call. */
+  exports?: string[];
 }
 
 export interface InstalledPackage {

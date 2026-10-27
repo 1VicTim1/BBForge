@@ -1,6 +1,6 @@
 # Плагины и темы
 
-Плагин или тема — это zip-архив с `manifest.json` и файлами пакета. Пакеты описывают изменения декларативно: профили форумов, темы, CSS, команды и правки интерфейса. Своего кода пакет не исполняет.
+Плагин или тема — это zip-архив с `manifest.json` и файлами пакета. Большую часть возможностей пакет описывает декларативно: профили форумов, темы, CSS, команды, правки интерфейса, конвертеры. Для своей логики у плагина может быть скрипт `main.js`, он работает в изолированной песочнице (см. «Скрипты»).
 
 Каталоги с готовыми пакетами:
 
@@ -59,6 +59,10 @@
 | `commands` | добавлять команды и сочетания клавиш (`contributes.commands`) |
 | `document.edit` | команды, которые вставляют или оборачивают текст (`insert`, `wrap`, `convert`) |
 | `converters` | добавлять конвертеры разметки (`contributes.converters`) |
+| `scripts` | исполнять свой скрипт (`main`) в песочнице |
+| `network:<домен>` | скриптом обращаться к домену и его поддоменам по https, например `network:4pda.to` |
+| `windows` | скриптом открывать окно сайта из разрешённых доменов и читать его куки |
+| `storage` | скриптом хранить свои данные (до 1 МБ) |
 
 Список хранится в `crates/bbforge-plugin/permissions.json`.
 
@@ -240,6 +244,42 @@ Id слота начинается с id пакета. Другие плагин
 | `content` | селектор потомка, чьё содержимое становится телом (у спойлера 4PDA — `.block-body`) |
 
 Подстановки: `{attr:имя}`, `{style:свойство}` (значение из атрибута style как написано), `{text:селектор}` (текст потомка), `{bbcode:селектор}` (сконвертированный потомок; потомок не попадает в тело). Фильтры: `|map:таблица` (из `maps`), `|hex` (`rgb()` → `#rrggbb`), `|font` (первое семейство шрифта). `?` в конце (`{bbcode:.block-title?}`) разрешает пустое значение. Скобки, кавычки и переводы строк из значений удаляются. HTML разбирается в инертный документ: скрипты не выполняются, ничего не загружается.
+
+## Скрипты
+
+```json
+{ "main": "main.js", "exports": ["session"], "permissions": ["scripts", "network:4pda.to", "storage", "commands"],
+  "contributes": { "commands": [{ "id": "author.plugin.go", "title": "Сделать что-то", "run": { "script": "go", "args": { "any": "json" } } }] } }
+```
+
+```js
+// main.js: функции плагина — свойства exports, первым аргументом приходит bb
+exports.go = async (bb, args) => {
+  const link = await bb.ui.prompt({ title: "Ссылка", label: "Адрес поста" });
+  if (!link) return;
+  const page = await bb.http.get("https://4pda.to/forum/index.php?showtopic=1", { encoding: "windows-1251" });
+  const [title] = await bb.html.query(page.text, "title");
+  if (await bb.ui.review({ title: "Результат", text: title.text }) === "insert") await bb.document.insert(title.text);
+};
+```
+
+Скрипт работает в отдельном Web Worker: без доступа к интерфейсу, документу, Tauri и сети (`fetch`, `XMLHttpRequest`, `WebSocket`, `importScripts` и т. п. удалены). Наружу ведёт только `bb`, и каждый вызов проверяется по разрешениям пакета; сеть, окна и хранилище настольная часть проверяет ещё раз по манифесту установленного пакета. Скрипт, который перестал отвечать (например, ушёл в бесконечный цикл), останавливается.
+
+| Вызов | Что делает | Разрешение |
+| --- | --- | --- |
+| `bb.http.get(url, { cookies, encoding })` | GET-запрос; `cookies` — объект имя → значение; возвращает `{ status, contentType, text }`, кодировка из `encoding` или заголовка | `network:<домен>` |
+| `bb.window.open(url, { title })` | окно сайта (своё хранилище браузера у каждого плагина, переходы только по его доменам); возвращает идентификатор окна | `windows` |
+| `bb.window.waitForCookies(window, names, { ignore, timeout })` | ждёт, пока у окна появятся все куки `names` (значения из `ignore` не считаются), возвращает их | `windows` |
+| `bb.window.close(window)`, `bb.window.clearData()` | закрыть окно; забыть куки и кэш окон плагина | `windows` |
+| `bb.storage.get(key)`, `set(key, value)`, `remove(key)` | личное хранилище, значения — JSON | `storage` |
+| `bb.html.query(html, selector)` | разбор HTML в инертный документ; элементы `{ text, value, html, attributes }` | — |
+| `bb.ui.prompt({ title, label, placeholder, hint, value })` | строка от пользователя или `null` | — |
+| `bb.ui.review({ title, text, hint })` | показать текст: `"insert"`, `"copy"` или `null` | — |
+| `bb.ui.notify(text)`, `bb.log(...)` | запись в журнал | — |
+| `bb.document.selection()`, `bb.document.insert(text)` | выделение на момент запуска команды; вставка на его место | `document.edit` |
+| `bb.plugins.call(id, fn, args)` | функция плагина из своих `dependencies`, если тот перечислил её в `exports` | — |
+
+Данные плагина (хранилище, куки его окон) лежат в `<данные приложения>/plugin-data/<id>/` и удаляются вместе с пакетом.
 
 ## bbforge-pack
 

@@ -322,12 +322,17 @@ fn verify(file: &Path, trust: &[String]) -> Result<(), String> {
         println!("  (нет)");
     }
     for permission in &manifest.permissions {
-        match known_permissions()
-            .iter()
-            .find(|item| &item.id == permission)
-        {
-            Some(item) => println!("  {} — {}", item.id, item.title),
-            None => println!("  {permission} — неизвестное, будет проигнорировано"),
+        let template = permission
+            .strip_prefix("network:")
+            .map(|host| (host, "network:*"));
+        let id = template.map_or(permission.as_str(), |(_, id)| id);
+        match known_permissions().iter().find(|item| item.id == id) {
+            Some(item) if bbforge_plugin::known_permission(permission) => println!(
+                "  {permission} — {}",
+                item.title
+                    .replace("{host}", template.map_or("", |(host, _)| host))
+            ),
+            _ => println!("  {permission} — неизвестное, будет проигнорировано"),
         }
     }
     let status = match &inspection.signature {

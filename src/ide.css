@@ -831,3 +831,12 @@ div.bb-plain, blockquote.bb-plain, pre.bb-plain, details.bb-plain { margin: 4px 
 .dialog .convert-output { max-height: none; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .convert-dialog footer button { display: inline-flex; align-items: center; gap: 6px; }
 .package-actions .update-action { color: var(--accent); }
+/* plugin script dialogs */
+.script-dialog { width: min(560px, 90vw); gap: 6px; }
+.script-review { width: min(900px, 92vw); height: min(640px, 86vh); }
+.script-origin { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--text-muted); font-size: 12px; }
+.script-origin .ui-icon { width: 13px; height: 13px; }
+.dialog .script-field { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 6px 0 0; color: var(--text-secondary); font-size: 12px; }
+.script-field input { height: var(--h-control); padding: 0 10px; color: var(--text); background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); }
+.script-review .convert-output { flex: 1; min-height: 0; }
+.script-dialog footer button { display: inline-flex; align-items: center; gap: 6px; }

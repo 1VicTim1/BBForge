@@ -62,6 +62,8 @@ import { InstallDialog, PluginsSettings } from "./plugins/PluginsSettings";
 import type { CatalogEntry, CatalogResult, InstallPreview, InstalledPackage } from "./plugins/types";
 import { planDependencies, type DependencyPlan } from "./plugins/dependencies";
 import { ConvertDialog } from "./plugins/ConvertDialog";
+import { ScriptRuntime, type PromptOptions, type ReviewOptions } from "./plugins/scripts";
+import { ScriptPromptDialog, ScriptReviewDialog } from "./plugins/ScriptDialogs";
 import type { Converter } from "./plugins/convert";
 import { fetchableDependencies, type DownloadProgress } from "./plugins/PluginsSettings";
 import "./ide.css";
@@ -472,6 +474,33 @@ export default function App() {
   const openSpoilerDialog = () => { if (composing()) return; spoilerOrigin.current = { ...identity(documentRef.current), ...spoilerSelection() }; setSpoilerDialog(true); };
   const switchTab = (step: number) => { const tabs = workspaceRef.current.tabs, at = tabs.findIndex((tab) => tab.document.id === workspaceRef.current.activeId); const next = tabs[(at + step + tabs.length) % tabs.length]; if (next) { showDocuments(); dispatchWorkspace({ type: "activate", documentId: next.document.id }); } };
   const [conversion, setConversion] = useState<{ converter: Converter; range: VisualRange; initial: string } | null>(null);
+  // Plugin scripts: one sandboxed worker per plugin, recreated when the packages change.
+  const [scriptPrompt, setScriptPrompt] = useState<{ plugin: string; options: PromptOptions; resolve(value: string | null): void } | null>(null);
+  const [scriptReview, setScriptReview] = useState<{ plugin: string; options: ReviewOptions; resolve(choice: "insert" | "copy" | null): void } | null>(null);
+  const runtime = useMemo(() => {
+    const name = (owner: string) => host.packages.find((item) => item.id === owner)?.package.manifest.name ?? owner;
+    return new ScriptRuntime(host.scripts, pluginStore.scriptBackend, {
+      prompt: (owner, options) => new Promise((resolve) => setScriptPrompt({ plugin: name(owner), options, resolve })),
+      review: (owner, options) => new Promise((resolve) => setScriptReview({ plugin: name(owner), options, resolve })),
+      notify: (owner, text) => log(`${name(owner)}: ${text}`, "info"),
+    });
+  }, [host, pluginStore]);
+  useEffect(() => () => runtime.dispose(), [runtime]);
+  const runScript = (command: PluginCommand, fn: string, args: unknown) => {
+    // The run works on the selection the command started with; each insertion continues after the previous one.
+    const target = { ...identity(documentRef.current), ...commandSelection() };
+    const context = {
+      selection: documentRef.current.text.slice(target.from, target.to),
+      insert: (text: string) => {
+        if (documentRef.current.id !== target.documentId || documentRef.current.revision !== target.revision) throw new Error("Документ изменился во время работы плагина");
+        execute({ ...identity(documentRef.current), label: command.title, changes: [{ from: target.from, to: target.to, insert: text }], selection: { from: target.from, to: target.from + text.length } });
+        log(command.title, "change");
+        Object.assign(target, { ...identity(documentRef.current), from: target.from + text.length, to: target.from + text.length });
+      },
+    };
+    const name = host.packages.find((item) => item.id === command.owner)?.package.manifest.name ?? command.owner;
+    void runtime.run(command.owner, fn, args, context).catch((reason) => setError(`${name}: ${reason instanceof Error ? reason.message : String(reason)}`));
+  };
   const insertConverted = (text: string) => {
     const target = conversion!.range;
     run(() => {
@@ -491,6 +520,7 @@ export default function App() {
     else if ("command" in action) runPluginCommand(action.command);
     else if ("setProfile" in action) setPreferences((current) => ({ ...current, profile: action.setProfile }));
     else if ("setTheme" in action) setPreferences((current) => ({ ...current, theme: action.setTheme }));
+    else if ("script" in action) runScript(command, action.script, action.args);
     else if ("convert" in action) {
       const converter = host.converters.find((item) => item.id === action.convert);
       if (!converter) { setError(`Конвертер ${action.convert} не найден`); return; }
@@ -720,6 +750,10 @@ export default function App() {
       onFile={(id) => { setPalette(null); showDocuments(); dispatchWorkspace({ type: "activate", documentId: id }); }}
       onTag={(span) => { setPalette(null); selectNode(span); }}
       onLine={(line) => { setPalette(null); const text = documentRef.current.text; let at = 0; for (let current = 1; current < line && at >= 0; current++) at = text.indexOf("\n", at) + 1 || -1; const from = Math.max(0, at); setActiveRange({ from, to: from }); navigateRange({ from, to: from }); }} />}
+    {scriptPrompt && <ScriptPromptDialog plugin={scriptPrompt.plugin} options={scriptPrompt.options} onDone={(value) => { scriptPrompt.resolve(value); setScriptPrompt(null); }} />}
+    {scriptReview && <ScriptReviewDialog plugin={scriptReview.plugin} options={scriptReview.options} replacing={false} onDone={(choice) => {
+      if (choice === "copy") void copyText(scriptReview.options.text).then(() => log("Текст скопирован в буфер обмена", "info"));
+      scriptReview.resolve(choice); setScriptReview(null); }} />}
     {conversion && <ConvertDialog converter={conversion.converter} initial={conversion.initial} replacing={conversion.range.from !== conversion.range.to} onInsert={insertConverted} onCopy={(text) => void copyText(text).then(() => log("BBCode скопирован в буфер обмена", "info"))} onClose={() => setConversion(null)} />}
     {installPreview && (() => { const plan = planDependencies(installPreview.preview.manifest, installed, catalog?.packages ?? []); return <InstallDialog key={installPreview.preview.digest} preview={installPreview.preview} plan={plan} busy={pluginBusy} download={download}
       onInstall={() => void installPackage(installPreview.path, installPreview.preview)} onFetchDependencies={() => void fetchDependencies(plan)} onCancel={() => setInstallPreview(null)} />; })()}

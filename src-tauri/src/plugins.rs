@@ -58,7 +58,7 @@ pub struct InstalledPackage {
     /// The archive differs from what was accepted at installation; the package is not loaded.
     pub tampered: bool,
     pub errors: Vec<String>,
-    /// Text files (json, css, svg, md, txt) by path.
+    /// Text files (json, css, md, txt, js) by path.
     pub files: BTreeMap<String, String>,
     /// Images as data: URLs by path.
     pub assets: BTreeMap<String, String>,
@@ -232,7 +232,7 @@ impl Store {
         for (path, bytes) in &package.files {
             let extension = path.rsplit('.').next().unwrap_or_default();
             match extension {
-                "json" | "css" | "md" | "txt" => {
+                "json" | "css" | "md" | "txt" | "js" => {
                     if let Ok(text) = String::from_utf8(bytes.clone()) {
                         files.insert(path.clone(), text);
                     }

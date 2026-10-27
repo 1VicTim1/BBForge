@@ -42,6 +42,12 @@ pub struct Manifest {
     pub dependencies: BTreeMap<String, String>,
     #[serde(default)]
     pub contributes: Map<String, Value>,
+    /// Script of the plugin (runs in a sandbox, needs the "scripts" permission).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub main: Option<String>,
+    /// Script functions that packages depending on this one may call.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exports: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +56,24 @@ pub struct Permission {
     pub title: String,
     pub description: String,
     pub risk: String,
+}
+
+/// Whether BBForge knows a permission; `network:<domain>` takes any domain.
+pub fn known_permission(permission: &str) -> bool {
+    match permission.strip_prefix("network:") {
+        Some(host) => {
+            host.contains('.')
+                && host.split('.').all(|part| {
+                    !part.is_empty()
+                        && part
+                            .chars()
+                            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+                })
+        }
+        None => known_permissions()
+            .iter()
+            .any(|item| item.id == permission && !item.id.ends_with('*')),
+    }
 }
 
 /// The permissions BBForge knows (`permissions.json`, shared with the interface).
@@ -71,6 +95,13 @@ impl Report {
     pub fn is_ok(&self) -> bool {
         self.errors.is_empty()
     }
+}
+
+pub fn valid_function(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 pub fn valid_id(id: &str) -> bool {
@@ -167,9 +198,8 @@ impl Manifest {
                 ));
             }
         }
-        let known = known_permissions();
         for permission in &self.permissions {
-            if !known.iter().any(|item| &item.id == permission) {
+            if !known_permission(permission) {
                 report.warnings.push(format!(
                     "неизвестное разрешение «{permission}» — BBForge его проигнорирует"
                 ));
@@ -197,6 +227,25 @@ impl Manifest {
                         ));
                     }
                 }
+            }
+        }
+        if let Some(main) = &self.main {
+            if !main.ends_with(".js") || !has_file(main) {
+                report
+                    .errors
+                    .push(format!("main: нет файла скрипта «{main}» (.js)"));
+            }
+            if !self.permissions.iter().any(|item| item == "scripts") {
+                report.warnings.push(
+                    "main требует разрешения «scripts», без него скрипт не запустится".into(),
+                );
+            }
+        }
+        for name in &self.exports {
+            if self.main.is_none() || !valid_function(name) {
+                report
+                    .errors
+                    .push(format!("exports: «{name}» — не функция скрипта"));
             }
         }
         if self.kind == PackageKind::Theme && !self.contributes.contains_key("themes") {
