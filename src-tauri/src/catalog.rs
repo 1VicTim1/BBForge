@@ -120,7 +120,8 @@ pub fn fetch() -> CatalogResult {
     result
 }
 
-/// Downloads a catalog package into `dir` and returns its path once the checksum matches.
+/// Downloads a catalog package into `dir` and returns its path once the checksum matches and the
+/// package is signed with a trusted key: catalog packages are never installed without one.
 pub fn download(dir: &Path, entry: &CatalogEntry) -> Result<PathBuf, String> {
     let (_, base) = CATALOGS.get(entry.catalog).ok_or("Неизвестный каталог")?;
     if !valid_file(&entry.file) {
@@ -132,6 +133,24 @@ pub fn download(dir: &Path, entry: &CatalogEntry) -> Result<PathBuf, String> {
         return Err(format!(
             "Контрольная сумма {} не совпадает с каталогом: файл повреждён или подменён",
             entry.file
+        ));
+    }
+    let package = bbforge_plugin::read_archive(&bytes)?;
+    let signature = package.inspect(crate::plugins::TRUSTED_KEYS).signature;
+    if !signature.is_trusted() {
+        let reason = match signature {
+            bbforge_plugin::SignatureStatus::Unsigned => "пакет не подписан".to_string(),
+            bbforge_plugin::SignatureStatus::Untrusted { signer, .. } => {
+                format!("подпись ключом, которому BBForge не доверяет ({signer})")
+            }
+            bbforge_plugin::SignatureStatus::Invalid { reason } => {
+                format!("подпись недействительна: {reason}")
+            }
+            bbforge_plugin::SignatureStatus::Trusted { .. } => unreachable!(),
+        };
+        return Err(format!(
+            "Пакет «{}» из каталога не установлен: {reason}. Пакеты каталога должны быть подписаны доверенным ключом.",
+            entry.name
         ));
     }
     std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;

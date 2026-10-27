@@ -88,6 +88,7 @@ function Catalog(props: Props) {
           <Icon name={entry.type === "theme" ? "palette" : "puzzle"} />
           <div className="package-title"><strong>{entry.name}</strong><small>{entry.id} · {entry.version}{entry.author ? ` · ${entry.author}` : ""}{entry.signer ? ` · подпись ${entry.signer}` : " · без подписи"}</small></div>
           {order >= 0 ? <span className="catalog-state">{order === 0 ? "Установлен" : `Установлена ${current}`}</span>
+            : !entry.signer ? <span className="catalog-state" title="Пакеты каталога устанавливаются только с подписью">Без подписи — недоступен</span>
             : <button className="secondary-button" disabled={props.busy} onClick={() => props.onInstallFromCatalog(entry)}><Icon name="package" />{current ? `Обновить до ${entry.version}` : "Установить"}</button>}
         </div>
         {entry.description && <p className="package-description">{entry.description}</p>}

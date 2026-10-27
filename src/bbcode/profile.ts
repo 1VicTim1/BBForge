@@ -165,7 +165,12 @@ function recompute() {
 }
 
 /** Replaces the profiles added by plugins; the built-in one always stays. */
+let pluginProfilesKey = "[]";
 export function setPluginProfiles(profiles: Array<{ profile: TagProfile; source: string }>) {
+  // Reloading the same packages must not re-run the analysis of every document.
+  const key = JSON.stringify(profiles);
+  if (key === pluginProfilesKey) return;
+  pluginProfilesKey = key;
   entries = new Map([[defaultProfile.id, { profile: defaultProfile, source: null }]]);
   for (const item of profiles) if (!entries.has(item.profile.id)) entries.set(item.profile.id, item);
   recompute(); changed();

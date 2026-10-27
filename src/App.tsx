@@ -500,10 +500,12 @@ export default function App() {
   const installFromCatalog = async (entry: CatalogEntry) => {
     setPluginBusy(true);
     try {
+      // The download is refused unless the package carries a trusted signature, so no confirmation is offered here.
       const path = await pluginStore.download(entry), preview = await pluginStore.preview(path);
       setPluginBusy(false);
-      if (!preview.needsConfirmation && !preview.errors.length) await installPackage(path, preview);
-      else setInstallPreview({ path, preview });
+      if (preview.signature.state !== "trusted") throw new Error(`Пакет «${entry.name}» из каталога не подписан доверенным ключом`);
+      if (preview.errors.length) setInstallPreview({ path, preview });
+      else await installPackage(path, preview);
     } catch (reason) { setError(String(reason)); setPluginBusy(false); }
   };
   const pluginOperation = (operation: () => Promise<void>) => { setPluginBusy(true); void operation().then(reloadPlugins).catch((reason) => setError(String(reason))).finally(() => setPluginBusy(false)); };
