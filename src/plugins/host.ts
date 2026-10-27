@@ -2,6 +2,7 @@ import { validateProfile, type TagProfile } from "../bbcode/profile";
 import { validateTheme, type ThemeDef } from "./themes";
 import { PERMISSIONS, type InstalledPackage } from "./types";
 import { patchPermission, validatePatch, type OwnedPatch, type UiPatch } from "./ui";
+import { satisfies } from "./semver";
 
 /**
  * Turns installed packages into what the interface uses. A package touches only what its
@@ -17,11 +18,22 @@ export type PluginAction =
   | { setTheme: string };
 export interface PluginCommand { id: string; title: string; category: string; icon?: string; hint?: string; keys: string[]; action: PluginAction; owner: string }
 export interface SlotInfo { id: string; title: string; owner: string }
+/** Why a dependency keeps a package from loading. */
+export interface DependencyIssue {
+  id: string;
+  requirement: string;
+  state: "missing" | "disabled" | "version" | "inactive";
+  /** Installed version, when there is one. */
+  installed?: string;
+  name?: string;
+}
 export interface PackageState {
   id: string;
   package: InstalledPackage;
-  /** Loaded into the interface: enabled, unchanged and without errors. */
+  /** Loaded into the interface: enabled, unchanged, without errors and with all dependencies. */
   active: boolean;
+  /** Dependencies that are missing, off, of a wrong version or not loaded themselves. */
+  dependencyIssues: DependencyIssue[];
   /** Why something was skipped. */
   warnings: string[];
 }
@@ -39,7 +51,7 @@ export const emptyHost = (): PluginHost => ({ packages: [], profiles: [], themes
 const KNOWN = new Set(PERMISSIONS.map((item) => item.id));
 const CHORD = /^(Ctrl\+)?(Alt\+)?(Shift\+)?[A-Za-z0-9]+$/;
 
-/** Dependencies first; a cycle or a missing dependency only produces a warning. */
+/** Dependencies first (all of them are loadable at this point); a cycle only produces a warning. */
 function loadOrder(packages: InstalledPackage[], warn: (id: string, text: string) => void): InstalledPackage[] {
   const byId = new Map(packages.map((item) => [item.manifest.id, item])), done = new Set<string>(), visiting = new Set<string>(), order: InstalledPackage[] = [];
   const visit = (item: InstalledPackage) => {
@@ -49,7 +61,7 @@ function loadOrder(packages: InstalledPackage[], warn: (id: string, text: string
     visiting.add(id);
     for (const dependency of Object.keys(item.manifest.dependencies ?? {}).sort()) {
       const target = byId.get(dependency);
-      if (target) visit(target); else warn(id, `нужен пакет ${dependency}: он не установлен или выключен`);
+      if (target) visit(target);
     }
     visiting.delete(id); done.add(id); order.push(item);
   };
@@ -61,9 +73,9 @@ function loadOrder(packages: InstalledPackage[], warn: (id: string, text: string
 export function buildHost(installed: InstalledPackage[]): PluginHost {
   const host = emptyHost();
   const states = new Map<string, PackageState>();
-  for (const item of installed) states.set(item.manifest.id, { id: item.manifest.id, package: item, active: false, warnings: [] });
+  for (const item of installed) states.set(item.manifest.id, { id: item.manifest.id, package: item, active: false, dependencyIssues: [], warnings: [] });
   const warn = (id: string, text: string) => states.get(id)?.warnings.push(text);
-  const loadable = installed.filter((item) => item.enabled && !item.tampered && item.errors.length === 0);
+  const loadable = resolveDependencies(installed, states);
   for (const item of loadOrder(loadable, warn)) {
     const { manifest, files } = item, owner = manifest.id, state = states.get(owner)!;
     state.active = true;
@@ -112,6 +124,38 @@ export function buildHost(installed: InstalledPackage[]): PluginHost {
   }
   host.packages = [...states.values()];
   return host;
+}
+
+/**
+ * Packages that can load: enabled, unchanged, without errors, and with every dependency installed,
+ * of a matching version and loadable itself. Anything else is reported on the package and skipped.
+ */
+function resolveDependencies(installed: InstalledPackage[], states: Map<string, PackageState>): InstalledPackage[] {
+  const byId = new Map(installed.map((item) => [item.manifest.id, item]));
+  let loadable = new Set(installed.filter((item) => item.enabled && !item.tampered && item.errors.length === 0).map((item) => item.manifest.id));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const id of [...loadable]) {
+      const issues = dependencyIssues(byId.get(id)!, byId, loadable);
+      states.get(id)!.dependencyIssues = issues;
+      if (issues.length) { loadable.delete(id); changed = true; }
+    }
+  }
+  // Packages that do not load for other reasons still show their dependency problems.
+  for (const item of installed) if (!loadable.has(item.manifest.id)) { const state = states.get(item.manifest.id)!; if (!state.dependencyIssues.length) state.dependencyIssues = dependencyIssues(item, byId, loadable).filter((issue) => issue.state !== "inactive"); }
+  return installed.filter((item) => loadable.has(item.manifest.id));
+}
+
+export function dependencyIssues(item: InstalledPackage, byId: Map<string, InstalledPackage>, loadable: Set<string>): DependencyIssue[] {
+  return Object.entries(item.manifest.dependencies ?? {}).flatMap(([id, requirement]): DependencyIssue[] => {
+    const target = byId.get(id);
+    if (!target) return [{ id, requirement, state: "missing" }];
+    const base = { id, requirement, installed: target.manifest.version, name: target.manifest.name };
+    if (!satisfies(target.manifest.version, requirement)) return [{ ...base, state: "version" }];
+    if (!target.enabled) return [{ ...base, state: "disabled" }];
+    if (!loadable.has(id)) return [{ ...base, state: "inactive" }];
+    return [];
+  });
 }
 
 /** Plugin items carry the owner's id prefix; a select or option bound to a setting needs that permission. */

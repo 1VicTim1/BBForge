@@ -1,5 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { ask, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
@@ -59,6 +60,8 @@ import { slotIndex } from "./plugins/slots";
 import { PluginUiContext, type PluginUi } from "./plugins/context";
 import { InstallDialog, PluginsSettings } from "./plugins/PluginsSettings";
 import type { CatalogEntry, CatalogResult, InstallPreview, InstalledPackage } from "./plugins/types";
+import { planDependencies, type DependencyPlan } from "./plugins/dependencies";
+import { fetchableDependencies, type DownloadProgress } from "./plugins/PluginsSettings";
 import "./ide.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
@@ -113,7 +116,7 @@ export default function App() {
   const [prefersDark, setPrefersDark] = useState(() => typeof matchMedia === "undefined" || matchMedia("(prefers-color-scheme: dark)").matches);
   useEffect(() => { if (typeof matchMedia === "undefined") return; const query = matchMedia("(prefers-color-scheme: dark)"), change = () => setPrefersDark(query.matches); query.addEventListener?.("change", change); return () => query.removeEventListener?.("change", change); }, []);
   // Plugins and themes: installed packages → what they add to the interface (see src/plugins).
-  const pluginStore = useMemo(() => createPluginStore(isTauri() ? invoke : null), []);
+  const pluginStore = useMemo(() => createPluginStore(isTauri() ? invoke : null, isTauri() ? listen : null), []);
   const [installed, setInstalled] = useState<InstalledPackage[]>([]), [brokenPackages, setBrokenPackages] = useState<Array<{ id: string; error: string }>>([]);
   const [pluginBusy, setPluginBusy] = useState(false), [installPreview, setInstallPreview] = useState<{ path: string; preview: InstallPreview } | null>(null);
   const reloadPlugins = useCallback(async () => {
@@ -484,29 +487,55 @@ export default function App() {
       await reloadPlugins();
     } catch (reason) { setError(String(reason)); } finally { setPluginBusy(false); }
   };
+  const [catalog, setCatalog] = useState<CatalogResult | null>(null), [catalogLoading, setCatalogLoading] = useState(false);
+  const loadCatalog = () => { if (!pluginStore.available) return; setCatalogLoading(true); void pluginStore.catalog().then(setCatalog).catch((reason) => setCatalog({ packages: [], errors: [String(reason)] })).finally(() => setCatalogLoading(false)); };
+  // Every installation goes through the dialog; it needs the catalog to offer missing dependencies.
+  const review = (path: string, preview: InstallPreview) => { setInstallPreview({ path, preview }); if (!catalog && !catalogLoading) loadCatalog(); };
   const installFromFile = async () => {
     if (!pluginStore.available) return;
     try {
       const path = await openDialog({ multiple: false, filters: [{ name: "Плагин или тема BBForge", extensions: ["zip"] }] }) as string | null;
-      if (!path) return;
-      const preview = await pluginStore.preview(path);
-      // Packages signed with a trusted key install at once; anything else asks first, showing its permissions.
-      if (!preview.needsConfirmation && !preview.errors.length) await installPackage(path, preview);
-      else setInstallPreview({ path, preview });
+      if (path) review(path, await pluginStore.preview(path));
     } catch (reason) { setError(String(reason)); }
   };
-  const [catalog, setCatalog] = useState<CatalogResult | null>(null), [catalogLoading, setCatalogLoading] = useState(false);
-  const loadCatalog = () => { setCatalogLoading(true); void pluginStore.catalog().then(setCatalog).catch((reason) => setCatalog({ packages: [], errors: [String(reason)] })).finally(() => setCatalogLoading(false)); };
+  const [download, setDownload] = useState<DownloadProgress | null>(null);
+  useEffect(() => {
+    let previous: { at: number; bytes: number } | null = null;
+    return pluginStore.onDownloadProgress(({ id, downloaded, total }) => {
+      const now = performance.now(), speed = previous && now > previous.at ? (downloaded - previous.bytes) / ((now - previous.at) / 1000) : 0;
+      previous = { at: now, bytes: downloaded };
+      setDownload((current) => ({ id, downloaded, total, speed: speed > 0 ? speed : current?.id === id ? current.speed : 0 }));
+    });
+  }, [pluginStore]);
+  /** Downloads a catalog package; the backend refuses anything without a trusted signature. */
+  const downloadFromCatalog = async (entry: CatalogEntry) => {
+    setDownload({ id: entry.id, downloaded: 0, total: entry.size || null, speed: 0 });
+    try {
+      const path = await pluginStore.download(entry), preview = await pluginStore.preview(path);
+      if (preview.signature.state !== "trusted") throw new Error(`Пакет «${entry.name}» из каталога не подписан доверенным ключом`);
+      return { path, preview };
+    } finally { setDownload(null); }
+  };
   const installFromCatalog = async (entry: CatalogEntry) => {
     setPluginBusy(true);
+    try { const { path, preview } = await downloadFromCatalog(entry); review(path, preview); }
+    catch (reason) { setError(String(reason)); } finally { setPluginBusy(false); }
+  };
+  /** "Подтянуть зависимости": catalog versions that fit, then switching on disabled ones. */
+  const fetchDependencies = async (plan: DependencyPlan) => {
+    setPluginBusy(true);
     try {
-      // The download is refused unless the package carries a trusted signature, so no confirmation is offered here.
-      const path = await pluginStore.download(entry), preview = await pluginStore.preview(path);
-      setPluginBusy(false);
-      if (preview.signature.state !== "trusted") throw new Error(`Пакет «${entry.name}» из каталога не подписан доверенным ключом`);
-      if (preview.errors.length) setInstallPreview({ path, preview });
-      else await installPackage(path, preview);
-    } catch (reason) { setError(String(reason)); setPluginBusy(false); }
+      for (const item of fetchableDependencies(plan)) {
+        const entry = catalog?.packages.find((candidate) => candidate.id === item.id && candidate.version === item.available);
+        if (!entry) continue;
+        const { path, preview } = await downloadFromCatalog(entry);
+        if (preview.errors.length) throw new Error(`${entry.name}: ${preview.errors.join("; ")}`);
+        await pluginStore.install(path, preview.digest);
+        log(`Установлена зависимость «${entry.name}» ${entry.version}`, "info");
+      }
+      for (const item of plan.disabled) { await pluginStore.setEnabled(item.id, true); log(`Включена зависимость «${item.name ?? item.id}»`, "info"); }
+      await reloadPlugins();
+    } catch (reason) { setError(String(reason)); } finally { setPluginBusy(false); }
   };
   const pluginOperation = (operation: () => Promise<void>) => { setPluginBusy(true); void operation().then(reloadPlugins).catch((reason) => setError(String(reason))).finally(() => setPluginBusy(false)); };
   const toggleSidebar = (sidebarView: SidebarView) => setLayout((current) => current.showOutline && current.sidebarView === sidebarView ? { ...current, showOutline: false } : { ...current, showOutline: true, sidebarView });
@@ -647,7 +676,7 @@ export default function App() {
           themes={host.themes.map((item) => [item.id, item.name])} profiles={listProfiles().map((item) => [item.id, item.name])}
           plugins={<PluginsSettings packages={host.packages} broken={brokenPackages} desktop={pluginStore.available} busy={pluginBusy} onInstall={() => void installFromFile()}
             onToggle={(id, enabled) => pluginOperation(() => pluginStore.setEnabled(id, enabled))} onRemove={(id) => pluginOperation(() => pluginStore.remove(id))} onAcceptChanges={(id) => pluginOperation(() => pluginStore.acceptChanges(id))}
-            catalog={catalog} catalogLoading={catalogLoading} onLoadCatalog={loadCatalog} onInstallFromCatalog={(entry) => void installFromCatalog(entry)} />} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}
+            catalog={catalog} catalogLoading={catalogLoading} onLoadCatalog={loadCatalog} onInstallFromCatalog={(entry) => void installFromCatalog(entry)} download={installPreview ? null : download} />} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}
         editor={<Editor dark={theme === "dark"} document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} storedSelection={activeSession.ui.codeSelection} scroll={activeSession.ui.codeScroll} onScrollPosition={(codeScroll) => deferScroll(document.id, { codeScroll })} onChange={changeSource} onReady={setController} onQuickFix={showFixAt} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
         builder={<Builder key={document.id} document={document} snapshot={snapshot} selectedSpan={selected?.span} scroll={activeSession.ui.builderScroll} storedSelection={activeSession.ui.visualSelection} restoreFocus={activeSession.ui.activeSurface === "builder"} onScrollPosition={(builderScroll) => deferScroll(document.id, { builderScroll })} execute={execute} getDocument={() => documentRef.current} onSelect={(reference) => { setSelected(reference); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { selected: reference } }); }} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onFix={(range) => showFixAt(range.from)} onDragHint={setDragHint} onError={setError} onComposition={(active) => { composition.current = active; }} />}
         preview={<Preview document={document} source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} scroll={activeSession.ui.previewScroll} onScrollPosition={(previewScroll) => deferScroll(document.id, { previewScroll })} onSelection={setPreviewRange} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}
@@ -670,7 +699,8 @@ export default function App() {
       onFile={(id) => { setPalette(null); showDocuments(); dispatchWorkspace({ type: "activate", documentId: id }); }}
       onTag={(span) => { setPalette(null); selectNode(span); }}
       onLine={(line) => { setPalette(null); const text = documentRef.current.text; let at = 0; for (let current = 1; current < line && at >= 0; current++) at = text.indexOf("\n", at) + 1 || -1; const from = Math.max(0, at); setActiveRange({ from, to: from }); navigateRange({ from, to: from }); }} />}
-    {installPreview && <InstallDialog preview={installPreview.preview} busy={pluginBusy} onInstall={() => void installPackage(installPreview.path, installPreview.preview)} onCancel={() => setInstallPreview(null)} />}
+    {installPreview && (() => { const plan = planDependencies(installPreview.preview.manifest, installed, catalog?.packages ?? []); return <InstallDialog key={installPreview.preview.digest} preview={installPreview.preview} plan={plan} busy={pluginBusy} download={download}
+      onInstall={() => void installPackage(installPreview.path, installPreview.preview)} onFetchDependencies={() => void fetchDependencies(plan)} onCancel={() => setInstallPreview(null)} />; })()}
   </main></PluginUiContext.Provider></PreferencesContext.Provider>;
 }
 

@@ -60,13 +60,7 @@ export interface CatalogEntry {
 }
 export interface CatalogResult { packages: CatalogEntry[]; errors: string[] }
 
-/** -1, 0 or 1: semantic version order of "1.2.0"-style versions (pre-release suffixes ignored). */
-export function compareVersions(left: string, right: string): number {
-  const parts = (value: string) => value.split(/[-+]/)[0].split(".").map((part) => Number(part) || 0);
-  const [a, b] = [parts(left), parts(right)];
-  for (let at = 0; at < 3; at++) if ((a[at] ?? 0) !== (b[at] ?? 0)) return (a[at] ?? 0) < (b[at] ?? 0) ? -1 : 1;
-  return 0;
-}
+export { compareVersions } from "./semver";
 
 export function signatureLabel(signature: SignatureStatus): string {
   if (signature.state === "trusted") return `Подписан: ${signature.signer}`;

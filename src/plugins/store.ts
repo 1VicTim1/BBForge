@@ -14,6 +14,8 @@ export interface PluginStore {
   catalog(): Promise<CatalogResult>;
   /** Downloads a catalog package (checksum verified) and returns its local path. */
   download(entry: CatalogEntry): Promise<string>;
+  /** Progress of catalog downloads; returns the unsubscribe function. */
+  onDownloadProgress(listener: (progress: { id: string; downloaded: number; total: number | null }) => void): () => void;
 }
 
 declare global {
@@ -23,13 +25,15 @@ declare global {
   }
 }
 
-export function createPluginStore(invoke: Invoke | null): PluginStore {
+type Listen = (event: string, handler: (event: { payload: unknown }) => void) => Promise<() => void>;
+export function createPluginStore(invoke: Invoke | null, listen: Listen | null = null): PluginStore {
   if (!invoke) {
     const unavailable = async (): Promise<never> => { throw new Error("Плагины устанавливаются в настольном приложении"); };
     return {
       available: false,
       list: async () => (window.__BBFORGE_PLUGINS__ ?? []).map((item) => ({ status: "ok" as const, ...item })),
       preview: unavailable, install: unavailable, remove: unavailable, setEnabled: unavailable, acceptChanges: unavailable, catalog: unavailable, download: unavailable,
+      onDownloadProgress: () => () => undefined,
     };
   }
   return {
@@ -42,5 +46,11 @@ export function createPluginStore(invoke: Invoke | null): PluginStore {
     acceptChanges: async (id) => { await invoke("plugin_accept_changes", { id }); },
     catalog: async () => await invoke("catalog_list") as CatalogResult,
     download: async (entry) => await invoke("catalog_download", { entry }) as string,
+    onDownloadProgress: (listener) => {
+      if (!listen) return () => undefined;
+      let stop: (() => void) | null = null, stopped = false;
+      void listen("catalog-download", (event) => listener(event.payload as { id: string; downloaded: number; total: number | null })).then((unlisten) => { if (stopped) unlisten(); else stop = unlisten; });
+      return () => { stopped = true; stop?.(); };
+    },
   };
 }

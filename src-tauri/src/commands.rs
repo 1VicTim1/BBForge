@@ -157,8 +157,17 @@ pub async fn catalog_download(
         .app_cache_dir()
         .map_err(|error| error.to_string())?
         .join("downloads");
-    tauri::async_runtime::spawn_blocking(move || crate::catalog::download(&dir, &entry))
-        .await
-        .map_err(|error| error.to_string())?
-        .map(|path| path.to_string_lossy().into_owned())
+    use tauri::Emitter;
+    let id = entry.id.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::catalog::download(&dir, &entry, |downloaded, total| {
+            let _ = app.emit(
+                "catalog-download",
+                serde_json::json!({ "id": id, "downloaded": downloaded, "total": total }),
+            );
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+    .map(|path| path.to_string_lossy().into_owned())
 }

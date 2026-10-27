@@ -61,19 +61,47 @@ pub struct CatalogResult {
 }
 
 fn get(url: &str, limit: u64) -> Result<Vec<u8>, String> {
+    get_with_progress(url, limit, |_, _| {})
+}
+
+/// Downloads `url`, reporting (downloaded, total) about ten times a second and once at the end.
+fn get_with_progress(
+    url: &str,
+    limit: u64,
+    mut progress: impl FnMut(u64, Option<u64>),
+) -> Result<Vec<u8>, String> {
     let response = ureq::get(url)
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(120))
         .call()
         .map_err(|error| format!("{url}: {error}"))?;
-    let mut bytes = Vec::new();
-    response
-        .into_reader()
-        .take(limit + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| format!("{url}: {error}"))?;
-    if bytes.len() as u64 > limit {
+    let total = response
+        .header("Content-Length")
+        .and_then(|value| value.parse::<u64>().ok());
+    if total.is_some_and(|total| total > limit) {
         return Err(format!("{url}: файл слишком большой"));
     }
+    let mut reader = response.into_reader().take(limit + 1);
+    let mut bytes = Vec::with_capacity(total.unwrap_or(0) as usize);
+    let mut buffer = [0u8; 64 * 1024];
+    let mut reported = std::time::Instant::now();
+    progress(0, total);
+    loop {
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|error| format!("{url}: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        bytes.extend_from_slice(&buffer[..read]);
+        if bytes.len() as u64 > limit {
+            return Err(format!("{url}: файл слишком большой"));
+        }
+        if reported.elapsed() >= std::time::Duration::from_millis(100) {
+            progress(bytes.len() as u64, total);
+            reported = std::time::Instant::now();
+        }
+    }
+    progress(bytes.len() as u64, total.or(Some(bytes.len() as u64)));
     Ok(bytes)
 }
 
@@ -122,12 +150,16 @@ pub fn fetch() -> CatalogResult {
 
 /// Downloads a catalog package into `dir` and returns its path once the checksum matches and the
 /// package is signed with a trusted key: catalog packages are never installed without one.
-pub fn download(dir: &Path, entry: &CatalogEntry) -> Result<PathBuf, String> {
+pub fn download(
+    dir: &Path,
+    entry: &CatalogEntry,
+    progress: impl FnMut(u64, Option<u64>),
+) -> Result<PathBuf, String> {
     let (_, base) = CATALOGS.get(entry.catalog).ok_or("Неизвестный каталог")?;
     if !valid_file(&entry.file) {
         return Err(format!("Недопустимый путь пакета: {}", entry.file));
     }
-    let bytes = get(&format!("{base}{}", entry.file), MAX_PACKAGE)?;
+    let bytes = get_with_progress(&format!("{base}{}", entry.file), MAX_PACKAGE, progress)?;
     let digest = bbforge_plugin::package::hex(&Sha256::digest(&bytes));
     if !digest.eq_ignore_ascii_case(&entry.sha256) {
         return Err(format!(

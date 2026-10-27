@@ -53,10 +53,19 @@ describe("plugin host", () => {
     expect(host.packages[0].warnings.join("\n")).toContain("«themes.select»");
   });
 
-  it("does not load disabled, changed or broken packages and reports missing dependencies", () => {
-    const host = buildHost([pkg({ id: "a.off", contributes: {} }, {}, { enabled: false }), pkg({ id: "a.changed" }, {}, { tampered: true }), pkg({ id: "a.lonely", dependencies: { "a.missing": "^1" } })]);
-    expect(host.packages.map((item) => [item.id, item.active])).toEqual([["a.off", false], ["a.changed", false], ["a.lonely", true]]);
-    expect(host.packages[2].warnings[0]).toContain("a.missing");
+  it("does not load disabled or changed packages, nor packages whose dependencies are unmet", () => {
+    const host = buildHost([
+      pkg({ id: "a.off", contributes: {} }, {}, { enabled: false }), pkg({ id: "a.changed" }, {}, { tampered: true }),
+      pkg({ id: "a.lonely", dependencies: { "a.missing": "^1" } }),
+      pkg({ id: "a.base", version: "2.1.0" }), pkg({ id: "a.old-user", dependencies: { "a.base": "^1.0.0" } }), pkg({ id: "a.user", dependencies: { "a.base": "^2.0" } }),
+      pkg({ id: "a.chain", dependencies: { "a.lonely": "*" } }), pkg({ id: "a.needs-off", dependencies: { "a.off": "*" } }),
+    ]);
+    const state = (id: string) => host.packages.find((item) => item.id === id)!;
+    expect(host.packages.filter((item) => item.active).map((item) => item.id).sort()).toEqual(["a.base", "a.user"]);
+    expect(state("a.lonely").dependencyIssues).toEqual([{ id: "a.missing", requirement: "^1", state: "missing" }]);
+    expect(state("a.old-user").dependencyIssues).toEqual([{ id: "a.base", requirement: "^1.0.0", state: "version", installed: "2.1.0", name: "a.base" }]);
+    expect(state("a.chain").dependencyIssues[0]).toMatchObject({ id: "a.lonely", state: "inactive" });
+    expect(state("a.needs-off").dependencyIssues[0]).toMatchObject({ id: "a.off", state: "disabled" });
   });
 
   it("validates commands and the permissions their actions need", () => {
