@@ -21,7 +21,10 @@ export interface ScriptBackend {
 }
 export interface PromptOptions { title?: string; label?: string; placeholder?: string; hint?: string; value?: string }
 export interface ReviewOptions { title?: string; text: string; hint?: string }
+export interface CommandPatch { title?: string; icon?: string; hint?: string }
 export interface ScriptUi {
+  /** Changes how one of the plugin's own commands looks (menus, palette, buttons). */
+  updateCommand(owner: string, id: string, patch: CommandPatch): void;
   prompt(owner: string, options: PromptOptions): Promise<string | null>;
   review(owner: string, options: ReviewOptions): Promise<"insert" | "copy" | null>;
   notify(owner: string, text: string): void;
@@ -51,6 +54,7 @@ const __bb = (() => {
     ui: Object.freeze({ prompt: (options = {}) => call(run, "ui.prompt", [options]), review: (options) => call(run, "ui.review", [options]), notify: (text) => call(run, "ui.notify", [String(text)]) }),
     document: Object.freeze({ selection: () => call(run, "document.selection", []), insert: (text) => call(run, "document.insert", [String(text)]) }),
     plugins: Object.freeze({ call: (id, fn, args) => call(run, "plugins.call", [String(id), String(fn), args === undefined ? null : args]) }),
+    commands: Object.freeze({ update: (id, patch) => call(run, "commands.update", [String(id), patch]) }),
     log: (...parts) => call(run, "log", [parts.map((part) => typeof part === "string" ? part : JSON.stringify(part)).join(" ")]),
   });
   setInterval(() => post({ type: "beat" }), 1000);
@@ -68,6 +72,7 @@ self.addEventListener("message", async ({ data }) => {
   if (data.type !== "run") return;
   try {
     const fn = exports[data.fn];
+    if (typeof fn !== "function" && data.fn === "activate") { __bb.post({ type: "done", run: data.run, value: null }); return; }
     if (typeof fn !== "function") throw new Error("В скрипте нет функции " + data.fn);
     const value = await fn(__bb.api(data.run), data.args);
     try { __bb.post({ type: "done", run: data.run, value: value === undefined ? null : value }); }
@@ -85,7 +90,13 @@ export class ScriptRuntime {
   private instances = new Map<string, Instance>();
   private memoryStorage = new Map<string, Map<string, unknown>>();
   private watchdog: ReturnType<typeof setInterval> | null = null;
-  constructor(private scripts: ScriptDef[], private backend: ScriptBackend | null, private ui: ScriptUi) {}
+  constructor(private scripts: ScriptDef[], private backend: ScriptBackend | null, private ui: ScriptUi, private commandIds: string[] = []) {}
+
+  /** Calls exports.activate of every script (if it has one), e.g. to set command titles from saved state. */
+  activateAll(onError: (owner: string, error: Error) => void) {
+    const none: ScriptContext = { selection: "", insert: () => { throw new Error("activate не изменяет документ"); } };
+    for (const script of this.scripts) void this.run(script.owner, "activate", null, none).catch((error: Error) => onError(script.owner, error));
+  }
 
   /** Runs `fn` of a plugin's script with the document context of the command that started it. */
   run(owner: string, fn: string, args: unknown, context: ScriptContext, depth = 0): Promise<unknown> {
@@ -222,6 +233,12 @@ export class ScriptRuntime {
         return await this.ui.review(owner, { title: text(title, 120), text: text(body, 5_000_000), hint: text(hint, 500) });
       }
       case "ui.notify": this.ui.notify(owner, text(args[0], 500)); return null;
+      case "commands.update": {
+        const id = text(args[0], 128), { title, icon, hint } = options(args[1]);
+        if (!this.commandIds.includes(id) || !id.startsWith(`${owner}.`)) throw new Error(`Команда ${id} не принадлежит плагину`);
+        this.ui.updateCommand(owner, id, { title: typeof title === "string" ? title.slice(0, 80) : undefined, icon: typeof icon === "string" ? icon.slice(0, 120) : undefined, hint: typeof hint === "string" ? hint.slice(0, 200) : undefined });
+        return null;
+      }
       case "log": this.ui.notify(owner, text(args[0], 2000)); return null;
       case "document.selection": this.require(script, "document.edit"); return run.context.selection;
       case "document.insert": this.require(script, "document.edit"); run.context.insert(text(args[0], 5_000_000)); return null;

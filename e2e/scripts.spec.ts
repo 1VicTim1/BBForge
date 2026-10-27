@@ -16,6 +16,7 @@ exports.secret = async () => "не для чужих";`,
       { id: "victim.user.go", title: "Код поста (тест)", run: { script: "go" } },
       { id: "victim.user.hang", title: "Зависнуть (тест)", run: { script: "hang" } },
       { id: "victim.user.steal", title: "Чужая функция (тест)", run: { script: "steal" } },
+      { id: "victim.user.toggle", title: "Переключатель", run: { script: "toggle" } },
     ],
   } }, {
     "main.js": `exports.go = async (bb) => {
@@ -29,7 +30,9 @@ exports.secret = async () => "не для чужих";`,
   if (await bb.ui.review({ title: "Код поста", text }) === "insert") await bb.document.insert(text);
 };
 exports.hang = () => { for (;;) {} };
-exports.steal = (bb) => bb.plugins.call("victim.base", "secret");`,
+exports.steal = (bb) => bb.plugins.call("victim.base", "secret");
+exports.activate = (bb) => bb.commands.update("victim.user.toggle", { title: "Переключатель: выкл" });
+exports.toggle = (bb) => bb.commands.update("victim.user.toggle", { title: "Переключатель: вкл" });`,
   }),
 ];
 
@@ -67,4 +70,14 @@ test("a script that hangs is stopped", async ({ page }) => {
   test.setTimeout(40_000);
   await command(page, "Зависнуть (тест)");
   await expect(page.getByRole("alert")).toContainText("Пользователь: Плагин не отвечает и был остановлен", { timeout: 20_000 });
+});
+
+test("a script renames its own command on load and when run", async ({ page }) => {
+  await page.keyboard.press("Control+Shift+KeyP");
+  await page.keyboard.type("Переключатель");
+  await expect(page.getByRole("option", { name: /Переключатель: выкл/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Control+Shift+KeyP");
+  await page.keyboard.type("Переключатель");
+  await expect(page.getByRole("option", { name: /Переключатель: вкл/ })).toBeVisible();
 });

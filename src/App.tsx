@@ -62,7 +62,7 @@ import { InstallDialog, PluginsSettings } from "./plugins/PluginsSettings";
 import type { CatalogEntry, CatalogResult, InstallPreview, InstalledPackage } from "./plugins/types";
 import { planDependencies, type DependencyPlan } from "./plugins/dependencies";
 import { ConvertDialog } from "./plugins/ConvertDialog";
-import { ScriptRuntime, type PromptOptions, type ReviewOptions } from "./plugins/scripts";
+import { ScriptRuntime, type CommandPatch, type PromptOptions, type ReviewOptions } from "./plugins/scripts";
 import { ScriptPromptDialog, ScriptReviewDialog } from "./plugins/ScriptDialogs";
 import type { Converter } from "./plugins/convert";
 import { fetchableDependencies, type DownloadProgress } from "./plugins/PluginsSettings";
@@ -477,15 +477,22 @@ export default function App() {
   // Plugin scripts: one sandboxed worker per plugin, recreated when the packages change.
   const [scriptPrompt, setScriptPrompt] = useState<{ plugin: string; options: PromptOptions; resolve(value: string | null): void } | null>(null);
   const [scriptReview, setScriptReview] = useState<{ plugin: string; options: ReviewOptions; resolve(choice: "insert" | "copy" | null): void } | null>(null);
+  // Titles and icons scripts set for their commands (bb.commands.update), until the packages change.
+  const [commandOverrides, setCommandOverrides] = useState<Record<string, CommandPatch>>({});
   const runtime = useMemo(() => {
     const name = (owner: string) => host.packages.find((item) => item.id === owner)?.package.manifest.name ?? owner;
     return new ScriptRuntime(host.scripts, pluginStore.scriptBackend, {
+      updateCommand: (_owner, id, patch) => setCommandOverrides((current) => ({ ...current, [id]: { ...current[id], ...Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) } })),
       prompt: (owner, options) => new Promise((resolve) => setScriptPrompt({ plugin: name(owner), options, resolve })),
       review: (owner, options) => new Promise((resolve) => setScriptReview({ plugin: name(owner), options, resolve })),
       notify: (owner, text) => log(`${name(owner)}: ${text}`, "info"),
-    });
+    }, host.commands.map((command) => command.id));
   }, [host, pluginStore]);
-  useEffect(() => () => runtime.dispose(), [runtime]);
+  useEffect(() => {
+    setCommandOverrides({});
+    runtime.activateAll((owner, error) => log(`${host.packages.find((item) => item.id === owner)?.package.manifest.name ?? owner}: ${error.message}`, "error"));
+    return () => runtime.dispose();
+  }, [runtime]);
   const runScript = (command: PluginCommand, fn: string, args: unknown) => {
     // The run works on the selection the command started with; each insertion continues after the previous one.
     const target = { ...identity(documentRef.current), ...commandSelection() };
@@ -645,7 +652,7 @@ export default function App() {
     { id: "app.installPlugin", title: "Установить плагин или тему…", category: "Приложение", icon: "package", enabled: pluginStore.available, run: () => void installFromFile() },
     ...([["format.bold", "Жирный", "bold"], ["format.italic", "Курсив", "italic"], ["format.underline", "Подчёркнутый", "underline"], ["format.strike", "Зачёркнутый", "strike"], ["format.link", "Ссылка", "link"], ["format.quote", "Цитата", "quote"], ["format.code", "Блок кода", "code"], ["format.list", "Список", "list"], ["format.spoiler", "Создать спойлер", "spoiler"]] as const)
       .map(([id, title, icon]): Command => ({ id, action: id, title, category: "Оформление", icon, enabled, run: actions[id] })),
-    ...host.commands.map((command): Command => ({ id: command.id, title: command.title, category: command.category, icon: command.icon, owner: command.owner, hint: command.hint, keys: command.keys.map(formatChord), run: () => runPluginAction(command) })),
+    ...host.commands.map((command): Command => ({ id: command.id, title: commandOverrides[command.id]?.title ?? command.title, category: command.category, icon: commandOverrides[command.id]?.icon ?? command.icon, owner: command.owner, hint: commandOverrides[command.id]?.hint ?? command.hint, keys: command.keys.map(formatChord), run: () => runPluginAction(command) })),
   ], (id) => keysFor(id, preferences.keymap).map(formatChord));
   const menuBase: Array<{ id: string; title: string; items: Array<string | null> }> = [
     { id: "menu.file", title: "Файл", items: ["file.new", "file.open", null, "file.save", "file.saveAs", "export.copy", null, "file.close", "file.closeAll", null, "app.settings"] },
