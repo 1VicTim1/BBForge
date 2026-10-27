@@ -43,12 +43,23 @@ enum Command {
     Pack {
         /// Папка с manifest.json
         dir: PathBuf,
-        /// Имя архива (по умолчанию <id>-<version>.zip рядом с папкой)
+        /// Имя архива или папка для него (по умолчанию <id>-<version>.zip рядом с папкой)
         #[arg(short, long)]
         out: Option<PathBuf>,
         /// Файл ключа для подписи; без него пакет не подписывается
         #[arg(long, env = "BBFORGE_SIGNING_KEY")]
         key: Option<PathBuf>,
+    },
+    /// Собрать index.json каталога из архивов в папке
+    Index {
+        /// Папка с .zip-пакетами
+        dir: PathBuf,
+        /// Куда записать каталог
+        #[arg(short, long, default_value = "index.json")]
+        out: PathBuf,
+        /// Путь к архивам в каталоге относительно index.json
+        #[arg(long, default_value = "dist")]
+        prefix: String,
     },
     /// Проверить архив: манифест, файлы, подпись
     Verify {
@@ -65,6 +76,7 @@ fn main() -> ExitCode {
         Command::Pubkey { key } => read_key(&key).map(|key| println!("{}", key.public_key)),
         Command::Pack { dir, out, key } => pack(&dir, out, key.as_deref()),
         Command::Verify { file, trust } => verify(&file, &trust),
+        Command::Index { dir, out, prefix } => index(&dir, &out, &prefix),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -189,11 +201,12 @@ fn pack(dir: &Path, out: Option<PathBuf>, key: Option<&Path>) -> Result<(), Stri
     let signature = key
         .map(|path| read_key(path)?.sign(canonical_listing(&files).as_bytes()))
         .transpose()?;
-    let out = out.unwrap_or_else(|| {
-        dir.parent()
-            .unwrap_or(Path::new("."))
-            .join(format!("{}-{}.zip", manifest.id, manifest.version))
-    });
+    let file_name = format!("{}-{}.zip", manifest.id, manifest.version);
+    let out = match out {
+        Some(path) if path.is_dir() => path.join(file_name),
+        Some(path) => path,
+        None => dir.parent().unwrap_or(Path::new(".")).join(file_name),
+    };
     let archive = write_archive(Cursor::new(Vec::new()), &files, signature.as_ref())?;
     fs::write(&out, archive.into_inner()).map_err(|error| format!("{}: {error}", out.display()))?;
     println!(
@@ -204,6 +217,81 @@ fn pack(dir: &Path, out: Option<PathBuf>, key: Option<&Path>) -> Result<(), Stri
             Some(signature) => format!("подписан ключом {}", signature.signer),
             None => "без подписи".into(),
         }
+    );
+    Ok(())
+}
+
+/// `index.json`: every package of the folder (newest version per id) with its checksum.
+fn index(dir: &Path, out: &Path, prefix: &str) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+    let mut packages: std::collections::BTreeMap<String, (semver::Version, serde_json::Value)> =
+        Default::default();
+    let mut entries: Vec<_> = fs::read_dir(dir)
+        .map_err(|error| format!("{}: {error}", dir.display()))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|extension| extension == "zip"))
+        .collect();
+    entries.sort();
+    for path in entries {
+        let bytes = fs::read(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        let package =
+            read_archive(&bytes).map_err(|error| format!("{}: {error}", path.display()))?;
+        let inspection = package.inspect(&[]);
+        if !inspection.errors.is_empty() {
+            return Err(format!(
+                "{}: {}",
+                path.display(),
+                inspection.errors.join("; ")
+            ));
+        }
+        let manifest = inspection.manifest;
+        let version =
+            semver::Version::parse(&manifest.version).map_err(|error| error.to_string())?;
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        let signer = match &inspection.signature {
+            SignatureStatus::Untrusted { signer, .. } | SignatureStatus::Trusted { signer, .. } => {
+                Some(signer.clone())
+            }
+            SignatureStatus::Invalid { reason } => {
+                return Err(format!(
+                    "{}: подпись недействительна: {reason}",
+                    path.display()
+                ));
+            }
+            SignatureStatus::Unsigned => None,
+        };
+        let entry = serde_json::json!({
+            "id": manifest.id,
+            "type": manifest.kind,
+            "name": manifest.name,
+            "version": manifest.version,
+            "description": manifest.description,
+            "author": manifest.author,
+            "permissions": manifest.permissions,
+            "dependencies": manifest.dependencies,
+            "signer": signer,
+            "file": format!("{}/{name}", prefix.trim_end_matches('/')),
+            "size": bytes.len(),
+            "sha256": bbforge_plugin::package::hex(&Sha256::digest(&bytes)),
+        });
+        if packages
+            .get(&manifest.id)
+            .is_none_or(|(known, _)| *known < version)
+        {
+            packages.insert(manifest.id.clone(), (version, entry));
+        }
+    }
+    let index = serde_json::json!({
+        "version": 1,
+        "packages": packages.into_values().map(|(_, entry)| entry).collect::<Vec<_>>(),
+    });
+    let json = serde_json::to_string_pretty(&index).expect("index serializes") + "\n";
+    fs::write(out, json).map_err(|error| format!("{}: {error}", out.display()))?;
+    println!(
+        "Каталог: {} ({} пакетов)",
+        out.display(),
+        index["packages"].as_array().map_or(0, Vec::len)
     );
     Ok(())
 }

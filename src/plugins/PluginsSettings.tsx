@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "../components/Icon";
 import type { PackageState } from "./host";
-import { permissionInfo, signatureLabel, type InstallPreview, type SignatureStatus } from "./types";
+import { compareVersions, permissionInfo, signatureLabel, type CatalogEntry, type CatalogResult, type InstallPreview, type SignatureStatus } from "./types";
 
 interface Props {
   packages: PackageState[];
@@ -12,6 +12,10 @@ interface Props {
   onToggle(id: string, enabled: boolean): void;
   onRemove(id: string): void;
   onAcceptChanges(id: string): void;
+  catalog: CatalogResult | null;
+  catalogLoading: boolean;
+  onLoadCatalog(): void;
+  onInstallFromCatalog(entry: CatalogEntry): void;
 }
 
 const signatureClass = (signature: SignatureStatus) => signature.state === "trusted" ? "trusted" : signature.state === "invalid" ? "invalid" : "unsigned";
@@ -37,6 +41,7 @@ export function PluginsSettings(props: Props) {
       <span className="settings-label"><span>Установка пакетов</span><small>Архив .zip с manifest.json. Пакеты без доверенной подписи устанавливаются только после подтверждения.</small></span>
       <div className="settings-control"><button className="secondary-button" disabled={!props.desktop || props.busy} title={props.desktop ? undefined : "Доступно в настольном приложении"} onClick={props.onInstall}><Icon name="package" />Установить из файла…</button></div>
     </div>
+    <h5 className="plugins-heading">Установленные</h5>
     {props.packages.length === 0 && props.broken.length === 0 && <p className="settings-empty">Плагины и темы не установлены.</p>}
     <ul className="package-list">
       {props.packages.map(({ id, package: item, active, warnings }) => {
@@ -63,7 +68,32 @@ export function PluginsSettings(props: Props) {
       {props.broken.map((item) => <li key={item.id} className="package-card broken"><div className="package-head"><Icon name="error" /><div className="package-title"><strong>{item.id}</strong><small>{item.error}</small></div>
         <button className="text-button danger-action" disabled={!props.desktop || props.busy} onClick={() => props.onRemove(item.id)}><Icon name="trash" />Удалить</button></div></li>)}
     </ul>
+    {props.desktop && <Catalog {...props} />}
   </div>;
+}
+
+/** Packages from the BBForge-plugins and BBForge-themes repositories. */
+function Catalog(props: Props) {
+  const { catalog, catalogLoading, onLoadCatalog } = props;
+  useEffect(() => { if (!catalog && !catalogLoading) onLoadCatalog(); }, []);
+  const installed = new Map(props.packages.map((item) => [item.id, item.package.manifest.version]));
+  return <section className="plugin-catalog" aria-label="Каталог">
+    <div className="catalog-head"><h5 className="plugins-heading">Каталог</h5><button className="text-button" disabled={catalogLoading} onClick={onLoadCatalog}>{catalogLoading ? "Загрузка…" : "Обновить"}</button></div>
+    {catalog?.errors.map((error) => <div key={error} className="package-alert" role="alert"><Icon name="warning" />Не удалось загрузить каталог: {error}</div>)}
+    {catalog && catalog.packages.length === 0 && !catalog.errors.length && <p className="settings-empty">Каталог пуст.</p>}
+    <ul className="package-list">{catalog?.packages.map((entry) => {
+      const current = installed.get(entry.id), order = current ? compareVersions(current, entry.version) : -1;
+      return <li key={`${entry.catalog}-${entry.id}`} className="package-card catalog-card" data-catalog-id={entry.id}>
+        <div className="package-head">
+          <Icon name={entry.type === "theme" ? "palette" : "puzzle"} />
+          <div className="package-title"><strong>{entry.name}</strong><small>{entry.id} · {entry.version}{entry.author ? ` · ${entry.author}` : ""}{entry.signer ? ` · подпись ${entry.signer}` : " · без подписи"}</small></div>
+          {order >= 0 ? <span className="catalog-state">{order === 0 ? "Установлен" : `Установлена ${current}`}</span>
+            : <button className="secondary-button" disabled={props.busy} onClick={() => props.onInstallFromCatalog(entry)}><Icon name="package" />{current ? `Обновить до ${entry.version}` : "Установить"}</button>}
+        </div>
+        {entry.description && <p className="package-description">{entry.description}</p>}
+      </li>;
+    })}</ul>
+  </section>;
 }
 
 /** Shown before installing a package that is not signed with a trusted key (or has problems). */

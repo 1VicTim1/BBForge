@@ -136,3 +136,29 @@ pub fn plugin_set_enabled(app: tauri::AppHandle, id: String, enabled: bool) -> R
 pub fn plugin_accept_changes(app: tauri::AppHandle, id: String) -> Result<(), String> {
     plugin_store(&app)?.accept_changes(&id)
 }
+
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub async fn catalog_list() -> Result<crate::catalog::CatalogResult, String> {
+    tauri::async_runtime::spawn_blocking(crate::catalog::fetch)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Downloads a catalog package and returns the local path to preview and install.
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub async fn catalog_download(
+    app: tauri::AppHandle,
+    entry: crate::catalog::CatalogEntry,
+) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| error.to_string())?
+        .join("downloads");
+    tauri::async_runtime::spawn_blocking(move || crate::catalog::download(&dir, &entry))
+        .await
+        .map_err(|error| error.to_string())?
+        .map(|path| path.to_string_lossy().into_owned())
+}

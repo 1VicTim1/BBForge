@@ -731,6 +731,9 @@ button, .tree-row, .diagnostic-row, .keymap-row, .document-tab, .builder-spoiler
 .plugin-select .select-trigger { min-width: 140px; height: 24px; font-size: 12px; }
 .statusbar .plugin-select .select-trigger { min-width: 110px; height: 20px; padding: 0 6px; font-size: 11px; background: transparent; border-color: transparent; }
 .statusbar .plugin-select .select-trigger:hover { border-color: var(--border); }
+/* Status bar and title bar lists open towards the inside of the window. */
+.statusbar .plugin-select .select-popup, .titlebar-actions .plugin-select .select-popup { left: auto; right: 0; min-width: 180px; }
+.statusbar .plugin-select .select { position: relative; }
 .titlebar-actions .plugin-select .select-trigger { min-width: 130px; }
 .plugin-separator { width: 1px; height: 16px; margin: 0 4px; background: var(--border); }
 .bb-plain-caption { color: var(--text-muted); font-size: 0.9em; }
@@ -778,3 +781,8 @@ div.bb-plain, blockquote.bb-plain, pre.bb-plain, details.bb-plain { margin: 4px 
 .install-dialog .signature-badge { align-self: flex-start; }
 .install-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .install-dialog footer .danger-action { color: var(--accent-fg); background: var(--error); border-color: var(--error); }
+.plugins-heading { margin: 18px 0 6px; color: var(--text-secondary); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.catalog-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.catalog-head .plugins-heading { margin-bottom: 0; }
+.catalog-state { flex-shrink: 0; color: var(--text-muted); font-size: 12px; }
+.catalog-card .secondary-button { display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; }

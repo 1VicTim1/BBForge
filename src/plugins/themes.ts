@@ -1,4 +1,3 @@
-import tokensCss from "../styles/tokens.css?raw";
 import type { OwnedPatch } from "./ui";
 
 /**
@@ -18,8 +17,10 @@ export interface ThemeDef {
   source: string | null;
 }
 
-/** Tokens a theme may set: every custom property declared in tokens.css. */
-export const THEME_TOKENS = new Set([...tokensCss.matchAll(/(--[a-z][a-z0-9-]*)\s*:/g)].map((match) => match[1]));
+/** Tokens a theme may set: every custom property declared in styles/tokens.css (themes.test.ts keeps them in sync). */
+export const THEME_TOKENS = new Set([
+  "--accent", "--accent-fg", "--accent-hover", "--accent-subtle", "--bg-active", "--bg-canvas", "--bg-editor", "--bg-elevated", "--bg-hover", "--bg-input", "--bg-selected", "--bg-surface", "--border", "--border-strong", "--border-subtle", "--diff-added-bg", "--diff-added-fg", "--diff-removed-bg", "--diff-removed-fg", "--editor-line", "--editor-selection", "--error", "--error-subtle", "--font-code", "--font-ui", "--gap-island", "--h-control", "--h-problem", "--h-row", "--h-status", "--h-tabs", "--h-title", "--h-toolbar", "--info", "--link", "--radius", "--radius-chip", "--radius-island", "--radius-popup", "--scrim", "--shadow-popup", "--success", "--syn-block", "--syn-bracket", "--syn-inline", "--syn-item", "--syn-media", "--syn-text", "--syn-url", "--syn-value", "--t-expand", "--text", "--text-disabled", "--text-muted", "--text-secondary", "--t-hover", "--t-popup", "--w-activity", "--warning", "--warning-subtle", "--w-inspector", "--w-sidebar",
+]);
 /** Colours, lengths, font lists, shadows and timings — never url(), expressions, escapes or new declarations. */
 const SAFE_TOKEN_VALUE = /^[#\w\s.,%()+\-/"']{1,200}$/;
 const UNSAFE = /url\s*\(|expression|image-set|\\|;|\{|\}|@import/i;

@@ -1,4 +1,4 @@
-import type { InstallPreview, InstalledPackage, ListedPackage } from "./types";
+import type { CatalogEntry, CatalogResult, InstallPreview, InstalledPackage, ListedPackage } from "./types";
 
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 export interface PluginStore {
@@ -10,6 +10,10 @@ export interface PluginStore {
   remove(id: string): Promise<void>;
   setEnabled(id: string, enabled: boolean): Promise<void>;
   acceptChanges(id: string): Promise<void>;
+  /** Packages of the catalog repositories. */
+  catalog(): Promise<CatalogResult>;
+  /** Downloads a catalog package (checksum verified) and returns its local path. */
+  download(entry: CatalogEntry): Promise<string>;
 }
 
 declare global {
@@ -25,7 +29,7 @@ export function createPluginStore(invoke: Invoke | null): PluginStore {
     return {
       available: false,
       list: async () => (window.__BBFORGE_PLUGINS__ ?? []).map((item) => ({ status: "ok" as const, ...item })),
-      preview: unavailable, install: unavailable, remove: unavailable, setEnabled: unavailable, acceptChanges: unavailable,
+      preview: unavailable, install: unavailable, remove: unavailable, setEnabled: unavailable, acceptChanges: unavailable, catalog: unavailable, download: unavailable,
     };
   }
   return {
@@ -36,5 +40,7 @@ export function createPluginStore(invoke: Invoke | null): PluginStore {
     remove: async (id) => { await invoke("plugin_remove", { id }); },
     setEnabled: async (id, enabled) => { await invoke("plugin_set_enabled", { id, enabled }); },
     acceptChanges: async (id) => { await invoke("plugin_accept_changes", { id }); },
+    catalog: async () => await invoke("catalog_list") as CatalogResult,
+    download: async (entry) => await invoke("catalog_download", { entry }) as string,
   };
 }

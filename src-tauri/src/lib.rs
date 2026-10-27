@@ -1,3 +1,4 @@
+pub mod catalog;
 pub mod commands;
 pub mod files;
 pub mod plugins;
@@ -22,7 +23,9 @@ pub fn run() {
             commands::plugin_list,
             commands::plugin_remove,
             commands::plugin_set_enabled,
-            commands::plugin_accept_changes
+            commands::plugin_accept_changes,
+            commands::catalog_list,
+            commands::catalog_download
         ])
         .run(tauri::generate_context!())
         .expect("ошибка запуска BBForge");

@@ -2,6 +2,8 @@ export interface AnalysisRequest {
   source: string;
   documentId: string;
   revision: number;
+  /** Forum profile for browser test harnesses; the desktop adapter adds it itself. */
+  profile?: import("../bbcode/profile").TagProfile;
 }
 
 export interface AnalysisResponse<T> extends AnalysisRequest {

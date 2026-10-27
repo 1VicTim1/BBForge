@@ -58,7 +58,7 @@ import { normalizePatches, resolveSlot } from "./plugins/ui";
 import { slotIndex } from "./plugins/slots";
 import { PluginUiContext, type PluginUi } from "./plugins/context";
 import { InstallDialog, PluginsSettings } from "./plugins/PluginsSettings";
-import type { InstallPreview, InstalledPackage } from "./plugins/types";
+import type { CatalogEntry, CatalogResult, InstallPreview, InstalledPackage } from "./plugins/types";
 import "./ide.css";
 
 const example = `[size=4][b]Моя новая тема[/b][/size]\nСоздавайте шапки, в которых легко разобраться.\n\n[spoiler=[b][color=#e5b567]Важная информация![/color][/b]]\nТекст шапки\n[/spoiler]\n\n[spoiler=Инструкции]\n[list][*]Первый шаг[*]Второй шаг[/list]\n[/spoiler]`;
@@ -169,7 +169,8 @@ export default function App() {
   const profileRevision = useSyncExternalStore(subscribeProfiles, profileVersion);
   const analyze = useMemo(() => isTauri()
     ? createTauriAnalyzer<Analysis>(invoke, () => activeProfile().analyzer)
-    : window.__BBFORGE_ANALYZE__ ?? (async (request: AnalysisRequest): Promise<AnalysisResponse<Analysis>> => ({ ...request, analysis: emptyAnalysis() })), []);
+    : window.__BBFORGE_ANALYZE__ ? (request: AnalysisRequest) => window.__BBFORGE_ANALYZE__!({ ...request, profile: activeProfile().analyzer })
+    : async (request: AnalysisRequest): Promise<AnalysisResponse<Analysis>> => ({ ...request, analysis: emptyAnalysis() }), []);
   const client = useMemo(() => createAnalysisClient(analyze, (result, response) => {
     setAnalyses((current) => ({ ...current, [response.documentId]: result }));
     setSnapshots((current) => ({ ...current, [response.documentId]: response }));
@@ -494,6 +495,17 @@ export default function App() {
       else setInstallPreview({ path, preview });
     } catch (reason) { setError(String(reason)); }
   };
+  const [catalog, setCatalog] = useState<CatalogResult | null>(null), [catalogLoading, setCatalogLoading] = useState(false);
+  const loadCatalog = () => { setCatalogLoading(true); void pluginStore.catalog().then(setCatalog).catch((reason) => setCatalog({ packages: [], errors: [String(reason)] })).finally(() => setCatalogLoading(false)); };
+  const installFromCatalog = async (entry: CatalogEntry) => {
+    setPluginBusy(true);
+    try {
+      const path = await pluginStore.download(entry), preview = await pluginStore.preview(path);
+      setPluginBusy(false);
+      if (!preview.needsConfirmation && !preview.errors.length) await installPackage(path, preview);
+      else setInstallPreview({ path, preview });
+    } catch (reason) { setError(String(reason)); setPluginBusy(false); }
+  };
   const pluginOperation = (operation: () => Promise<void>) => { setPluginBusy(true); void operation().then(reloadPlugins).catch((reason) => setError(String(reason))).finally(() => setPluginBusy(false)); };
   const toggleSidebar = (sidebarView: SidebarView) => setLayout((current) => current.showOutline && current.sidebarView === sidebarView ? { ...current, showOutline: false } : { ...current, showOutline: true, sidebarView });
   const insertAtCursor = (text: string, label: string) => { const range = commandSelection(); run(() => ({ ...identity(documentRef.current), label, changes: [{ from: range.from, to: range.to, insert: text.replace("$", documentRef.current.text.slice(range.from, range.to)) }] })); };
@@ -632,7 +644,8 @@ export default function App() {
         page={settingsTab.active ? <SettingsPage key={settingsSection.nonce} initialSection={settingsSection.section} value={preferences} onChange={setPreferences} desktop={isTauri()}
           themes={host.themes.map((item) => [item.id, item.name])} profiles={listProfiles().map((item) => [item.id, item.name])}
           plugins={<PluginsSettings packages={host.packages} broken={brokenPackages} desktop={pluginStore.available} busy={pluginBusy} onInstall={() => void installFromFile()}
-            onToggle={(id, enabled) => pluginOperation(() => pluginStore.setEnabled(id, enabled))} onRemove={(id) => pluginOperation(() => pluginStore.remove(id))} onAcceptChanges={(id) => pluginOperation(() => pluginStore.acceptChanges(id))} />} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}
+            onToggle={(id, enabled) => pluginOperation(() => pluginStore.setEnabled(id, enabled))} onRemove={(id) => pluginOperation(() => pluginStore.remove(id))} onAcceptChanges={(id) => pluginOperation(() => pluginStore.acceptChanges(id))}
+            catalog={catalog} catalogLoading={catalogLoading} onLoadCatalog={loadCatalog} onInstallFromCatalog={(entry) => void installFromCatalog(entry)} />} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}
         editor={<Editor dark={theme === "dark"} document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} storedSelection={activeSession.ui.codeSelection} scroll={activeSession.ui.codeScroll} onScrollPosition={(codeScroll) => deferScroll(document.id, { codeScroll })} onChange={changeSource} onReady={setController} onQuickFix={showFixAt} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
         builder={<Builder key={document.id} document={document} snapshot={snapshot} selectedSpan={selected?.span} scroll={activeSession.ui.builderScroll} storedSelection={activeSession.ui.visualSelection} restoreFocus={activeSession.ui.activeSurface === "builder"} onScrollPosition={(builderScroll) => deferScroll(document.id, { builderScroll })} execute={execute} getDocument={() => documentRef.current} onSelect={(reference) => { setSelected(reference); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { selected: reference } }); }} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onFix={(range) => showFixAt(range.from)} onDragHint={setDragHint} onError={setError} onComposition={(active) => { composition.current = active; }} />}
         preview={<Preview document={document} source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} scroll={activeSession.ui.previewScroll} onScrollPosition={(previewScroll) => deferScroll(document.id, { previewScroll })} onSelection={setPreviewRange} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}

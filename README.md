@@ -23,6 +23,10 @@
 
 Архив `.tar.gz` содержит `install.sh` и `uninstall.sh`; по умолчанию установка в `/usr/local`, с ключом `--user` — в `~/.local`.
 
+## Плагины и темы
+
+Профили других форумов, темы, шаблоны и изменения интерфейса подключаются пакетами: «Настройки → Плагины и темы». Готовые пакеты лежат в каталогах [BBForge-plugins](https://github.com/1VicTim1/BBForge-plugins) и [BBForge-themes](https://github.com/1VicTim1/BBForge-themes). Как написать свой пакет и подписать его утилитой `bbforge-pack`, описано в [docs/plugins.md](docs/plugins.md).
+
 ## Сборка
 
 Требования: Node.js 24, Rust stable, системные зависимости [Tauri 2](https://v2.tauri.app/start/prerequisites/). Для Debian/Ubuntu:
@@ -45,9 +49,10 @@ npm run tauri:build    # релизная сборка, результат в ta
 
 | Путь | Назначение |
 | --- | --- |
-| `crates/` | парсер и линтер BBCode (Rust) |
+| `crates/bbcode-core` | парсер и линтер BBCode (Rust), профили форумов |
+| `crates/bbforge-plugin`, `crates/bbforge-pack` | формат пакетов плагинов и тем, утилита упаковки и подписи |
 | `src-tauri/` | десктоп-оболочка Tauri, IPC |
-| `src/` | интерфейс (React, CodeMirror 6) |
+| `src/` | интерфейс (React, CodeMirror 6); `src/plugins` — хост плагинов |
 | `e2e/` | браузерные тесты Playwright |
 | `packaging/`, `scripts/` | упаковка и smoke-тесты |
 
