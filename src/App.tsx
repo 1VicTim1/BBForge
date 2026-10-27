@@ -51,7 +51,7 @@ import { ContextMenu } from "./context/ContextMenu";
 import { useContextMenu } from "./context/useContextMenu";
 import { extractPreviewBbcode, readPreviewSelection, type PreviewSelection } from "./components/previewSelection";
 import { nodeLabel } from "./bbcode/labels";
-import { activeProfile, builtinOf, listProfiles, profileVersion, setActiveProfile, setPluginProfiles, subscribeProfiles, tagFor, tagSpec } from "./bbcode/profile";
+import { activeProfile, AUTO_PROFILE, builtinOf, detectProfile, listProfiles, profileVersion, setActiveProfile, setPluginProfiles, subscribeProfiles, tagFor, tagSpec } from "./bbcode/profile";
 import { buildHost, type PluginAction, type PluginCommand } from "./plugins/host";
 import { createPluginStore } from "./plugins/store";
 import { applyTheme, BUILTIN_THEMES } from "./plugins/themes";
@@ -61,6 +61,8 @@ import { PluginUiContext, type PluginUi } from "./plugins/context";
 import { InstallDialog, PluginsSettings } from "./plugins/PluginsSettings";
 import type { CatalogEntry, CatalogResult, InstallPreview, InstalledPackage } from "./plugins/types";
 import { planDependencies, type DependencyPlan } from "./plugins/dependencies";
+import { ConvertDialog } from "./plugins/ConvertDialog";
+import type { Converter } from "./plugins/convert";
 import { fetchableDependencies, type DownloadProgress } from "./plugins/PluginsSettings";
 import "./ide.css";
 
@@ -127,7 +129,6 @@ export default function App() {
   useEffect(() => { void reloadPlugins().catch((reason) => setError(`Не удалось загрузить плагины: ${String(reason)}`)); }, [reloadPlugins]);
   const host = useMemo(() => buildHost(installed), [installed]);
   useEffect(() => { setPluginProfiles(host.profiles); }, [host]);
-  useEffect(() => { setActiveProfile(preferences.profile); }, [preferences.profile, host]);
   const themes = useMemo(() => [...BUILTIN_THEMES, ...host.themes], [host]);
   const activeTheme = themes.find((item) => item.id === resolvedTheme(preferences.theme, prefersDark)) ?? BUILTIN_THEMES[prefersDark || preferences.theme !== "system" ? 0 : 1];
   const theme = activeTheme.base;
@@ -170,6 +171,10 @@ export default function App() {
   }, [workspaceStore]);
   useEffect(() => { if (workspaceReady) workspaceStore.schedule(workspace); }, [workspace, workspaceReady, workspaceStore]);
   const profileRevision = useSyncExternalStore(subscribeProfiles, profileVersion);
+  // "Автоматически": the profile follows the active document's tags and forum links.
+  const automaticProfile = preferences.profile === AUTO_PROFILE;
+  const wantedProfile = useMemo(() => automaticProfile ? detectProfile(document.text, activeProfile().id) : preferences.profile, [automaticProfile, preferences.profile, document.text, profileRevision]);
+  useEffect(() => { setActiveProfile(wantedProfile); }, [wantedProfile]);
   const analyze = useMemo(() => isTauri()
     ? createTauriAnalyzer<Analysis>(invoke, () => activeProfile().analyzer)
     : window.__BBFORGE_ANALYZE__ ? (request: AnalysisRequest) => window.__BBFORGE_ANALYZE__!({ ...request, profile: activeProfile().analyzer })
@@ -466,6 +471,15 @@ export default function App() {
   useEffect(() => () => flushScroll(), [document.id, flushScroll]);
   const openSpoilerDialog = () => { if (composing()) return; spoilerOrigin.current = { ...identity(documentRef.current), ...spoilerSelection() }; setSpoilerDialog(true); };
   const switchTab = (step: number) => { const tabs = workspaceRef.current.tabs, at = tabs.findIndex((tab) => tab.document.id === workspaceRef.current.activeId); const next = tabs[(at + step + tabs.length) % tabs.length]; if (next) { showDocuments(); dispatchWorkspace({ type: "activate", documentId: next.document.id }); } };
+  const [conversion, setConversion] = useState<{ converter: Converter; range: VisualRange; initial: string } | null>(null);
+  const insertConverted = (text: string) => {
+    const target = conversion!.range;
+    run(() => {
+      if (documentRef.current.id !== target.documentId || documentRef.current.revision !== target.revision) throw new Error("Документ изменился. Откройте импорт заново.");
+      return { ...identity(documentRef.current), label: "Вставить BBCode из HTML", changes: [{ from: target.from, to: target.to, insert: text }], selection: { from: target.from, to: target.from + text.length } };
+    }, true);
+    setConversion(null);
+  };
   const [settingsSection, setSettingsSection] = useState<{ section: "appearance" | "plugins"; nonce: number }>({ section: "appearance", nonce: 0 });
   const openSettings = (section?: "appearance" | "plugins") => { if (section) setSettingsSection({ section, nonce: Date.now() }); setSettingsTab({ open: true, active: true }); };
   // Plugin commands: declarative actions, each checked against the plugin's permissions in buildHost.
@@ -477,6 +491,13 @@ export default function App() {
     else if ("command" in action) runPluginCommand(action.command);
     else if ("setProfile" in action) setPreferences((current) => ({ ...current, profile: action.setProfile }));
     else if ("setTheme" in action) setPreferences((current) => ({ ...current, theme: action.setTheme }));
+    else if ("convert" in action) {
+      const converter = host.converters.find((item) => item.id === action.convert);
+      if (!converter) { setError(`Конвертер ${action.convert} не найден`); return; }
+      // Selected HTML in the document is converted in place; otherwise the result goes to the cursor.
+      const range = commandSelection(), selected = documentRef.current.text.slice(range.from, range.to);
+      setConversion({ converter, range: { ...identity(documentRef.current), ...range }, initial: /<[a-z][\s\S]*>/i.test(selected) ? selected : "" });
+    }
   };
   const installPackage = async (path: string, preview: InstallPreview) => {
     setPluginBusy(true);
@@ -613,7 +634,7 @@ export default function App() {
     patches: uiPatches, runCommand: runPluginCommand,
     commandTitle: (id) => registry.find((item) => item.id === id)?.title, commandEnabled: (id) => registry.find((item) => item.id === id)?.enabled !== false,
     asset: (owner, path) => installed.find((item) => item.manifest.id === owner)?.assets[path],
-    profiles: listProfiles(), themes: themes.map(({ id, name }) => ({ id, name })), profile: activeProfile().id, theme: activeTheme.id,
+    profiles: [{ id: AUTO_PROFILE, name: `Автоматически (${activeProfile().name})` }, ...listProfiles()], themes: themes.map(({ id, name }) => ({ id, name })), profile: automaticProfile ? AUTO_PROFILE : activeProfile().id, theme: activeTheme.id,
     setProfile: (profile) => setPreferences((current) => ({ ...current, profile })), setTheme: (next) => setPreferences((current) => ({ ...current, theme: next })),
   };
   const menus: MenuDefinition[] = resolveSlot("titlebar.menus", menuBase.map((menu) => ({ id: menu.id, value: menu })), uiPatches).map((entry) => {
@@ -673,7 +694,7 @@ export default function App() {
         editorBar={<EditorBar crumbs={crumbs} view={view} split={split} onView={setView} onSplit={toggleSplit} keys={{ code: key("view.code"), builder: key("view.builder"), preview: key("view.preview"), split: key("view.split") }} />}
         toolbar={<FormattingToolbar synced={synced} disabled={!currentSnapshot} states={formattingStates} onFormat={format} onSpoiler={openSpoilerDialog} onUndo={() => historyAction(false)} onRedo={() => historyAction(true)} />}
         page={settingsTab.active ? <SettingsPage key={settingsSection.nonce} initialSection={settingsSection.section} value={preferences} onChange={setPreferences} desktop={isTauri()}
-          themes={host.themes.map((item) => [item.id, item.name])} profiles={listProfiles().map((item) => [item.id, item.name])}
+          themes={host.themes.map((item) => [item.id, item.name])} profiles={[[AUTO_PROFILE, `Автоматически (сейчас ${activeProfile().name})`], ...listProfiles().map((item): [string, string] => [item.id, item.name])]}
           plugins={<PluginsSettings packages={host.packages} broken={brokenPackages} desktop={pluginStore.available} busy={pluginBusy} onInstall={() => void installFromFile()}
             onToggle={(id, enabled) => pluginOperation(() => pluginStore.setEnabled(id, enabled))} onRemove={(id) => pluginOperation(() => pluginStore.remove(id))} onAcceptChanges={(id) => pluginOperation(() => pluginStore.acceptChanges(id))}
             catalog={catalog} catalogLoading={catalogLoading} onLoadCatalog={loadCatalog} onInstallFromCatalog={(entry) => void installFromCatalog(entry)} download={installPreview ? null : download} />} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}
@@ -687,7 +708,7 @@ export default function App() {
         </div></> : null} />
     </div>
     {error && <div role="alert" className="error-banner"><span>{error.replace(/^Error: /, "")}</span><button aria-label="Закрыть сообщение" onClick={() => setErrorState(null)}><Icon name="close" /></button></div>}
-    <StatusBar profile={activeProfile().name} document={document} position={activeRange.from} errors={counts.errors} warnings={counts.warnings} synced={synced} hint={dragHint} onProblems={() => setLayout((current) => ({ ...current, showProblems: !current.showProblems }))} onGoToLine={() => setPalette(":")} />
+    <StatusBar profile={activeProfile().name} automaticProfile={automaticProfile} document={document} position={activeRange.from} errors={counts.errors} warnings={counts.warnings} synced={synced} hint={dragHint} onProblems={() => setLayout((current) => ({ ...current, showProblems: !current.showProblems }))} onGoToLine={() => setPalette(":")} />
     {quickFix && <QuickFixPopover key={`${quickFix.diagnostic?.span.start}-${quickFix.fixes.map((item) => item.id).join()}`} document={document} diagnostic={quickFix.diagnostic} title={quickFix.title} fixes={quickFix.fixes} anchor={quickFix.anchor} sameEverywhere={sameEverywhere(quickFix.diagnostic)} onApply={(command) => { setQuickFix(null); run(() => command, true); }} onClose={() => setQuickFix(null)} />}
     {batch && <BatchPreview key={batch.title} title={batch.title} label={batch.label} document={document} items={batch.items} onApply={(command) => { setBatch(null); run(() => command, true); }} onClose={() => setBatch(null)} />}
     {spoilerDialog && <div className="modal-backdrop"><form className="dialog" role="dialog" aria-label="Создать спойлер" onSubmit={(event) => { event.preventDefault(); run(() => { const origin = spoilerOrigin.current; if (!origin || !currentSnapshot || origin.documentId !== documentRef.current.id || origin.revision !== documentRef.current.revision) throw new Error("Документ изменился. Выделите текст заново."); return createSpoiler(documentRef.current, origin, spoilerTitle, currentSnapshot); }); setSpoilerDialog(false); }}><h3>Создать спойлер</h3><label>Заголовок <input autoFocus value={spoilerTitle} onChange={(event) => setSpoilerTitle(event.target.value)} /></label><p>Выделенный текст станет содержимым спойлера.</p><footer><button type="button" onClick={() => setSpoilerDialog(false)}>Отмена</button><button type="submit">Создать</button></footer></form></div>}
@@ -699,6 +720,7 @@ export default function App() {
       onFile={(id) => { setPalette(null); showDocuments(); dispatchWorkspace({ type: "activate", documentId: id }); }}
       onTag={(span) => { setPalette(null); selectNode(span); }}
       onLine={(line) => { setPalette(null); const text = documentRef.current.text; let at = 0; for (let current = 1; current < line && at >= 0; current++) at = text.indexOf("\n", at) + 1 || -1; const from = Math.max(0, at); setActiveRange({ from, to: from }); navigateRange({ from, to: from }); }} />}
+    {conversion && <ConvertDialog converter={conversion.converter} initial={conversion.initial} replacing={conversion.range.from !== conversion.range.to} onInsert={insertConverted} onCopy={(text) => void copyText(text).then(() => log("BBCode скопирован в буфер обмена", "info"))} onClose={() => setConversion(null)} />}
     {installPreview && (() => { const plan = planDependencies(installPreview.preview.manifest, installed, catalog?.packages ?? []); return <InstallDialog key={installPreview.preview.digest} preview={installPreview.preview} plan={plan} busy={pluginBusy} download={download}
       onInstall={() => void installPackage(installPreview.path, installPreview.preview)} onFetchDependencies={() => void fetchDependencies(plan)} onCancel={() => setInstallPreview(null)} />; })()}
   </main></PluginUiContext.Provider></PreferencesContext.Provider>;

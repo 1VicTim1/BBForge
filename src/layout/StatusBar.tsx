@@ -10,12 +10,14 @@ interface Props {
   hint?: string | null;
   /** Name of the active forum profile. */
   profile?: string;
+  /** The profile was picked from the document. */
+  automaticProfile?: boolean;
   onProblems(): void; onGoToLine(): void;
 }
 type Render = (entry: SlotEntry<Render>) => ReactNode;
 const draw = (entries: SlotEntry<Render>[]) => entries.map((entry) => <Fragment key={entry.id}>{entry.builtin ? entry.builtin(entry) : <PluginItemView entry={entry} variant="status" />}</Fragment>);
 
-export function StatusBar({ document, position, errors, warnings, synced, hint, profile = "4PDA", onProblems, onGoToLine }: Props) {
+export function StatusBar({ document, position, errors, warnings, synced, hint, profile = "4PDA", automaticProfile = false, onProblems, onGoToLine }: Props) {
   const prefix = document.text.slice(0, position), line = (prefix.match(/\n/g)?.length ?? 0) + 1, column = Array.from(prefix.slice(prefix.lastIndexOf("\n") + 1)).length + 1;
   const kinds = new Set(document.endings), endings = kinds.size > 1 ? "LF / CRLF" : document.endings[0] === "crlf" ? "CRLF" : "LF";
   const left = useSlot<Render>("statusbar.left", [
@@ -30,7 +32,7 @@ export function StatusBar({ document, position, errors, warnings, synced, hint, 
     { id: "status.endings", value: (entry) => <span {...uiAttributes(entry, "status-item")} title="Переводы строк">{endings}</span> },
     { id: "status.encoding", value: (entry) => <span {...uiAttributes(entry, "status-item")} title="Кодировка">UTF-8{document.bom ? " BOM" : ""}</span> },
     { id: "status.language", value: (entry) => <span {...uiAttributes(entry, "status-item")} title="Язык документа">{entry.title ?? "BBCode"}</span> },
-    { id: "status.profile", value: (entry) => <span {...uiAttributes(entry, "status-item profile-badge")} title={`Профиль разметки: ${profile}`}>{entry.title ?? profile}</span> },
+    { id: "status.profile", value: (entry) => <span {...uiAttributes(entry, "status-item profile-badge")} title={`Профиль разметки: ${profile}${automaticProfile ? " (определён по документу)" : ""}`}>{entry.title ?? profile}{automaticProfile && <span className="profile-auto"> · авто</span>}</span> },
   ]);
   return <footer className="statusbar" data-ui-id="statusbar">
     {draw(left)}

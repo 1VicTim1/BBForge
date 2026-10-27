@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { activeProfile, builtinOf, isKnownTag, listProfiles, renderStyle, resolveProfile, setActiveProfile, setPluginProfiles, tagFor, tagRole, validateProfile, type TagProfile } from "./profile";
+import { activeProfile, AUTO_PROFILE, builtinOf, detectProfile, isKnownTag, listProfiles, renderStyle, resolveProfile, setActiveProfile, setPluginProfiles, tagFor, tagRole, validateProfile, type TagProfile } from "./profile";
 import { createSpoiler } from "../document/structure";
 import { applyFormat } from "../document/formatting";
 import { decodeDocument } from "../document/state";
@@ -58,5 +58,19 @@ describe("forum profiles", () => {
     const spec = resolved.tags.get("c")!;
     expect(renderStyle(spec, "red")).toEqual({ color: "red" });
     expect(renderStyle(spec, "red;background:url(x)")).toEqual({});
+  });
+
+  it("picks the profile that fits the document", () => {
+    const smf: TagProfile = { id: "smf", name: "SMF", tags: [{ name: "b" }, { name: "iurl", as: "url" }, { name: "li", as: "*" }, { name: "list" }], detect: { tags: ["iurl"] } };
+    const xen: TagProfile = { id: "xenforo", name: "XenForo", extends: "4pda", tags: [{ name: "ispoiler", role: "inline" }], detect: { hosts: ["xenforo.com"] } };
+    setPluginProfiles([{ profile: validateProfile(smf)!, source: "p" }, { profile: validateProfile(xen)!, source: "p" }]);
+    expect(detectProfile("", AUTO_PROFILE)).toBe("4pda");
+    expect(detectProfile("[b]x[/b] [spoiler=a]b[/spoiler]", "4pda")).toBe("4pda");
+    expect(detectProfile("[b]x[/b] [iurl=https://a]b[/iurl] [list][li]a[/list]", "4pda")).toBe("smf");
+    expect(detectProfile("[ispoiler]x[/ispoiler] [spoiler]y[/spoiler]", "4pda")).toBe("xenforo");
+    expect(detectProfile("see https://xenforo.com/community/ and [b]x[/b]", "4pda")).toBe("xenforo");
+    expect(detectProfile("[url=https://4pda.to/forum/]x[/url] [b]y[/b]", "xenforo")).toBe("4pda");
+    // A tie keeps the current profile.
+    expect(detectProfile("[b]x[/b]", "xenforo")).toBe("xenforo");
   });
 });

@@ -2,6 +2,12 @@
   "id": "4pda",
   "name": "4PDA",
   "description": "Разметка форума 4PDA",
+  "detect": {
+    "hosts": [
+      "4pda.to",
+      "4pda.ru"
+    ]
+  },
   "tags": [
     { "name": "b", "role": "inline", "label": "Жирный", "blankCheck": true },
     { "name": "i", "role": "inline", "label": "Курсив", "blankCheck": true },

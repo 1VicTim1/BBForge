@@ -96,6 +96,7 @@ pub fn required_permissions(contributes: &Map<String, Value>) -> Vec<(String, &'
             "styles" => Some("styles"),
             "commands" => Some("commands"),
             "slots" => Some("ui.slots"),
+            "converters" => Some("converters"),
             _ => None,
         };
         if let Some(permission) = permission {

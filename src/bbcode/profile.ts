@@ -55,6 +55,8 @@ export interface TagProfile {
   /** Tags of the base profile this one drops. */
   removeTags?: string[];
   tags: TagSpec[];
+  /** Hints for automatic detection: forum domains in links, tags only this forum has. */
+  detect?: { hosts?: string[]; tags?: string[] };
 }
 
 export interface ResolvedTag extends TagSpec { builtin: BuiltinTag | null; role: TagRole }
@@ -104,7 +106,10 @@ export function validateProfile(raw: unknown): TagProfile | null {
     spec.render = validateRender(tag.render);
     tags.push(Object.fromEntries(Object.entries(spec).filter(([, field]) => field !== undefined)) as unknown as TagSpec);
   }
+  const detect = value.detect && typeof value.detect === "object" ? value.detect as Record<string, unknown> : null;
+  const names = (list: unknown, pattern: RegExp) => Array.isArray(list) ? list.filter((item): item is string => typeof item === "string" && pattern.test(item)).map((item) => item.toLowerCase()).slice(0, 50) : undefined;
   return {
+    detect: detect ? { hosts: names(detect.hosts, /^[a-z0-9.-]{3,80}$/i), tags: names(detect.tags, TAG_NAME) } : undefined,
     id, name: string(value.name, 80) || id, description: string(value.description, 300),
     extends: string(value.extends, 64), removeTags: Array.isArray(value.removeTags) ? value.removeTags.filter((item): item is string => typeof item === "string").map((item) => item.toLowerCase()) : undefined,
     tags,
@@ -179,6 +184,31 @@ export function setActiveProfile(id: string) {
   if (id === activeId && active.id === id) return;
   activeId = id; recompute(); changed();
 }
+/** Preference value meaning "pick the profile from the document". */
+export const AUTO_PROFILE = "auto";
+const TAG_IN_TEXT = /\[\/?([a-z0-9*-]{1,32})(?:=[^\]\n]*)?\]/gi, HOST_IN_TEXT = /\b(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)+)\//gi;
+/**
+ * The profile that fits a document best: every distinct tag the profile knows counts +1, every
+ * unknown one -2; the profile's own tags (detect.tags) +3 and links to its forum (detect.hosts) +5.
+ * A tie keeps `current`, then the built-in profile.
+ */
+export function detectProfile(text: string, current: string = activeId): string {
+  const used = new Set([...text.matchAll(TAG_IN_TEXT)].map((match) => match[1].toLowerCase()));
+  const hosts = new Set([...text.matchAll(HOST_IN_TEXT)].map((match) => match[1].toLowerCase()));
+  if (!used.size && !hosts.size) return current === AUTO_PROFILE ? DEFAULT_PROFILE_ID : current;
+  let best = { id: DEFAULT_PROFILE_ID, score: -Infinity, rank: 2 };
+  for (const { profile, source } of entries.values()) {
+    const resolved = resolveProfile(profile, lookup, source);
+    let score = 0;
+    for (const name of used) score += resolved.tags.has(name) ? 1 : -2;
+    for (const tag of profile.detect?.tags ?? []) if (used.has(tag)) score += 3;
+    for (const host of profile.detect?.hosts ?? []) if ([...hosts].some((item) => item === host || item.endsWith(`.${host}`))) score += 5;
+    const rank = profile.id === current ? 0 : profile.id === DEFAULT_PROFILE_ID ? 1 : 2;
+    if (score > best.score || (score === best.score && rank < best.rank)) best = { id: profile.id, score, rank };
+  }
+  return best.id;
+}
+
 export const listProfiles = (): Array<{ id: string; name: string; description: string; source: string | null }> =>
   [...entries.values()].map(({ profile, source }) => ({ id: profile.id, name: profile.name, description: profile.description ?? "", source }));
 export const activeProfile = () => active;

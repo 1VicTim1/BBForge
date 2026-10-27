@@ -28,6 +28,16 @@ const packages: InstalledPackage[] = [
   } }),
   pkg({ id: "victim.night", type: "theme", permissions: ["themes"], contributes: { themes: [{ id: "night", name: "Ночь", base: "dark", tokens: { "--accent": "rgb(255, 0, 128)" } }] } }),
   pkg({ id: "evil.greedy", name: "Жадный", permissions: [], contributes: { styles: ["x.css"] } }, { "x.css": "body { display: none }" }),
+  pkg({ id: "victim.import", permissions: ["converters", "commands", "document.edit"], contributes: {
+    converters: [{ id: "victim.import.html", title: "HTML → BBCode", rules: [
+      { match: "b", open: "[b]", close: "[/b]" },
+      { match: "div.post-block.spoil", open: "[spoiler={bbcode:.block-title}]\n", close: "\n[/spoiler]", content: ".block-body", block: true },
+    ] }],
+    commands: [{ id: "victim.import.open", title: "Вставить HTML как BBCode…", run: { convert: "victim.import.html" } }],
+  } }),
+  pkg({ id: "victim.needs-old", name: "Старый зависимый", dependencies: { "victim.profile-selector": "^2.0.0" }, permissions: ["ui.add"], contributes: {
+    ui: [{ op: "add", slot: "statusbar.left", item: { id: "victim.needs-old.label", kind: "text", title: "не должно появиться" } }],
+  } }),
 ];
 
 test.beforeEach(async ({ page }) => {
@@ -40,9 +50,9 @@ test("plugins add a selector, restyle it and fill it with forum profiles", async
   const selector = page.locator('[data-ui-id="victim.profile-selector.select"]');
   await expect(selector).toHaveClass(/fancy/);
   await expect(selector.locator(".select-trigger")).toHaveCSS("outline-color", "rgb(255, 215, 0)");
-  await expect(page.locator(".profile-badge")).toHaveText("4PDA");
+  await expect(page.locator(".profile-badge")).toHaveText("4PDA · авто");
   await selector.locator(".select-trigger").click();
-  await expect(page.getByRole("option")).toHaveText(["4PDA", "XenForo"]);
+  await expect(page.getByRole("option")).toHaveText(["Автоматически (4PDA)", "4PDA", "XenForo"]);
   await page.getByRole("option", { name: "XenForo" }).click();
   await expect(page.locator(".profile-badge")).toHaveText("XenForo");
   await page.getByRole("button", { name: "Блоки" }).click();
@@ -74,4 +84,24 @@ test("themes from packages apply their tokens; packages without permissions get 
   const greedy = page.locator('[data-package-id="evil.greedy"]');
   await expect(greedy).toContainText("Без подписи");
   await expect(greedy).toContainText("нет разрешения «styles»");
+});
+
+test("a plugin converter turns pasted HTML into BBCode at the cursor", async ({ page }) => {
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.press("Control+Shift+KeyP");
+  await page.keyboard.type("Вставить HTML");
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "HTML → BBCode" });
+  await dialog.getByRole("textbox", { name: "HTML" }).fill('<div class="post-block spoil"><div class="block-title"><b>Скрины</b></div><div class="block-body">тело</div></div>');
+  await expect(dialog.getByLabel("Результат")).toHaveText("[spoiler=[b]Скрины[/b]]\nтело\n[/spoiler]");
+  await dialog.getByRole("button", { name: "Вставить в документ" }).click();
+  await expect(page.locator(".cm-content")).toContainText("[spoiler=[b]Скрины[/b]]");
+});
+
+test("a plugin whose dependency has the wrong version is not loaded and says why", async ({ page }) => {
+  await expect(page.locator('[data-ui-id="victim.needs-old.label"]')).toHaveCount(0);
+  await page.getByRole("button", { name: "Настройки" }).first().click();
+  await page.getByRole("button", { name: "Плагины и темы" }).click();
+  await expect(page.locator('[data-package-id="victim.needs-old"]')).toContainText("нужна версия ^2.0.0, установлена 1.0.0");
 });

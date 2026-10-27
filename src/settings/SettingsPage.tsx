@@ -11,7 +11,7 @@ interface Setting { key: Exclude<keyof Preferences, "keymap">; section: Section;
 const range = (low: number, high: number): Options => Array.from({ length: high - low + 1 }, (_, at) => [low + at, `${low + at} px`]);
 const settings: Setting[] = [
   { key: "theme", section: "appearance", label: "Тема", hint: "Системная следует настройке ОС", options: [["dark", "Тёмная"], ["light", "Светлая"], ["system", "Как в системе"]] },
-  { key: "profile", section: "behavior", label: "Профиль форума", hint: "Набор тегов, по которому проверяется документ; профили добавляют плагины", options: [] },
+  { key: "profile", section: "behavior", label: "Профиль форума", hint: "Набор тегов, по которому проверяется документ. «Автоматически» выбирает профиль по тегам и ссылкам документа; профили других форумов добавляют плагины", options: [] },
   { key: "density", section: "appearance", label: "Плотность интерфейса", hint: "Компактная уменьшает высоту строк и панелей", options: [["comfortable", "Обычная"], ["compact", "Компактная"]] },
   { key: "systemFrame", section: "appearance", label: "Системная рамка окна", hint: "Заголовок и кнопки окна от оконного менеджера вместо собственных", desktop: true },
   { key: "tooltips", section: "appearance", label: "Показывать подсказки к кнопкам", hint: "Описание и сочетание клавиш при наведении" },

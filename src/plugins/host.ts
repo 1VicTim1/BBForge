@@ -3,6 +3,7 @@ import { validateTheme, type ThemeDef } from "./themes";
 import { PERMISSIONS, type InstalledPackage } from "./types";
 import { patchPermission, validatePatch, type OwnedPatch, type UiPatch } from "./ui";
 import { satisfies } from "./semver";
+import { validateConverter, type Converter } from "./convert";
 
 /**
  * Turns installed packages into what the interface uses. A package touches only what its
@@ -15,7 +16,8 @@ export type PluginAction =
   | { wrap: string; value?: string }
   | { command: string }
   | { setProfile: string }
-  | { setTheme: string };
+  | { setTheme: string }
+  | { convert: string };
 export interface PluginCommand { id: string; title: string; category: string; icon?: string; hint?: string; keys: string[]; action: PluginAction; owner: string }
 export interface SlotInfo { id: string; title: string; owner: string }
 /** Why a dependency keeps a package from loading. */
@@ -45,8 +47,9 @@ export interface PluginHost {
   slots: SlotInfo[];
   patches: OwnedPatch[];
   commands: PluginCommand[];
+  converters: Converter[];
 }
-export const emptyHost = (): PluginHost => ({ packages: [], profiles: [], themes: [], styles: [], slots: [], patches: [], commands: [] });
+export const emptyHost = (): PluginHost => ({ packages: [], profiles: [], themes: [], styles: [], slots: [], patches: [], commands: [], converters: [] });
 
 const KNOWN = new Set(PERMISSIONS.map((item) => item.id));
 const CHORD = /^(Ctrl\+)?(Alt\+)?(Shift\+)?[A-Za-z0-9]+$/;
@@ -120,6 +123,10 @@ export function buildHost(installed: InstalledPackage[]): PluginHost {
       const command = validateCommand(entry, owner, (text) => warn(owner, text));
       if (command && actionAllowed(command.action, granted, (text) => warn(owner, `Команда ${command.id}: ${text}`))) host.commands.push(command);
     }
+    if (list("converters").length && allowed("converters", "Конвертеры")) for (const entry of list("converters")) {
+      const converter = validateConverter(load(entry, "Конвертер"), owner, (text) => warn(owner, text));
+      if (converter) host.converters.push(converter);
+    }
     host.patches.push(...patches(list("ui"), "Интерфейс"));
   }
   host.packages = [...states.values()];
@@ -183,8 +190,9 @@ function validateCommand(raw: unknown, owner: string, warn: (text: string) => vo
     else if (typeof run.command === "string") action = { command: run.command };
     else if (typeof run.setProfile === "string") action = { setProfile: run.setProfile };
     else if (typeof run.setTheme === "string") action = { setTheme: run.setTheme };
+    else if (typeof run.convert === "string") action = { convert: run.convert };
   }
-  if (!action) { warn(`Команда ${id}: run должен содержать insert, wrap, command, setProfile или setTheme`); return null; }
+  if (!action) { warn(`Команда ${id}: run должен содержать insert, wrap, command, setProfile, setTheme или convert`); return null; }
   const keys = Array.isArray(value.keys) ? value.keys.filter((key): key is string => typeof key === "string" && CHORD.test(key)).slice(0, 3) : [];
   return {
     id, title: value.title.slice(0, 80), category: typeof value.category === "string" ? value.category.slice(0, 40) : "Плагины",
@@ -193,7 +201,7 @@ function validateCommand(raw: unknown, owner: string, warn: (text: string) => vo
 }
 
 function actionAllowed(action: PluginAction, granted: Set<string>, warn: (text: string) => void): boolean {
-  const need = "insert" in action || "wrap" in action ? "document.edit" : "setProfile" in action ? "profiles.select" : "setTheme" in action ? "themes.select" : null;
+  const need = "insert" in action || "wrap" in action || "convert" in action ? "document.edit" : "setProfile" in action ? "profiles.select" : "setTheme" in action ? "themes.select" : null;
   if (need && !granted.has(need)) { warn(`нет разрешения «${need}», пропущена`); return false; }
   return true;
 }

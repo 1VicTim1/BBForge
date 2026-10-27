@@ -28,7 +28,7 @@ export interface Preferences {
 }
 
 export const defaultPreferences: Preferences = {
-  theme: "dark", profile: "4pda", density: "comfortable", systemFrame: false,
+  theme: "dark", profile: "auto", density: "comfortable", systemFrame: false,
   tooltips: true, animations: true,
   codeFontSize: 13, codeLineHeight: 1.54, codeWrap: true, codeLineNumbers: true, codeActiveLine: true,
   builderFontSize: 14, builderWidth: "medium", spoilerOpenDepth: 2, tagLabels: true,
