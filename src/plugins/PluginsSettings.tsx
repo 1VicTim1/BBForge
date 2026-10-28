@@ -30,6 +30,8 @@ interface Props {
   onLoadCatalog(): void;
   onInstallFromCatalog(entry: CatalogEntry): void;
   download: DownloadProgress | null;
+  /** Names from the signed list of trusted developers, once it is loaded. */
+  trustedDevelopers?: string[] | null;
 }
 
 const issueText = (issue: DependencyIssue) => issue.state === "missing" ? "не установлен"
@@ -67,6 +69,7 @@ export function PluginsSettings(props: Props) {
       <span className="settings-label"><span>Установка из файла</span><small>Плагины добавляют профили форумов, шаблоны, команды и кнопки, темы меняют оформление. Пакет — архив .zip от автора плагина; готовые пакеты есть в каталоге ниже. Перед установкой BBForge покажет, к чему пакет получит доступ.</small></span>
       <div className="settings-control"><button className="secondary-button" disabled={!props.desktop || props.busy} title={props.desktop ? undefined : "Доступно в настольном приложении"} onClick={props.onInstall}><Icon name="package" />Установить из файла…</button></div>
     </div>
+    {props.trustedDevelopers && <p className="trusted-developers"><Icon name="shieldCheck" />Доверенные разработчики: {props.trustedDevelopers.join(", ")}</p>}
     <h5 className="plugins-heading">Установленные</h5>
     {props.packages.length === 0 && props.broken.length === 0 && <p className="settings-empty">Плагины и темы не установлены.</p>}
     <ul className="package-list">

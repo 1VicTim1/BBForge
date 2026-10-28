@@ -1,6 +1,7 @@
 //! BBForge plugin and theme packages: manifest, archive format and signatures.
 //! Shared by the application (installation) and `bbforge-pack` (packing and signing).
 
+pub mod keyring;
 pub mod manifest;
 pub mod package;
 pub mod signing;

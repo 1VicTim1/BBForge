@@ -6,17 +6,17 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use bbforge_plugin::{Inspection, Manifest, SignatureStatus, TrustedKey, read_archive};
+
+/// Keys as (name, public key), turned into the borrowed form `inspect` wants.
+fn borrowed(keys: &[(String, String)]) -> Vec<TrustedKey<'_>> {
+    keys.iter()
+        .map(|(name, public_key)| TrustedKey { name, public_key })
+        .collect()
+}
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-/// Keys whose packages install without a warning. To trust another developer, add their public
-/// key (`bbforge-pack pubkey their-key.json`) here.
-pub const TRUSTED_KEYS: &[TrustedKey<'static>] = &[TrustedKey {
-    name: "1VicTim1",
-    public_key: "fqcZAYlidLAi/qw0GnJ7+KyB+OJah1j916q32uWEG4w=",
-}];
 
 const MAX_PACKAGE: u64 = 60 * 1024 * 1024;
 const REGISTRY: &str = "registry.json";
@@ -73,6 +73,8 @@ pub enum Listed {
 
 pub struct Store {
     dir: PathBuf,
+    /// Keys whose packages are "trusted": the root key and the signed list (see keyring.rs).
+    trusted: Vec<(String, String)>,
 }
 
 fn now() -> u64 {
@@ -110,8 +112,21 @@ fn compatibility(manifest: &Manifest) -> Vec<String> {
 }
 
 impl Store {
+    /// A store that trusts only the root key.
     pub fn new(dir: PathBuf) -> Self {
-        Self { dir }
+        let trusted = vec![(
+            crate::keyring::ROOT_NAME.to_string(),
+            crate::keyring::ROOT_KEY.to_string(),
+        )];
+        Self { dir, trusted }
+    }
+
+    pub fn with_trusted(dir: PathBuf, trusted: Vec<(String, String)>) -> Self {
+        Self { dir, trusted }
+    }
+
+    pub fn trusted(&self) -> Vec<TrustedKey<'_>> {
+        borrowed(&self.trusted)
     }
 
     fn archive_path(&self, id: &str) -> PathBuf {
@@ -133,7 +148,7 @@ impl Store {
 
     pub fn preview(&self, path: &Path) -> Result<InstallPreview, String> {
         let package = read_archive(&read_package_file(path)?)?;
-        let mut inspection = package.inspect(TRUSTED_KEYS);
+        let mut inspection = package.inspect(&self.trusted());
         inspection.errors.extend(compatibility(&package.manifest));
         let installed_version = self
             .registry()
@@ -154,7 +169,7 @@ impl Store {
     pub fn install(&self, path: &Path, digest: &str) -> Result<InstalledPackage, String> {
         let bytes = read_package_file(path)?;
         let package = read_archive(&bytes)?;
-        let mut inspection = package.inspect(TRUSTED_KEYS);
+        let mut inspection = package.inspect(&self.trusted());
         inspection.errors.extend(compatibility(&package.manifest));
         if inspection.digest != digest {
             return Err("Файл пакета изменился после проверки. Откройте его заново.".into());
@@ -209,7 +224,7 @@ impl Store {
             .packages
             .get_mut(id)
             .ok_or_else(|| format!("Пакет {id} не установлен"))?;
-        entry.digest = package.inspect(TRUSTED_KEYS).digest;
+        entry.digest = package.inspect(&self.trusted()).digest;
         self.save_registry(&registry)
     }
 
@@ -225,7 +240,7 @@ impl Store {
             .get(id)
             .ok_or_else(|| format!("Пакет {id} не установлен"))?;
         let package = read_archive(&read_package_file(&self.archive_path(id))?)?;
-        let inspection = package.inspect(TRUSTED_KEYS);
+        let inspection = package.inspect(&self.trusted());
         let tampered = inspection.digest != entry.digest || package.manifest.id != id;
         let mut files = BTreeMap::new();
         let mut assets = BTreeMap::new();

@@ -86,12 +86,44 @@ pub fn write_workspace_session(app: tauri::AppHandle, payload: String) -> Result
 
 #[cfg(feature = "desktop-runtime")]
 fn plugin_store(app: &tauri::AppHandle) -> Result<crate::plugins::Store, String> {
-    Ok(crate::plugins::Store::new(
-        app.path()
-            .app_data_dir()
-            .map_err(|error| error.to_string())?
-            .join("plugins"),
+    let data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    Ok(crate::plugins::Store::with_trusted(
+        data.join("plugins"),
+        crate::keyring::trusted_keys(&data),
     ))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyringStatus {
+    pub serial: u64,
+    pub developers: Vec<String>,
+}
+
+/// Downloads the signed list of trusted developers; the cached one stays when that fails.
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub async fn keyring_refresh(app: tauri::AppHandle) -> Result<KeyringStatus, String> {
+    let data = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let keyring = crate::keyring::refresh(&data)?;
+        Ok(KeyringStatus {
+            serial: keyring.serial,
+            developers: keyring
+                .trusted(crate::keyring::ROOT_NAME, crate::keyring::ROOT_KEY)
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect(),
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[cfg(feature = "desktop-runtime")]
@@ -161,8 +193,9 @@ pub async fn catalog_download(
         .join("downloads");
     use tauri::Emitter;
     let id = entry.id.clone();
+    let store = plugin_store(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
-        crate::catalog::download(&dir, &entry, |downloaded, total| {
+        crate::catalog::download(&dir, &entry, &store.trusted(), |downloaded, total| {
             let _ = app.emit(
                 "catalog-download",
                 serde_json::json!({ "id": id, "downloaded": downloaded, "total": total }),

@@ -840,3 +840,4 @@ div.bb-plain, blockquote.bb-plain, pre.bb-plain, details.bb-plain { margin: 4px 
 .script-field input { height: var(--h-control); padding: 0 10px; color: var(--text); background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); }
 .script-review .convert-output { flex: 1; min-height: 0; }
 .script-dialog footer button { display: inline-flex; align-items: center; gap: 6px; }
+.trusted-developers { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; color: var(--text-muted); font-size: 12px; } .trusted-developers .ui-icon { width: 13px; height: 13px; color: var(--success); }

@@ -1,6 +1,7 @@
 pub mod catalog;
 pub mod commands;
 pub mod files;
+pub mod keyring;
 pub mod plugins;
 pub mod script_api;
 pub mod session;
@@ -27,6 +28,7 @@ pub fn run() {
             commands::plugin_accept_changes,
             commands::catalog_list,
             commands::catalog_download,
+            commands::keyring_refresh,
             commands::script_http_get,
             commands::script_window_open,
             commands::script_window_cookies,

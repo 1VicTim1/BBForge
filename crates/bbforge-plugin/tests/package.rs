@@ -130,3 +130,31 @@ fn manifest_validation_reports_problems() {
     assert!(warnings.contains("«styles»"), "{warnings}");
     assert!(warnings.contains("«ui.remove»"), "{warnings}");
 }
+
+#[test]
+fn trusted_keys_list_is_signed_by_the_root_key() {
+    use bbforge_plugin::keyring::verify_keyring;
+    let root = KeyFile::generate("Root").unwrap();
+    let developer = KeyFile::generate("Dev").unwrap();
+    let revoked = KeyFile::generate("Old").unwrap();
+    let list = format!(
+        r#"{{ "version": 1, "serial": 3, "keys": [{{ "name": "Dev", "publicKey": "{}" }}, {{ "name": "Old", "publicKey": "{}" }}], "revoked": ["{}"] }}"#,
+        developer.public_key, revoked.public_key, revoked.public_key
+    );
+    let signature = root.sign_detached(list.as_bytes()).unwrap();
+    let keyring = verify_keyring(list.as_bytes(), &signature, &root.public_key).unwrap();
+    let trusted = keyring.trusted("Root", &root.public_key);
+    assert_eq!(
+        trusted
+            .iter()
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>(),
+        ["Root", "Dev"]
+    );
+
+    // Signed by someone else, or changed after signing: refused.
+    let forged = developer.sign_detached(list.as_bytes()).unwrap();
+    assert!(verify_keyring(list.as_bytes(), &forged, &root.public_key).is_err());
+    let changed = list.replace("Dev", "Evil");
+    assert!(verify_keyring(changed.as_bytes(), &signature, &root.public_key).is_err());
+}

@@ -34,8 +34,13 @@ fn installs_a_package_from_the_published_catalog() {
         .find(|entry| entry.id == "bbforge.profile-selector")
         .expect("the selector is in the catalog");
     let temp = tempfile::tempdir().unwrap();
-    let path =
-        bbforge_app::catalog::download(&temp.path().join("downloads"), entry, |_, _| {}).unwrap();
+    let path = bbforge_app::catalog::download(
+        &temp.path().join("downloads"),
+        entry,
+        &bbforge_app::plugins::Store::new(temp.path().join("p")).trusted(),
+        |_, _| {},
+    )
+    .unwrap();
     let store = bbforge_app::plugins::Store::new(temp.path().join("plugins"));
     let preview = store.preview(&path).unwrap();
     assert!(

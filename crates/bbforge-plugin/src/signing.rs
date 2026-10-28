@@ -85,6 +85,11 @@ impl KeyFile {
         Ok(key)
     }
 
+    /// Bare base64 signature of `message` (used for the trusted keys list).
+    pub fn sign_detached(&self, message: &[u8]) -> Result<String, String> {
+        Ok(BASE64.encode(self.signing_key()?.sign(message).to_bytes()))
+    }
+
     pub fn sign(&self, message: &[u8]) -> Result<Signature, String> {
         let key = self.signing_key()?;
         Ok(Signature {

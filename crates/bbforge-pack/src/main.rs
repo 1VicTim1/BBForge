@@ -61,6 +61,15 @@ enum Command {
         #[arg(long, default_value = "dist")]
         prefix: String,
     },
+    /// Подписать список доверенных разработчиков (trusted-keys.json) корневым ключом
+    SignKeys {
+        /// Файл списка
+        #[arg(default_value = "trusted-keys.json")]
+        file: PathBuf,
+        /// Корневой ключ
+        #[arg(long, env = "BBFORGE_SIGNING_KEY")]
+        key: PathBuf,
+    },
     /// Проверить архив: манифест, файлы, подпись
     Verify {
         file: PathBuf,
@@ -77,6 +86,7 @@ fn main() -> ExitCode {
         Command::Pack { dir, out, key } => pack(&dir, out, key.as_deref()),
         Command::Verify { file, trust } => verify(&file, &trust),
         Command::Index { dir, out, prefix } => index(&dir, &out, &prefix),
+        Command::SignKeys { file, key } => sign_keys(&file, &key),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -217,6 +227,25 @@ fn pack(dir: &Path, out: Option<PathBuf>, key: Option<&Path>) -> Result<(), Stri
             Some(signature) => format!("подписан ключом {}", signature.signer),
             None => "без подписи".into(),
         }
+    );
+    Ok(())
+}
+
+/// Writes `<file>.sig` after checking that the list is well-formed.
+fn sign_keys(file: &Path, key: &Path) -> Result<(), String> {
+    let bytes = fs::read(file).map_err(|error| format!("{}: {error}", file.display()))?;
+    let key = read_key(key)?;
+    let signature = key.sign_detached(&bytes)?;
+    let keyring = bbforge_plugin::keyring::verify_keyring(&bytes, &signature, &key.public_key)?;
+    let out = PathBuf::from(format!("{}.sig", file.display()));
+    fs::write(&out, format!("{signature}\n"))
+        .map_err(|error| format!("{}: {error}", out.display()))?;
+    println!(
+        "Подписано: {} (serial {}, разработчиков {}, отозвано {})",
+        out.display(),
+        keyring.serial,
+        keyring.keys.len(),
+        keyring.revoked.len()
     );
     Ok(())
 }

@@ -153,6 +153,7 @@ pub fn fetch() -> CatalogResult {
 pub fn download(
     dir: &Path,
     entry: &CatalogEntry,
+    trusted: &[bbforge_plugin::TrustedKey<'_>],
     progress: impl FnMut(u64, Option<u64>),
 ) -> Result<PathBuf, String> {
     let (_, base) = CATALOGS.get(entry.catalog).ok_or("Неизвестный каталог")?;
@@ -168,7 +169,7 @@ pub fn download(
         ));
     }
     let package = bbforge_plugin::read_archive(&bytes)?;
-    let signature = package.inspect(crate::plugins::TRUSTED_KEYS).signature;
+    let signature = package.inspect(trusted).signature;
     if !signature.is_trusted() {
         let reason = match signature {
             bbforge_plugin::SignatureStatus::Unsigned => "пакет не подписан".to_string(),

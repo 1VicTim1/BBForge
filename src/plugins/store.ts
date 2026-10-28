@@ -17,6 +17,8 @@ export interface PluginStore {
   download(entry: CatalogEntry): Promise<string>;
   /** Progress of catalog downloads; returns the unsubscribe function. */
   onDownloadProgress(listener: (progress: { id: string; downloaded: number; total: number | null }) => void): () => void;
+  /** Downloads the signed list of trusted developers; their names, or null when it cannot. */
+  refreshKeyring(): Promise<{ serial: number; developers: string[] } | null>;
   /** What plugin scripts may ask the desktop side for; null in the browser build. */
   scriptBackend: ScriptBackend | null;
 }
@@ -38,6 +40,7 @@ export function createPluginStore(invoke: Invoke | null, listen: Listen | null =
       preview: unavailable, install: unavailable, remove: unavailable, setEnabled: unavailable, acceptChanges: unavailable, catalog: unavailable, download: unavailable,
       onDownloadProgress: () => () => undefined,
       scriptBackend: null,
+      refreshKeyring: async () => null,
     };
   }
   return {
@@ -50,6 +53,7 @@ export function createPluginStore(invoke: Invoke | null, listen: Listen | null =
     acceptChanges: async (id) => { await invoke("plugin_accept_changes", { id }); },
     catalog: async () => await invoke("catalog_list") as CatalogResult,
     download: async (entry) => await invoke("catalog_download", { entry }) as string,
+    refreshKeyring: async () => await invoke("keyring_refresh") as { serial: number; developers: string[] },
     scriptBackend: {
       httpGet: async (plugin, url, cookies) => await invoke("script_http_get", { plugin, url, cookies: cookies ?? null }) as { status: number; contentType: string; body: string },
       windowOpen: async (plugin, url, title) => await invoke("script_window_open", { plugin, url, title: title ?? null }) as string,
