@@ -213,6 +213,15 @@ impl Speller {
         suggestions
     }
 
+    /// For each word: whether the user added it to their dictionary.
+    pub fn user_has(&self, words: &[String]) -> Vec<bool> {
+        let user = self.user.lock().expect("user dictionary");
+        words
+            .iter()
+            .map(|word| user.contains(&word.trim().to_lowercase()))
+            .collect()
+    }
+
     /// Adds a word to the user's dictionary (kept between runs).
     pub fn add(&self, word: &str) -> Result<(), String> {
         let word = word.trim().to_lowercase();

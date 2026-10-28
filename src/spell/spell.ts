@@ -6,6 +6,8 @@ export interface SpellBackend {
   check(words: string[]): Promise<boolean[]>;
   suggest(word: string): Promise<string[]>;
   add(word: string): Promise<void>;
+  /** Whether the user added these words to their dictionary. */
+  userHas?(words: string[]): Promise<boolean[]>;
   /** Which dictionaries to use (files of plugin packages); returns a problem per dictionary, if any. */
   configure?(dictionaries: DictionarySource[]): Promise<Array<{ plugin: string; language: string; error: string | null }>>;
 }
@@ -31,10 +33,24 @@ export function wordsIn(text: string, segments: Array<{ from: number; to: number
   return words;
 }
 
+const IGNORED_KEY = "bbforge.spelling.ignored";
+function loadIgnored(): string[] {
+  try { const value = JSON.parse(localStorage.getItem(IGNORED_KEY) ?? "[]"); return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []; } catch { return []; }
+}
+function saveIgnored(words: string[]) { try { localStorage.setItem(IGNORED_KEY, JSON.stringify(words.slice(-5000))); } catch { /* storage unavailable */ } }
+
 export class SpellChecker {
   private known = new Map<string, boolean>();
-  private ignored = new Set<string>();
+  private ignored = new Set<string>(loadIgnored());
+  private added = new Set<string>();
   constructor(private backend: SpellBackend) {}
+
+  /** Words a checker of grammar may still call misspelt but the user accepted (added or skipped). */
+  async accepted(words: string[]): Promise<Set<string>> {
+    const unique = [...new Set(words.map((word) => word.toLowerCase()))];
+    const own = await this.backend.userHas?.(unique).catch(() => null) ?? null;
+    return new Set(unique.filter((word, index) => this.ignored.has(word) || this.added.has(word) || own?.[index]));
+  }
 
   /** Misspelt words of the text pieces; unknown words are checked in one batch. */
   async misspellings(text: string, segments: Array<{ from: number; to: number }>): Promise<Misspelling[]> {
@@ -57,10 +73,10 @@ export class SpellChecker {
   }
 
   /** Into the user's dictionary, for good. */
-  async add(word: string) { await this.backend.add(word); this.known.set(word, true); }
+  async add(word: string) { await this.backend.add(word); this.known.set(word, true); this.added.add(word.toLowerCase()); }
 
-  /** Until BBForge is restarted. */
-  ignore(word: string) { this.ignored.add(word.toLowerCase()); }
+  /** Not marked any more (remembered between runs, apart from the dictionary). */
+  ignore(word: string) { this.ignored.add(word.toLowerCase()); saveIgnored([...this.ignored]); }
 }
 
 declare global {

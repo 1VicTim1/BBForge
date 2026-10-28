@@ -42,6 +42,7 @@ pub fn run() {
             commands::spell_suggest,
             commands::spell_add,
             commands::spell_configure,
+            commands::spell_user_has,
             commands::update_check,
             commands::update_install,
             commands::script_http_get,

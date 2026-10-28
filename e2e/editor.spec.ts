@@ -81,6 +81,7 @@ test("context menu shows only commands for the invoked surface and suppresses th
   await editor.click({ button: "right" });
   const menu = page.getByRole("menu", { name: "Контекстное меню" });
   await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem", { name: "Формат" }).hover();
   await expect(menu.getByRole("menuitem", { name: "Жирный" })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "Копировать видимый текст" })).toHaveCount(0);
   await page.keyboard.press("Escape");
@@ -95,6 +96,7 @@ test("context menu rejects a stale edit after the document changes", async ({ pa
   await editor.press("Control+a");
   await editor.click({ button: "right" });
   await editor.fill("changed");
+  await page.getByRole("menuitem", { name: "Формат" }).click();
   await page.getByRole("menuitem", { name: "Жирный" }).click();
   await expect(page.getByRole("alert")).toContainText("Документ изменился");
   await expect(editor).toHaveText("changed");
@@ -151,4 +153,28 @@ test("restores cursor and scroll positions independently for every document surf
   await expect.poll(() => page.evaluate(() => { const node = window.getSelection()?.anchorNode; return !!(node?.nodeType === 1 ? node as Element : node?.parentElement)?.closest(".builder .visual-text"); })).toBe(true);
   await page.getByRole("button", { name: "Предпросмотр", exact: true }).click();
   await expect.poll(() => preview.evaluate((node) => node.scrollTop)).toBe(previewTop);
+});
+
+test("typing an opening tag adds its closing tag, and brackets close inside [code]", async ({ page }) => {
+  const editor = page.locator(".cm-content");
+  await editor.fill("");
+  await editor.click();
+  await page.keyboard.type("[b]жирный");
+  await expect(editor).toHaveText("[b]жирный[/b]");
+  await page.keyboard.press("Control+End");
+  await page.keyboard.type(" [code]fn main() {");
+  await expect(editor).toHaveText("[b]жирный[/b] [code]fn main() {}[/code]");
+});
+
+test("closing a changed document asks once, in BBForge's own dialog", async ({ page }) => {
+  await page.keyboard.press("Control+KeyN");
+  await page.locator(".cm-content").fill("черновик");
+  await page.keyboard.press("Control+KeyW");
+  const dialog = page.getByRole("dialog", { name: "Несохранённые изменения" });
+  await expect(dialog).toContainText("Сохранить изменения в «Без названия»?");
+  await dialog.getByRole("button", { name: "Отмена" }).click();
+  await expect(page.getByRole("tab")).toHaveCount(2);
+  await page.keyboard.press("Control+KeyW");
+  await dialog.getByRole("button", { name: "Не сохранять" }).click();
+  await expect(page.getByRole("tab")).toHaveCount(1);
 });

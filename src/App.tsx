@@ -1,7 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { ask, open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
 import { Editor } from "./editor/Editor";
@@ -20,6 +20,7 @@ import { QuickFixPopover } from "./diagnostics/QuickFixPopover";
 import { BatchPreview, type BatchItem } from "./components/BatchPreview";
 import type { VisualRange } from "./builder/selection";
 import { createDesktopFiles } from "./document/desktop";
+import { UnsavedDialog } from "./document/UnsavedDialog";
 import { completeSave, requestDocumentAction, requestWorkspaceClose, savedSnapshotIsCurrent, type UnsavedChoice } from "./document/lifecycle";
 import { decodeDocument, serializeDocument, updateDocumentText, type LineEnding, type DocumentState } from "./document/state";
 import { byteToUtf16, createPositionIndex } from "./document/positions";
@@ -46,7 +47,7 @@ import { createWorkspace, workspaceReducer } from "./workspace/session";
 import { createWorkspaceStore } from "./workspace/persistence";
 import { resolveActiveSelection } from "./commands/activeSelection";
 import { menuItems, resolveCommands, type Command, type RefactorScope } from "./commands/registry";
-import { buildContextCommands, type MenuSurface } from "./context/commands";
+import { buildContextCommands, header, type ContextCommand, type MenuSurface } from "./context/commands";
 import { ContextMenu } from "./context/ContextMenu";
 import { useContextMenu } from "./context/useContextMenu";
 import { extractPreviewBbcode, readPreviewSelection, type PreviewSelection } from "./components/previewSelection";
@@ -176,10 +177,9 @@ export default function App() {
     } catch (reason) { setUpdateError(String(reason).replace(/^Error: /, "")); setUpdateBusy(false); setUpdateProgress(null); }
   };
   // Trusted developers come from a list signed by the root key; packages are checked again with it.
-  const [trustedDevelopers, setTrustedDevelopers] = useState<string[] | null>(null);
   useEffect(() => {
     void reloadPlugins().catch((reason) => setError(`Не удалось загрузить плагины: ${String(reason)}`));
-    void pluginStore.refreshKeyring().then((keyring) => { if (keyring) { setTrustedDevelopers(keyring.developers); return reloadPlugins(); } }).catch((reason) => log(`Список доверенных разработчиков не обновлён: ${String(reason).replace(/^Error: /, "")}`, "info"));
+    void pluginStore.refreshKeyring().then((keyring) => { if (keyring) return reloadPlugins(); }).catch((reason) => log(`Список доверенных разработчиков не обновлён: ${String(reason).replace(/^Error: /, "")}`, "info"));
   }, [reloadPlugins]);
   const host = useMemo(() => buildHost(installed), [installed]);
   useEffect(() => { setPluginProfiles(host.profiles); }, [host]);
@@ -382,8 +382,8 @@ export default function App() {
     const quickFixes = here.flatMap((item) => suggestFixes(documentRef.current, currentSnapshot!, item).slice(0, 3).map((fix) => ({
       id: `fix-${fix.id}`, label: `Исправить: ${fix.title}${fix.impact ? ` (${fix.impact})` : ""}`, run: checked(() => { if (fix.needsParameter) setQuickFix({ diagnostic: item, fixes: [fix], anchor }); else run(() => fix.command, true); }),
     })));
-    const show = (spellingItems: typeof quickFixes) => {
-    const commands = buildContextCommands({ surface, editable: surface === "code" || surface === "builder", hasSelection: captured.from !== captured.to || Boolean(window.getSelection()?.toString()), hasBlock: Boolean(selected) || Boolean(target.closest("details,[data-source-span]")), hasDiagnostic: analysis.diagnostics.length > 0 }, handlers, [...spellingItems, ...quickFixes]);
+    const show = (spellingItems: ContextCommand[]) => {
+    const commands = buildContextCommands({ surface, editable: surface === "code" || surface === "builder", hasSelection: captured.from !== captured.to || Boolean(window.getSelection()?.toString()), hasBlock: Boolean(selected) || Boolean(target.closest("details,[data-source-span]")), hasDiagnostic: analysis.diagnostics.length > 0 }, handlers, [spellingItems, quickFixes]);
     if (commands.length) {
       contextMenu.open({ x: event.clientX, y: event.clientY, commands });
       if (domSelection && previewRoot?.contains(domSelection.commonAncestorContainer)) requestAnimationFrame(() => {
@@ -398,26 +398,31 @@ export default function App() {
       if (documentRef.current.revision !== revision) throw new Error("Документ изменился. Откройте меню заново.");
       return { ...identity(documentRef.current), label, changes: [{ from: range.from, to: range.to, insert: value }] };
     });
-    // A remark of a text service under the pointer: its message and corrections.
+    // A remark of a text service under the pointer: its message and corrections join the word's.
     const remark = onText && grammar?.text === documentRef.current.text ? grammar.issues.find((item) => at >= item.from && at <= item.to) : undefined;
-    const remarkItems = remark ? [
-      { id: "grammar-message", label: `${remark.checker}: ${remark.message || "замечание"}`.slice(0, 120), run: () => undefined },
-      ...remark.replacements.map((value, index) => ({ id: `grammar-${index}`, label: `«${value}»`, run: () => replaceRange(remark, value, "Исправить по замечанию") })),
-      { id: "grammar-ignore", label: "Пропустить замечание", run: () => ignoreRemark(remark) },
-    ] : [];
-    // A misspelt word under the pointer: its corrections come first, like in a word processor.
+    // A misspelt word under the pointer: one block with the explanation, the corrections of every
+    // checker (the first few here, the rest in a submenu), and what to do with the word.
     const misspelt = onText && spelling?.text === documentRef.current.text ? spelling.ranges.find((item) => at >= item.from && at <= item.to) : undefined;
-    if (!misspelt || !speller) { show(remarkItems); return; }
-    const word = documentRef.current.text.slice(misspelt.from, misspelt.to);
-    const replaceWord = (value: string) => replaceRange(misspelt, value, "Исправить слово");
-    const forget = () => setSpelling((current) => current && { ...current, ranges: current.ranges.filter((item) => documentRef.current.text.slice(item.from, item.to).toLowerCase() !== word.toLowerCase()) });
-    void speller.suggest(word).catch(() => [] as string[]).then((suggestions) => show([
-      ...remarkItems,
-      ...suggestions.slice(0, 6).map((value, index) => ({ id: `spell-${index}`, label: `«${value}»`, run: () => replaceWord(value) })),
-      ...(suggestions.length ? [] : [{ id: "spell-none", label: "Нет вариантов исправления", run: () => undefined }]),
-      { id: "spell-add", label: `Добавить «${word}» в словарь`, run: () => void speller.add(word).then(forget).catch((reason) => setError(String(reason))) },
-      { id: "spell-ignore", label: "Пропустить это слово", run: () => { speller.ignore(word); forget(); } },
-    ]));
+    const range = remark ?? misspelt;
+    if (!range) { show([]); return; }
+    const word = documentRef.current.text.slice(range.from, range.to), typo = !!misspelt || remark?.kind === "spelling";
+    const forget = () => {
+      setSpelling((current) => current && { ...current, ranges: current.ranges.filter((item) => documentRef.current.text.slice(item.from, item.to).toLowerCase() !== word.toLowerCase()) });
+      setGrammar((current) => current && { ...current, issues: current.issues.filter((item) => item.kind !== "spelling" || documentRef.current.text.slice(item.from, item.to).toLowerCase() !== word.toLowerCase()) });
+    };
+    void (misspelt && speller ? speller.suggest(word).catch(() => [] as string[]) : Promise.resolve([] as string[])).then((suggestions) => {
+      const variants = [...new Set([...(remark?.replacements ?? []), ...suggestions])].filter((value) => value !== word);
+      const fix = (value: string, index: number): ContextCommand => ({ id: `spell-${index}`, label: `«${value}»`, run: () => replaceRange(range, value, typo ? "Исправить слово" : "Исправить по замечанию") });
+      const shown = variants.slice(0, 4), more = variants.slice(4, 14);
+      show([
+        header("spell-header", remark ? `${remark.checker}: ${remark.message || "замечание"}` : `Возможная опечатка: «${word}»`),
+        ...shown.map(fix),
+        ...(more.length ? [{ id: "spell-more", label: "Ещё варианты", run: () => undefined, children: more.map((value, index) => fix(value, index + 4)) }] : []),
+        ...(variants.length ? [] : [header("spell-none", "Нет вариантов исправления")]),
+        ...(typo && speller ? [{ id: "spell-add", label: `Добавить «${word}» в словарь`, run: () => void speller.add(word).then(forget).catch((reason) => setError(String(reason))) }] : []),
+        { id: "spell-ignore", label: typo ? "Пропустить это слово" : "Пропустить замечание", run: () => { if (remark) ignoreRemark(remark); if (typo && speller) { speller.ignore(word); forget(); } } },
+      ]);
+    });
   };
   /** Source offset of the builder text under a point (for the context menu). */
   const builderOffsetAt = (x: number, y: number): number | null => {
@@ -451,12 +456,10 @@ export default function App() {
   };
   const saveCurrent = async (saveAs = false): Promise<boolean> => saveTab(workspaceRef.current.activeId, saveAs);
 
-  const chooseUnsaved = async (): Promise<UnsavedChoice> => {
-    if (!isTauri()) return window.confirm("Отбросить несохранённые изменения?") ? "discard" : "cancel";
-    if (await ask("Сохранить изменения перед продолжением?", { title: "BBForge", kind: "warning", okLabel: "Сохранить", cancelLabel: "Другие варианты" })) return "save";
-    if (await ask("Отбросить несохранённые изменения?", { title: "BBForge", kind: "warning", okLabel: "Отбросить", cancelLabel: "Отмена" })) return "discard";
-    return "cancel";
-  };
+  // Unsaved changes: one dialog for one document or for all of them at once.
+  const [unsavedQuestion, setUnsavedQuestion] = useState<{ names: string[]; resolve(choice: UnsavedChoice): void } | null>(null);
+  const tabName = (documentId: string) => workspaceRef.current.tabs.find((tab) => tab.document.id === documentId)?.document.path?.split(/[\\/]/).at(-1) ?? "Без названия";
+  const chooseUnsaved = (documentIds: string[]): Promise<UnsavedChoice> => new Promise((resolve) => setUnsavedQuestion({ names: documentIds.map(tabName), resolve }));
 
   const showDocuments = () => setSettingsTab((current) => ({ ...current, active: false }));
   const newDocument = async () => {
@@ -504,7 +507,10 @@ export default function App() {
       event.preventDefault();
       if (composing()) { setError("Завершите ввод текста перед закрытием"); return; }
       const dirtyTabs = workspaceRef.current.tabs.filter((tab) => tab.document.revision !== tab.document.savedRevision).map((tab) => tab.document.id);
-      if (!await requestWorkspaceClose(dirtyTabs, async (documentId) => requestDocumentAction(true, chooseUnsaved, () => saveTab(documentId)))) return;
+      if (dirtyTabs.length) {
+        const choice = await chooseUnsaved(dirtyTabs);
+        if (choice === "cancel" || (choice === "save" && !await requestWorkspaceClose(dirtyTabs, (documentId) => saveTab(documentId)))) return;
+      }
       try {
         workspaceStore.schedule(workspaceRef.current);
         await workspaceStore.flush();
@@ -517,7 +523,7 @@ export default function App() {
   const closeDocument = async (documentId: string) => {
     const tab = workspaceRef.current.tabs.find((item) => item.document.id === documentId);
     if (!tab) return;
-    if (!await requestDocumentAction(tab.document.revision !== tab.document.savedRevision, chooseUnsaved, () => saveTab(documentId))) return;
+    if (!await requestDocumentAction(tab.document.revision !== tab.document.savedRevision, () => chooseUnsaved([documentId]), () => saveTab(documentId))) return;
     controller?.discard(documentId);
     dispatchWorkspace({ type: "close", documentId });
     if (workspaceRef.current.tabs.length === 1) dispatchWorkspace({ type: "open", session: { document: decodeDocument(new Uint8Array()) } });
@@ -826,7 +832,7 @@ export default function App() {
   // Breadcrumbs: the structural blocks around the cursor.
   // Spelling: misspelt words of the text between tags (not [code], not links), from the analysis.
   const speller = useMemo(() => {
-    const backend = isTauri() ? { check: async (words: string[]) => await invoke("spell_check", { words }) as boolean[], suggest: async (word: string) => await invoke("spell_suggest", { word }) as string[], add: async (word: string) => { await invoke("spell_add", { word }); }, configure: async (dictionaries: DictionarySource[]) => await invoke("spell_configure", { dictionaries }) as Array<{ plugin: string; language: string; error: string | null }> } : window.__BBFORGE_SPELL__;
+    const backend = isTauri() ? { check: async (words: string[]) => await invoke("spell_check", { words }) as boolean[], suggest: async (word: string) => await invoke("spell_suggest", { word }) as string[], add: async (word: string) => { await invoke("spell_add", { word }); }, userHas: async (words: string[]) => await invoke("spell_user_has", { words }) as boolean[], configure: async (dictionaries: DictionarySource[]) => await invoke("spell_configure", { dictionaries }) as Array<{ plugin: string; language: string; error: string | null }> } : window.__BBFORGE_SPELL__;
     return backend ? new SpellChecker(backend) : null;
   }, []);
   // Dictionaries come from plugins: the desktop side loads the ones of the active packages.
@@ -866,10 +872,15 @@ export default function App() {
     return Array.isArray(result) ? result as CheckerMatch[] : [];
   })), [host, runtime, checkEpoch]);
   const [grammar, setGrammar] = useState<{ text: string; issues: TextIssue[] } | null>(null);
-  const ignoredRemarks = useRef(new Set<string>());
+  // Skipped remarks are remembered between runs.
+  const ignoredRemarks = useRef(new Set<string>((() => { try { const value = JSON.parse(localStorage.getItem("bbforge.remarks.ignored") ?? "[]"); return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []; } catch { return []; } })()));
   const [ignoredRevision, setIgnoredRevision] = useState(0);
   const remarkKey = (issue: TextIssue) => `${issue.checker}\u0000${issue.message}\u0000${documentRef.current.text.slice(issue.from, issue.to)}`;
-  const ignoreRemark = (issue: TextIssue) => { ignoredRemarks.current.add(remarkKey(issue)); setIgnoredRevision((value) => value + 1); };
+  const ignoreRemark = (issue: TextIssue) => {
+    ignoredRemarks.current.add(remarkKey(issue));
+    try { localStorage.setItem("bbforge.remarks.ignored", JSON.stringify([...ignoredRemarks.current].slice(-5000))); } catch { /* storage unavailable */ }
+    setIgnoredRevision((value) => value + 1);
+  };
   const lastCheckError = useRef("");
   useEffect(() => {
     if (!textCheckers.length || !preferences.textCheck || !currentSnapshot || !proseSegments) { setGrammar(null); return; }
@@ -884,11 +895,15 @@ export default function App() {
       }))).then((lists) => {
         if (!active) return;
         const issues = lists.flat().filter((issue) => !ignoredRemarks.current.has(`${issue.checker}\u0000${issue.message}\u0000${currentSnapshot.source.slice(issue.from, issue.to)}`));
-        setGrammar({ text: currentSnapshot.source, issues });
+        // Words the user added to the dictionary or skipped are not typos for any checker.
+        const words = issues.filter((issue) => issue.kind === "spelling").map((issue) => currentSnapshot.source.slice(issue.from, issue.to));
+        void (speller && words.length ? speller.accepted(words) : Promise.resolve(new Set<string>())).then((accepted) => {
+          if (active) setGrammar({ text: currentSnapshot.source, issues: issues.filter((issue) => issue.kind !== "spelling" || !accepted.has(currentSnapshot.source.slice(issue.from, issue.to).toLowerCase())) });
+        });
       });
     }, 1200);
     return () => { active = false; clearTimeout(timer); };
-  }, [textCheckers, currentSnapshot, proseSegments, preferences.textCheck, ignoredRevision, log]);
+  }, [textCheckers, currentSnapshot, proseSegments, preferences.textCheck, ignoredRevision, speller, log]);
   const codeChecker = useMemo(() => host.codeChecks.length ? new CodeChecker(host.codeChecks, (checker, input) => runtime.run(checker.owner, checker.fn, input, {
     selection: "", text: documentRef.current.text, insert: () => { throw new Error("Проверка кода не изменяет документ"); },
   })) : null, [host, runtime, checkEpoch]);
@@ -969,7 +984,7 @@ export default function App() {
           themes={host.themes.map((item) => [item.id, item.name])} ruleSets={activeProfile().ruleSets.map((set): [string, string] => [set.id, `${set.title}${set.description ? ` — ${set.description}` : ""}`])} profiles={[[AUTO_PROFILE, `Автоматически (сейчас ${activeProfile().name})`], ...listProfiles().map((item): [string, string] => [item.id, item.name])]}
           plugins={<PluginsSettings origins={pluginOrigins} onForgetOrigin={(id, origin) => void pluginStore.scriptBackend?.setOrigin(id, origin, false).then(() => setOriginsRevision((value) => value + 1)).catch((reason) => setError(String(reason)))} packages={host.packages} broken={brokenPackages} desktop={pluginStore.available} busy={pluginBusy} onInstall={() => void installFromFile()}
             onToggle={(id, enabled) => pluginOperation(() => pluginStore.setEnabled(id, enabled))} onRemove={(id) => pluginOperation(() => pluginStore.remove(id))} onAcceptChanges={(id) => pluginOperation(() => pluginStore.acceptChanges(id))}
-            catalog={catalog} catalogLoading={catalogLoading} onLoadCatalog={loadCatalog} onInstallFromCatalog={(entry) => void installFromCatalog(entry)} download={installPreview ? null : download} trustedDevelopers={trustedDevelopers} />} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}
+            catalog={catalog} catalogLoading={catalogLoading} onLoadCatalog={loadCatalog} onInstallFromCatalog={(entry) => void installFromCatalog(entry)} download={installPreview ? null : download} />} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}
         editor={<Editor spelling={spelling ?? undefined} grammar={grammarMarks ?? undefined} dark={theme === "dark"} document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} storedSelection={activeSession.ui.codeSelection} scroll={activeSession.ui.codeScroll} onScrollPosition={(codeScroll) => deferScroll(document.id, { codeScroll })} onChange={changeSource} onReady={setController} onQuickFix={showFixAt} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
         builder={<Builder spelling={spelling ?? undefined} grammar={grammarMarks ?? undefined} key={document.id} document={document} snapshot={snapshot} selectedSpan={selected?.span} scroll={activeSession.ui.builderScroll} storedSelection={activeSession.ui.visualSelection} restoreFocus={activeSession.ui.activeSurface === "builder"} onScrollPosition={(builderScroll) => deferScroll(document.id, { builderScroll })} execute={execute} getDocument={() => documentRef.current} onSelect={(reference) => { setSelected(reference); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { selected: reference } }); }} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onFix={(range) => showFixAt(range.from)} onDragHint={setDragHint} onError={setError} onComposition={(active) => { composition.current = active; }} />}
         preview={<Preview document={document} source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} scroll={activeSession.ui.previewScroll} onScrollPosition={(previewScroll) => deferScroll(document.id, { previewScroll })} onSelection={setPreviewRange} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}
@@ -995,6 +1010,7 @@ export default function App() {
     {update && <UpdateDialog info={update} busy={updateBusy} progress={updateProgress} error={updateError} onUpdate={() => void installUpdate()} onOpenPage={() => { void openUrl(update.page).catch((reason) => setError(String(reason))); setUpdate(null); }}
       onLater={() => setUpdate(null)} onSkip={() => { setPreferences((current) => ({ ...current, skippedUpdate: update.version })); setUpdate(null); }} />}
     {scriptPrompt && <ScriptPromptDialog plugin={scriptPrompt.plugin} options={scriptPrompt.options} onDone={(value) => { scriptPrompt.resolve(value); setScriptPrompt(null); }} />}
+    {unsavedQuestion && <UnsavedDialog names={unsavedQuestion.names} onDone={(choice) => { unsavedQuestion.resolve(choice); setUnsavedQuestion(null); }} />}
     {scriptOrigin && <ScriptAllowOriginDialog plugin={scriptOrigin.plugin} origin={scriptOrigin.origin} reason={scriptOrigin.reason} onDone={(allowed) => { scriptOrigin.resolve(allowed); setScriptOrigin(null); if (allowed) setOriginsRevision((value) => value + 1); }} />}
     {scriptReview && <ScriptReviewDialog plugin={scriptReview.plugin} options={scriptReview.options} replacing={false} onDone={(choice) => {
       if (choice === "copy") void copyText(scriptReview.options.text).then(() => log("Текст скопирован в буфер обмена", "info"));

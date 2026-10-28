@@ -39,7 +39,7 @@ test("a text service from a plugin underlines its remarks and fixes them from th
   await expect(page.locator(".cm-grammar")).toHaveCount(2);
   await expect.poll(() => page.evaluate(() => CSS.highlights.has("bbforge-grammar"))).toBe(true);
   await page.locator(".cm-grammar").first().click({ button: "right" });
-  await expect(page.getByRole("menuitem", { name: "Стиль: Скажите мягче" })).toBeVisible();
+  await expect(page.getByRole("menu").getByText("Стиль: Скажите мягче")).toBeVisible();
   await page.getByRole("menuitem", { name: "«неидеально»" }).click();
   await expect(code).toHaveText("Получилось [b]неидеально[/b], но[spoiler=S]тоже плохо[/spoiler]");
   await expect(page.locator(".cm-grammar")).toHaveCount(1);

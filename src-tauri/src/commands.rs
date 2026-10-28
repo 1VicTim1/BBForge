@@ -502,6 +502,13 @@ pub async fn spell_suggest(speller: SpellerState<'_>, word: String) -> Result<Ve
         .map_err(|error| error.to_string())
 }
 
+/// Words the user added to their dictionary (other checkers must not mark them either).
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub fn spell_user_has(speller: SpellerState<'_>, words: Vec<String>) -> Vec<bool> {
+    speller.user_has(&words[..words.len().min(5000)])
+}
+
 /// Loads the dictionaries of the active plugins (the interface knows which are active; each one
 /// is checked here again against the installed package and its manifest).
 #[cfg(feature = "desktop-runtime")]
