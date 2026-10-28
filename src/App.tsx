@@ -51,6 +51,7 @@ import { ContextMenu } from "./context/ContextMenu";
 import { useContextMenu } from "./context/useContextMenu";
 import { extractPreviewBbcode, readPreviewSelection, type PreviewSelection } from "./components/previewSelection";
 import { nodeLabel } from "./bbcode/labels";
+import { checkRules } from "./bbcode/rules";
 import { activeProfile, AUTO_PROFILE, builtinOf, detectProfile, listProfiles, profileVersion, setActiveProfile, setPluginProfiles, subscribeProfiles, tagFor, tagSpec } from "./bbcode/profile";
 import { buildHost, type PluginAction, type PluginCommand } from "./plugins/host";
 import { createPluginStore } from "./plugins/store";
@@ -178,6 +179,8 @@ export default function App() {
   }, [workspaceStore]);
   useEffect(() => { if (workspaceReady) workspaceStore.schedule(workspace); }, [workspace, workspaceReady, workspaceStore]);
   const profileRevision = useSyncExternalStore(subscribeProfiles, profileVersion);
+  const ruleSetRef = useRef(preferences.ruleSet);
+  ruleSetRef.current = preferences.ruleSet;
   // "Автоматически": the profile follows the active document's tags and forum links.
   const automaticProfile = preferences.profile === AUTO_PROFILE;
   const wantedProfile = useMemo(() => automaticProfile ? detectProfile(document.text, activeProfile().id) : preferences.profile, [automaticProfile, preferences.profile, document.text, profileRevision]);
@@ -187,6 +190,9 @@ export default function App() {
     : window.__BBFORGE_ANALYZE__ ? (request: AnalysisRequest) => window.__BBFORGE_ANALYZE__!({ ...request, profile: activeProfile().analyzer })
     : async (request: AnalysisRequest): Promise<AnalysisResponse<Analysis>> => ({ ...request, analysis: emptyAnalysis() }), []);
   const client = useMemo(() => createAnalysisClient(analyze, (result, response) => {
+    // Section rules of the active profile join the analyser's diagnostics.
+    const set = activeProfile().ruleSets.find((item) => item.id === ruleSetRef.current);
+    if (set) { result = { ...result, diagnostics: [...result.diagnostics, ...checkRules(result, response.source, set, builtinOf)] }; response = { ...response, analysis: result }; }
     setAnalyses((current) => ({ ...current, [response.documentId]: result }));
     setSnapshots((current) => ({ ...current, [response.documentId]: response }));
   }, preferences.analysisDelay, (reason) => setError(`Ошибка анализа: ${String(reason)}`)), [analyze, preferences.analysisDelay]);
@@ -197,7 +203,7 @@ export default function App() {
   ), []);
   useEffect(() => {
     client.update({ source: document.text, documentId: document.id, revision: document.revision });
-  }, [client, document.id, document.revision, document.text, profileRevision]);
+  }, [client, document.id, document.revision, document.text, profileRevision, preferences.ruleSet]);
   useEffect(() => () => client.dispose(), [client]);
 
   const changeSource = (documentId: string, value: string, endings: LineEnding[]) => {
@@ -736,7 +742,7 @@ export default function App() {
         editorBar={<EditorBar crumbs={crumbs} view={view} split={split} onView={setView} onSplit={toggleSplit} keys={{ code: key("view.code"), builder: key("view.builder"), preview: key("view.preview"), split: key("view.split") }} />}
         toolbar={<FormattingToolbar synced={synced} disabled={!currentSnapshot} states={formattingStates} onFormat={format} onSpoiler={openSpoilerDialog} onUndo={() => historyAction(false)} onRedo={() => historyAction(true)} />}
         page={settingsTab.active ? <SettingsPage key={settingsSection.nonce} initialSection={settingsSection.section} value={preferences} onChange={setPreferences} desktop={isTauri()}
-          themes={host.themes.map((item) => [item.id, item.name])} profiles={[[AUTO_PROFILE, `Автоматически (сейчас ${activeProfile().name})`], ...listProfiles().map((item): [string, string] => [item.id, item.name])]}
+          themes={host.themes.map((item) => [item.id, item.name])} ruleSets={activeProfile().ruleSets.map((set): [string, string] => [set.id, `${set.title}${set.description ? ` — ${set.description}` : ""}`])} profiles={[[AUTO_PROFILE, `Автоматически (сейчас ${activeProfile().name})`], ...listProfiles().map((item): [string, string] => [item.id, item.name])]}
           plugins={<PluginsSettings packages={host.packages} broken={brokenPackages} desktop={pluginStore.available} busy={pluginBusy} onInstall={() => void installFromFile()}
             onToggle={(id, enabled) => pluginOperation(() => pluginStore.setEnabled(id, enabled))} onRemove={(id) => pluginOperation(() => pluginStore.remove(id))} onAcceptChanges={(id) => pluginOperation(() => pluginStore.acceptChanges(id))}
             catalog={catalog} catalogLoading={catalogLoading} onLoadCatalog={loadCatalog} onInstallFromCatalog={(entry) => void installFromCatalog(entry)} download={installPreview ? null : download} trustedDevelopers={trustedDevelopers} />} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}

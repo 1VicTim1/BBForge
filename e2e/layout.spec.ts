@@ -100,3 +100,16 @@ test("compact density keeps every control readable", async ({ page }) => {
   expect(await overflowing(page)).toEqual([]);
   await page.screenshot({ path: "artifacts/redesign-dark-compact.png" });
 });
+
+test("section rules report pictures outside spoilers and wrap them with a quick fix", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("bbforge.preferences", JSON.stringify({ ruleSet: "devices" })));
+  await page.goto("/");
+  await page.locator(".cm-content").fill("[img]https://4pda.to/s/photo.png[/img]");
+  await page.getByRole("button", { name: /^Ошибки: 0, предупреждения: 1$/ }).click();
+  await expect(page.locator(".diagnostic-list")).toContainText("Фото и скриншоты в шапке — только под спойлером");
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Control+Home");
+  await page.keyboard.press("Alt+Enter");
+  await page.getByRole("option", { name: /Убрать в спойлер «Скриншоты»/ }).click();
+  await expect(page.locator(".cm-content")).toContainText("[spoiler=Скриншоты][img]https://4pda.to/s/photo.png[/img][/spoiler]");
+});

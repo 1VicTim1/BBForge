@@ -1,4 +1,5 @@
 import fourPda from "../../crates/bbcode-core/profiles/4pda.json";
+import { validateRuleSets, type RuleSet } from "./rules";
 
 /**
  * Forum profiles: the tags a forum knows and how each one behaves.
@@ -55,6 +56,8 @@ export interface TagProfile {
   /** Tags of the base profile this one drops. */
   removeTags?: string[];
   tags: TagSpec[];
+  /** Section rules (limits, required fields) the user can switch on; see rules.ts. */
+  ruleSets?: RuleSet[];
   /** Hints for automatic detection: forum domains in links, tags only this forum has. */
   detect?: { hosts?: string[]; tags?: string[] };
 }
@@ -71,6 +74,8 @@ export interface ResolvedProfile {
   names: Map<BuiltinTag, string>;
   /** Flat profile sent to the Rust analyser. */
   analyzer: TagProfile;
+  /** Section rule sets, own ones over inherited ones with the same id. */
+  ruleSets: RuleSet[];
 }
 
 const builtinRoles: Record<BuiltinTag, TagRole> = {
@@ -109,6 +114,7 @@ export function validateProfile(raw: unknown): TagProfile | null {
   const detect = value.detect && typeof value.detect === "object" ? value.detect as Record<string, unknown> : null;
   const names = (list: unknown, pattern: RegExp) => Array.isArray(list) ? list.filter((item): item is string => typeof item === "string" && pattern.test(item)).map((item) => item.toLowerCase()).slice(0, 50) : undefined;
   return {
+    ruleSets: Array.isArray(value.ruleSets) ? validateRuleSets(value.ruleSets) : undefined,
     detect: detect ? { hosts: names(detect.hosts, /^[a-z0-9.-]{3,80}$/i), tags: names(detect.tags, TAG_NAME) } : undefined,
     id, name: string(value.name, 80) || id, description: string(value.description, 300),
     extends: string(value.extends, 64), removeTags: Array.isArray(value.removeTags) ? value.removeTags.filter((item): item is string => typeof item === "string").map((item) => item.toLowerCase()) : undefined,
@@ -150,7 +156,9 @@ export function resolveProfile(profile: TagProfile, lookup: (id: string) => TagP
   const names = new Map<BuiltinTag, string>();
   for (const tag of tags.values()) if (tag.builtin && (!names.has(tag.builtin) || tag.name === tag.builtin)) names.set(tag.builtin, tag.name);
   const analyzer: TagProfile = { id: profile.id, name: profile.name, tags: [...tags.values()].map(({ builtin, render: _render, label: _label, ...spec }) => ({ ...spec, as: builtin ?? undefined })) };
-  return { id: profile.id, name: profile.name, description: profile.description ?? "", source, tags, names, analyzer };
+  const ruleSets = new Map<string, RuleSet>();
+  for (const level of chain) for (const set of level.ruleSets ?? []) ruleSets.set(set.id, set);
+  return { id: profile.id, name: profile.name, description: profile.description ?? "", source, tags, names, analyzer, ruleSets: [...ruleSets.values()] };
 }
 
 // ---- registry of known profiles and the active one ----

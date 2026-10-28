@@ -30,5 +30,178 @@
     { "name": "code", "role": "block", "label": "Код", "raw": true },
     { "name": "list", "role": "block", "label": "Список", "value": "optional" },
     { "name": "*", "role": "item", "label": "Пункт списка" }
+  ],
+  "ruleSets": [
+    {
+      "id": "devices",
+      "title": "Android - Устройства",
+      "description": "Рекомендации по оформлению шапок тем раздела",
+      "rules": [
+        {
+          "id": "spoilers",
+          "type": "maxCount",
+          "tags": [
+            "spoiler"
+          ],
+          "max": 10,
+          "message": "В шапке не больше 10 спойлеров"
+        },
+        {
+          "id": "photos",
+          "type": "maxCount",
+          "tags": [
+            "img",
+            "attachment"
+          ],
+          "only": "\\.(png|jpe?g|gif|webp|bmp)\\b",
+          "max": 5,
+          "message": "В шапке не больше 5 фото или скриншотов"
+        },
+        {
+          "id": "photos-hidden",
+          "type": "insideOnly",
+          "tags": [
+            "img",
+            "attachment"
+          ],
+          "only": "\\.(png|jpe?g|gif|webp|bmp)\\b",
+          "container": "spoiler",
+          "message": "Фото и скриншоты в шапке — только под спойлером"
+        }
+      ]
+    },
+    {
+      "id": "apps",
+      "title": "Android - Программы",
+      "description": "Поля шапки темы о программе",
+      "rules": [
+        {
+          "id": "version",
+          "type": "requiredText",
+          "pattern": "Версия\\s*:",
+          "message": "Нет поля «Версия»",
+          "severity": "info"
+        },
+        {
+          "id": "short",
+          "type": "requiredText",
+          "pattern": "Краткое описание",
+          "message": "Нет поля «Краткое описание»",
+          "severity": "info"
+        },
+        {
+          "id": "description",
+          "type": "requiredText",
+          "pattern": "Описание\\s*:",
+          "message": "Нет поля «Описание»",
+          "severity": "info"
+        },
+        {
+          "id": "android",
+          "type": "requiredText",
+          "pattern": "Требуется Android",
+          "message": "Нет поля «Требуется Android»",
+          "severity": "info"
+        },
+        {
+          "id": "russian",
+          "type": "requiredText",
+          "pattern": "Русский интерфейс",
+          "message": "Нет поля «Русский интерфейс»",
+          "severity": "info"
+        },
+        {
+          "id": "download",
+          "type": "requiredText",
+          "pattern": "Скачать",
+          "message": "Нет поля «Скачать»",
+          "severity": "info"
+        }
+      ]
+    },
+    {
+      "id": "games",
+      "title": "Android - Игры",
+      "description": "Поля шапки темы об игре",
+      "rules": [
+        {
+          "id": "version",
+          "type": "requiredText",
+          "pattern": "Версия\\s*:",
+          "message": "Нет поля «Версия»",
+          "severity": "info"
+        },
+        {
+          "id": "short",
+          "type": "requiredText",
+          "pattern": "Краткое описание",
+          "message": "Нет поля «Краткое описание»",
+          "severity": "info"
+        },
+        {
+          "id": "russian",
+          "type": "requiredText",
+          "pattern": "Русский интерфейс",
+          "message": "Нет поля «Русский интерфейс»",
+          "severity": "info"
+        },
+        {
+          "id": "requirements",
+          "type": "requiredText",
+          "pattern": "Системные требования|Требуется Android",
+          "message": "Нет поля «Системные требования»",
+          "severity": "info"
+        },
+        {
+          "id": "download",
+          "type": "requiredText",
+          "pattern": "Скачать",
+          "message": "Нет поля «Скачать»",
+          "severity": "info"
+        }
+      ]
+    },
+    {
+      "id": "pc",
+      "title": "Программы для ПК",
+      "description": "Оформление шапок тем по программам для ПК",
+      "rules": [
+        {
+          "id": "description",
+          "type": "requiredText",
+          "pattern": "Описание\\s*:",
+          "message": "Нет поля «Описание»",
+          "severity": "info"
+        },
+        {
+          "id": "features",
+          "type": "requiredText",
+          "pattern": "Возможности",
+          "message": "Нет поля «Возможности»",
+          "severity": "info"
+        },
+        {
+          "id": "os",
+          "type": "requiredText",
+          "pattern": "Операционная система",
+          "message": "Нет поля «Операционная система»",
+          "severity": "info"
+        },
+        {
+          "id": "homepage",
+          "type": "requiredText",
+          "pattern": "Домашняя страница",
+          "message": "Нет поля «Домашняя страница»",
+          "severity": "info"
+        },
+        {
+          "id": "download",
+          "type": "requiredText",
+          "pattern": "Скачать",
+          "message": "Нет поля «Скачать»",
+          "severity": "info"
+        }
+      ]
+    }
   ]
 }

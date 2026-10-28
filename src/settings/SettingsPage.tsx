@@ -12,6 +12,7 @@ const range = (low: number, high: number): Options => Array.from({ length: high 
 const settings: Setting[] = [
   { key: "theme", section: "appearance", label: "Тема", hint: "Системная следует настройке ОС", options: [["dark", "Тёмная"], ["light", "Светлая"], ["system", "Как в системе"]] },
   { key: "profile", section: "behavior", label: "Профиль форума", hint: "Набор тегов, по которому проверяется документ. «Автоматически» выбирает профиль по тегам и ссылкам документа; профили других форумов добавляют плагины", options: [] },
+  { key: "ruleSet", section: "behavior", label: "Правила раздела", hint: "Ограничения и обязательные поля шапки раздела форума; нарушения появятся в «Проблемах»", options: [] },
   { key: "density", section: "appearance", label: "Плотность интерфейса", hint: "Компактная уменьшает высоту строк и панелей", options: [["comfortable", "Обычная"], ["compact", "Компактная"]] },
   { key: "systemFrame", section: "appearance", label: "Системная рамка окна", hint: "Заголовок и кнопки окна от оконного менеджера вместо собственных", desktop: true },
   { key: "tooltips", section: "appearance", label: "Показывать подсказки к кнопкам", hint: "Описание и сочетание клавиш при наведении" },
@@ -31,9 +32,9 @@ const settings: Setting[] = [
 const modified = (value: Preferences, key: keyof Preferences) => JSON.stringify(value[key]) !== JSON.stringify(defaultPreferences[key]);
 
 /** Settings live in an editor tab and apply immediately; changed settings carry an accent bar. */
-export function SettingsPage({ value, onChange, onResetLayout, onRecording, desktop, themes = [], profiles = [], plugins, initialSection = "appearance" }: { value: Preferences; onChange(value: Preferences): void; onResetLayout(): void; onRecording?(active: boolean): void; desktop: boolean; themes?: Options; profiles?: Options; plugins?: ReactNode; initialSection?: Section }) {
+export function SettingsPage({ value, onChange, onResetLayout, onRecording, desktop, themes = [], profiles = [], ruleSets = [], plugins, initialSection = "appearance" }: { value: Preferences; onChange(value: Preferences): void; onResetLayout(): void; onRecording?(active: boolean): void; desktop: boolean; themes?: Options; profiles?: Options; ruleSets?: Options; plugins?: ReactNode; initialSection?: Section }) {
   const [section, setSection] = useState<Section>(initialSection), [query, setQuery] = useState("");
-  const optionsFor = (item: Setting): Options => item.key === "theme" ? [...item.options!.slice(0, 2), ...themes, item.options![2]] : item.key === "profile" ? profiles : item.options!;
+  const optionsFor = (item: Setting): Options => item.key === "theme" ? [...item.options!.slice(0, 2), ...themes, item.options![2]] : item.key === "profile" ? profiles : item.key === "ruleSet" ? [["", "Не проверять"], ...ruleSets] : item.options!;
   const set = <K extends keyof Preferences>(key: K, next: Preferences[K]) => onChange({ ...value, [key]: next });
   const visible = settings.filter((item) => (!item.desktop || desktop) && (query ? `${item.label} ${item.hint ?? ""}`.toLowerCase().includes(query.toLowerCase()) : item.section === section));
   const changedIn = (id: Section) => settings.filter((item) => item.section === id && modified(value, item.key)).length + (id === "keymap" && Object.keys(value.keymap).length ? Object.keys(value.keymap).length : 0);

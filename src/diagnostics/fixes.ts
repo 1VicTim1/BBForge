@@ -4,7 +4,7 @@ import { identity, validateCommand, type EditCommand } from "../document/command
 import { sourceRange } from "../document/structure";
 import { applyChanges, type DocumentState } from "../document/state";
 import { countStructuralErrors, describeImpact } from "./consequences";
-import { behavesAs, builtinOf } from "../bbcode/profile";
+import { activeProfile, behavesAs, builtinOf, tagFor } from "../bbcode/profile";
 const isItem = (name: string | null | undefined) => builtinOf(name) === "*";
 const isList = (name: string | null | undefined) => builtinOf(name) === "list";
 export interface FixSuggestion { id: string; title: string; command: EditCommand; needsParameter?: "url" | "color" | "title" | "size" | "font"; impact?: string }
@@ -119,6 +119,7 @@ function rawFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagnosti
     if (diagnostic.severity === "warning" || snapshot.analysis.diagnostics.some((item) => item.code === "crossedClosingTag")) return [];
   }
   if (diagnostic.code === "escapedBbcodeTag") return escapedFixes(document, snapshot, diagnostic);
+  if (diagnostic.code.startsWith("rule:")) return ruleFixes(document, snapshot, diagnostic);
   if (diagnostic.code === "unexpectedClosingTag") return [{ id: `remove-${diagnostic.span.start}`, title: "Удалить лишний закрывающий тег", command: { ...base, changes: [{ ...sourceRange(document, diagnostic.span), insert: "" }] } }];
   if (diagnostic.code === "unclosedTag") {
     // The forum may have escaped exactly the closing tag we are missing: &#91;/b&#93; after an unclosed [b].
@@ -131,6 +132,18 @@ function rawFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagnosti
     return [...recovered, ...unclosedFixes(document, snapshot, diagnostic, base)];
   }
   return otherFixes(document, snapshot, diagnostic, base);
+}
+/** Section rules: an element that must sit in a container (a picture under a spoiler) gets wrapped in one. */
+function ruleFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagnostic: Diagnostic): FixSuggestion[] {
+  const [setId, ruleId] = diagnostic.code.slice(5).split(".");
+  const rule = activeProfile().ruleSets.find((set) => set.id === setId)?.rules.find((item) => item.id === ruleId);
+  if (rule?.type !== "insideOnly") return [];
+  const node = allNodes(snapshot.analysis.nodes).find((item) => item.span.start === diagnostic.span.start && item.kind === "element");
+  if (!node) return [];
+  const range = sourceRange(document, node.span), name = tagFor(rule.container);
+  const title = rule.container === "spoiler" ? "Скриншоты" : "";
+  const opening = title ? `[${name}=${title}]\n` : `[${name}]\n`;
+  return [{ id: `rule-wrap-${node.span.start}`, title: `Убрать в ${rule.container === "spoiler" ? `спойлер «${title}»` : `[${name}]`}`, command: { ...identity(document), label: "Убрать в спойлер", changes: [{ from: range.from, to: range.from, insert: opening }, { from: range.to, to: range.to, insert: `\n[/${name}]` }] } }];
 }
 function unclosedFixes(document: DocumentState, snapshot: AnalysisSnapshot, diagnostic: Diagnostic, base: { label: string } & ReturnType<typeof identity>): FixSuggestion[] {
   const nodes = allNodes(snapshot.analysis.nodes), broken = nodes.filter((node) => node.kind === "element" && !node.wellFormed && !node.closingSpan && !isItem(node.name));

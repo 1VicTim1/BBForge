@@ -8,6 +8,8 @@ export interface Preferences {
   theme: Theme;
   /** Forum profile the document is checked against. */
   profile: string;
+  /** Section rules of the profile to check ("" — none). */
+  ruleSet: string;
   density: Density;
   /** Linux/Windows: the window manager's title bar instead of BBForge's own. */
   systemFrame: boolean;
@@ -28,7 +30,7 @@ export interface Preferences {
 }
 
 export const defaultPreferences: Preferences = {
-  theme: "dark", profile: "auto", density: "comfortable", systemFrame: false,
+  theme: "dark", profile: "auto", ruleSet: "", density: "comfortable", systemFrame: false,
   tooltips: true, animations: true,
   codeFontSize: 13, codeLineHeight: 1.54, codeWrap: true, codeLineNumbers: true, codeActiveLine: true,
   builderFontSize: 14, builderWidth: "medium", spoilerOpenDepth: 2, tagLabels: true,
@@ -45,6 +47,7 @@ export function validatePreferences(value: Partial<Preferences>): Preferences {
   return {
     theme: typeof value.theme === "string" && PACKAGE_ID.test(value.theme) ? value.theme : d.theme,
     profile: typeof value.profile === "string" && PACKAGE_ID.test(value.profile) ? value.profile : d.profile,
+    ruleSet: typeof value.ruleSet === "string" && (value.ruleSet === "" || PACKAGE_ID.test(value.ruleSet)) ? value.ruleSet : d.ruleSet,
     density: value.density === "compact" ? "compact" : d.density,
     systemFrame: flag(value.systemFrame, d.systemFrame),
     tooltips: flag(value.tooltips, d.tooltips), animations: flag(value.animations, d.animations),
