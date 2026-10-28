@@ -8,7 +8,9 @@
 .cm-editor .cm-cursor { border-left: 2px solid var(--accent); }
 .cm-editor .cm-content { padding: 8px 0; caret-color: var(--accent); }
 .cm-editor .cm-line { padding: 0 12px 0 2px; }
-.cm-editor .cm-selectionBackground, .cm-editor.cm-focused .cm-selectionBackground, .cm-editor .cm-content ::selection { background: var(--editor-selection) !important; }
+.cm-editor .cm-selectionBackground, .cm-editor.cm-focused .cm-selectionBackground { background: var(--editor-selection) !important; }
+/* The selection is drawn by CodeMirror's own layer; the browser's would paint only behind letters, in another place while they disagree. */
+.cm-editor .cm-content ::selection { background: transparent !important; }
 .cm-editor .cm-selectionMatch { background: var(--accent-subtle); }
 .cm-editor .cm-searchMatch { background: var(--warning-subtle); outline: 1px solid var(--warning); }
 .cm-editor .cm-searchMatch-selected { background: var(--editor-selection); }
