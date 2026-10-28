@@ -48,6 +48,8 @@ export interface BuilderProps {
   onFix?(range: SourceRange): void;
   /** Misspelt words of `text`, underlined while the builder shows that text. */
   spelling?: { text: string; ranges: Array<{ from: number; to: number }> };
+  /** Grammar and style remarks of a text service from a plugin, the same way. */
+  grammar?: { text: string; ranges: Array<{ from: number; to: number }> };
   /** Status-bar hint while a block is dragged; null when the drag ends. */
   onDragHint?(hint: string | null): void;
 }
@@ -692,28 +694,32 @@ export function Builder(props: BuilderProps) {
     if (caretInText(host, window.getSelection()?.anchorNode)) return;
     placeSelection(host, mapOffset(memory.text, props.document.text, memory.at));
   });
-  // Misspelt words: a CSS highlight over the text pieces (drawn again after every render, since
-  // lazy groups and edits change which pieces exist).
+  // Misspelt words and grammar remarks: CSS highlights over the text pieces (drawn again after every
+  // render, since lazy groups and edits change which pieces exist).
   useLayoutEffect(() => {
-    const registry = typeof CSS === "undefined" ? undefined : (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
+    const registry = highlights();
     const HighlightCtor = (globalThis as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight;
     if (!registry || !HighlightCtor || !root.current) return;
-    const spelling = props.spelling;
-    if (!spelling || spelling.text !== props.document.text || !spelling.ranges.length) { registry.delete("bbforge-spelling"); return; }
-    const ranges: Range[] = [];
-    for (const leaf of Array.from(root.current.querySelectorAll<HTMLElement>(".visual-text[data-source-from][data-source-to]"))) {
-      const from = Number(leaf.dataset.sourceFrom), to = Number(leaf.dataset.sourceTo), text = leaf.firstChild;
-      if (!text || text.nodeType !== Node.TEXT_NODE) continue;
-      for (const item of spelling.ranges) {
-        if (item.from < from || item.to > to) continue;
-        const range = document.createRange();
-        range.setStart(text, item.from - from); range.setEnd(text, item.to - from);
-        ranges.push(range);
+    const leaves = leavesIn(root.current);
+    for (const [name, marks] of [["bbforge-spelling", props.spelling], ["bbforge-grammar", props.grammar]] as const) {
+      if (!marks || marks.text !== props.document.text || !marks.ranges.length) { registry.delete(name); continue; }
+      const ranges: Range[] = [];
+      for (const leaf of leaves) {
+        const text = leaf.element.firstChild;
+        if (!text || text.nodeType !== Node.TEXT_NODE || isStale(leaf)) continue;
+        for (const item of marks.ranges) {
+          // A remark may span several pieces ("[b]Жир[/b]ный"): each piece gets its part.
+          const from = Math.max(item.from, leaf.from), to = Math.min(item.to, leaf.to);
+          if (from >= to || (name === "bbforge-spelling" && (item.from < leaf.from || item.to > leaf.to))) continue;
+          const range = document.createRange();
+          range.setStart(text, from - leaf.from); range.setEnd(text, to - leaf.from);
+          ranges.push(range);
+        }
       }
+      registry.set(name, new HighlightCtor(...ranges));
     }
-    registry.set("bbforge-spelling", new HighlightCtor(...ranges));
   });
-  useEffect(() => () => { (typeof CSS === "undefined" ? undefined : (CSS as unknown as { highlights?: Map<string, unknown> }).highlights)?.delete("bbforge-spelling"); }, []);
+  useEffect(() => () => { highlights()?.delete("bbforge-spelling"); highlights()?.delete("bbforge-grammar"); }, []);
   const select = () => {
     const host = root.current, selection = host && wanted.current === null ? selectionToSource(host) : null;
     if (!selection) return;

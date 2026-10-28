@@ -6,7 +6,10 @@ export interface SpellBackend {
   check(words: string[]): Promise<boolean[]>;
   suggest(word: string): Promise<string[]>;
   add(word: string): Promise<void>;
+  /** Which dictionaries to use (files of plugin packages); returns a problem per dictionary, if any. */
+  configure?(dictionaries: DictionarySource[]): Promise<Array<{ plugin: string; language: string; error: string | null }>>;
 }
+export interface DictionarySource { plugin: string; version: string; language: string; aff: string; dic: string }
 export interface Misspelling { from: number; to: number; word: string }
 
 const WORD = /\p{L}+(?:[-'’]\p{L}+)*/gu;
@@ -45,6 +48,13 @@ export class SpellChecker {
   }
 
   suggest(word: string) { return this.backend.suggest(word); }
+
+  /** New set of dictionaries: every word is checked again. */
+  async configure(dictionaries: DictionarySource[]) {
+    const states = await this.backend.configure?.(dictionaries) ?? [];
+    this.known.clear();
+    return states;
+  }
 
   /** Into the user's dictionary, for good. */
   async add(word: string) { await this.backend.add(word); this.known.set(word, true); }

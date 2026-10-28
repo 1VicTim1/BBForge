@@ -128,6 +128,9 @@ pub fn required_permissions(contributes: &Map<String, Value>) -> Vec<(String, &'
             "commands" => Some("commands"),
             "slots" => Some("ui.slots"),
             "converters" => Some("converters"),
+            "dictionaries" => Some("dictionaries"),
+            // Checkers see the document's text.
+            "textCheck" | "codeCheck" => Some("document.read"),
             _ => None,
         };
         if let Some(permission) = permission {
@@ -226,6 +229,48 @@ impl Manifest {
                             "contributes.{key}: элемент должен быть путём к файлу или объектом"
                         ));
                     }
+                }
+            }
+        }
+        if let Some(items) = self.contributes.get("dictionaries") {
+            for item in items.as_array().map(Vec::as_slice).unwrap_or_default() {
+                let language = item
+                    .get("language")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if language.is_empty() || language.len() > 20 {
+                    report.errors.push(
+                        "contributes.dictionaries: у словаря нет language (например ru)".into(),
+                    );
+                }
+                for key in ["aff", "dic"] {
+                    match item.get(key).and_then(Value::as_str) {
+                        Some(path) if has_file(path) => {}
+                        Some(path) => report
+                            .errors
+                            .push(format!("contributes.dictionaries: нет файла «{path}»")),
+                        None => report.errors.push(format!(
+                            "contributes.dictionaries: у словаря {language} нет {key}"
+                        )),
+                    }
+                }
+            }
+            if !items.is_array() {
+                report
+                    .errors
+                    .push("contributes.dictionaries должен быть списком".into());
+            }
+        }
+        for key in ["textCheck", "codeCheck"] {
+            if let Some(item) = self.contributes.get(key) {
+                let script = item
+                    .get("script")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if self.main.is_none() || !valid_function(script) {
+                    report.errors.push(format!(
+                        "contributes.{key}: нужен script — имя функции из main"
+                    ));
                 }
             }
         }

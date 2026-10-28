@@ -8,6 +8,7 @@ fn network_permissions_limit_urls() {
             "network:4pda.to".into(),
             "network:Bad Host".into(),
         ],
+        origins: Vec::new(),
     };
     assert_eq!(
         network_hosts(&granted.permissions),

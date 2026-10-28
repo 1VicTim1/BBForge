@@ -1,5 +1,5 @@
 import type { ScriptDef } from "./host";
-import { networkHosts } from "./types";
+import { networkHosts, originOf } from "./types";
 
 /**
  * Plugin scripts (manifest "main"): each plugin runs in its own Web Worker with no DOM, no network
@@ -12,6 +12,10 @@ import { networkHosts } from "./types";
 
 export interface ScriptBackend {
   httpGet(plugin: string, url: string, cookies?: Record<string, string>): Promise<{ status: number; contentType: string; body: string }>;
+  httpPost(plugin: string, url: string, body: { form: Record<string, string> } | { json: unknown }): Promise<{ status: number; contentType: string; body: string }>;
+  /** Addresses the user allowed the plugin to reach ("network.custom"). */
+  origins(plugin: string): Promise<string[]>;
+  setOrigin(plugin: string, origin: string, allowed: boolean): Promise<void>;
   windowOpen(plugin: string, url: string, title?: string): Promise<string>;
   windowCookies(plugin: string, label: string, names: string[], ignore?: string[], timeoutMs?: number): Promise<Record<string, string>>;
   windowClose(plugin: string, label: string): Promise<void>;
@@ -28,6 +32,8 @@ export interface ScriptUi {
   prompt(owner: string, options: PromptOptions): Promise<string | null>;
   review(owner: string, options: ReviewOptions): Promise<"insert" | "copy" | null>;
   notify(owner: string, text: string): void;
+  /** Asks the user whether the plugin may reach an address of its own choosing. */
+  allowOrigin(owner: string, origin: string, reason: string): Promise<boolean>;
 }
 /** What a run may do with the document: the selection when the command started, and insertion there. */
 export interface ScriptContext { selection: string; /** The whole document when the command started. */ text?: string; insert(text: string): void }
@@ -42,7 +48,8 @@ const __bb = (() => {
   let seq = 0;
   const call = (run, method, args) => new Promise((resolve, reject) => { const id = ++seq; pending.set(id, { resolve, reject }); post({ type: "call", id, run, method, args }); });
   const api = (run) => Object.freeze({
-    http: Object.freeze({ get: (url, options = {}) => call(run, "http.get", [String(url), options]) }),
+    http: Object.freeze({ get: (url, options = {}) => call(run, "http.get", [String(url), options]), post: (url, options = {}) => call(run, "http.post", [String(url), options]) }),
+    network: Object.freeze({ allow: (url, reason = "") => call(run, "network.allow", [String(url), String(reason)]), allowed: (url) => call(run, "network.allowed", [String(url)]) }),
     window: Object.freeze({
       open: (url, options = {}) => call(run, "window.open", [String(url), options]),
       waitForCookies: (handle, names, options = {}) => call(run, "window.waitForCookies", [handle, names, options]),
@@ -173,6 +180,15 @@ export class ScriptRuntime {
     if (!networkHosts(script.permissions).some((item) => host === item || host.endsWith(`.${item}`))) throw new Error(`Нет разрешения «network:${host}»`);
     return url;
   }
+  /** A request address: a domain of the plugin's permissions, or an address the user allowed. */
+  private async allowUrl(script: ScriptDef, url: string): Promise<{ url: string; own: boolean }> {
+    try { return { url: this.requireUrl(script, url), own: true }; } catch (error) {
+      const origin = originOf(url);
+      if (!origin || !script.permissions.includes("network.custom")) throw error;
+      if (!(await this.desktop().origins(script.owner)).includes(origin)) throw new Error(`Адрес ${origin} не разрешён: плагин должен спросить (bb.network.allow)`);
+      return { url, own: false };
+    }
+  }
   private desktop(): ScriptBackend {
     if (!this.backend) throw new Error("Доступно только в настольном приложении");
     return this.backend;
@@ -183,10 +199,24 @@ export class ScriptRuntime {
     const options = (value: unknown) => (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
     const strings = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").slice(0, 50) : [];
     switch (method) {
-      case "http.get": {
-        const url = this.requireUrl(script, text(args[0], 2000)), { cookies, encoding, as } = options(args[1]);
-        const cookieMap = cookies && typeof cookies === "object" ? Object.fromEntries(Object.entries(cookies).filter((pair): pair is [string, string] => typeof pair[1] === "string")) : undefined;
-        const response = await this.desktop().httpGet(owner, url, cookieMap);
+      case "network.allowed": case "network.allow": {
+        this.require(script, "network.custom");
+        const origin = originOf(text(args[0], 2000));
+        if (!origin) throw new Error("Адрес должен быть https, или http на этом компьютере и в локальной сети");
+        if ((await this.desktop().origins(owner)).includes(origin)) return true;
+        if (method === "network.allowed") return false;
+        if (!(await this.ui.allowOrigin(owner, origin, text(args[1], 300)))) return false;
+        await this.desktop().setOrigin(owner, origin, true);
+        return true;
+      }
+      case "http.get": case "http.post": {
+        const { url, own } = await this.allowUrl(script, text(args[0], 2000)), { cookies, encoding, as, form, json } = options(args[1]);
+        const cookieMap = own && cookies && typeof cookies === "object" ? Object.fromEntries(Object.entries(cookies).filter((pair): pair is [string, string] => typeof pair[1] === "string")) : undefined;
+        let response;
+        if (method === "http.get") response = await this.desktop().httpGet(owner, url, cookieMap);
+        else if (form && typeof form === "object") response = await this.desktop().httpPost(owner, url, { form: Object.fromEntries(Object.entries(form).map(([name, value]) => [name, String(value)])) });
+        else if (json !== undefined) response = await this.desktop().httpPost(owner, url, { json });
+        else throw new Error("http.post: нужен form или json");
         // Pictures come back as data: URLs (shown in the preview; data: is all the page may load).
         if (as === "dataUrl") {
           const type = response.contentType.split(";")[0].trim().toLowerCase();

@@ -56,6 +56,9 @@ export function createPluginStore(invoke: Invoke | null, listen: Listen | null =
     refreshKeyring: async () => await invoke("keyring_refresh") as { serial: number; developers: string[] },
     scriptBackend: {
       httpGet: async (plugin, url, cookies) => await invoke("script_http_get", { plugin, url, cookies: cookies ?? null }) as { status: number; contentType: string; body: string },
+      httpPost: async (plugin, url, body) => await invoke("script_http_post", { plugin, url, body }) as { status: number; contentType: string; body: string },
+      origins: async (plugin) => await invoke("script_origins", { plugin }) as string[],
+      setOrigin: async (plugin, origin, allowed) => { await invoke("script_origin_set", { plugin, origin, allowed }); },
       windowOpen: async (plugin, url, title) => await invoke("script_window_open", { plugin, url, title: title ?? null }) as string,
       windowCookies: async (plugin, label, names, ignore, timeoutMs) => await invoke("script_window_cookies", { plugin, label, names, ignore: ignore ?? null, timeoutMs: timeoutMs ?? null }) as Record<string, string>,
       windowClose: async (plugin, label) => { await invoke("script_window_close", { plugin, label }); },

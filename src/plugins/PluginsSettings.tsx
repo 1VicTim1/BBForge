@@ -32,6 +32,9 @@ interface Props {
   download: DownloadProgress | null;
   /** Names from the signed list of trusted developers, once it is loaded. */
   trustedDevelopers?: string[] | null;
+  /** Addresses the user allowed a plugin to reach ("network.custom"), by plugin id. */
+  origins?: Record<string, string[]>;
+  onForgetOrigin?(id: string, origin: string): void;
 }
 
 const issueText = (issue: DependencyIssue) => issue.state === "missing" ? "не установлен"
@@ -97,6 +100,7 @@ export function PluginsSettings(props: Props) {
           </div>
           {props.download?.id === id && <DownloadBar progress={props.download} />}
           {expanded && <PermissionList permissions={manifest.permissions} />}
+          {(props.origins?.[id] ?? []).length > 0 && <div className="package-origins"><strong>Разрешённые адреса</strong><ul>{props.origins![id].map((origin) => <li key={origin}><code>{origin}</code><button className="text-button" onClick={() => props.onForgetOrigin?.(id, origin)}>Забыть</button></li>)}</ul></div>}
         </li>;
       })}
       {props.broken.map((item) => <li key={item.id} className="package-card broken"><div className="package-head"><Icon name="error" /><div className="package-title"><strong>{item.id}</strong><small>{item.error}</small></div>

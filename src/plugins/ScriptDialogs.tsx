@@ -31,3 +31,16 @@ export function ScriptReviewDialog({ plugin, options, replacing, onDone }: { plu
     </footer>
   </section></div>;
 }
+
+/** bb.network.allow: a plugin asks to reach an address of its own (a self-hosted server). */
+export function ScriptAllowOriginDialog({ plugin, origin, reason, onDone }: { plugin: string; origin: string; reason: string; onDone(allowed: boolean): void }) {
+  const local = /^http:\/\//.test(origin);
+  return <div className="modal-backdrop"><section className="dialog script-dialog" role="dialog" aria-label="Разрешить доступ к адресу" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onDone(false); } }}>
+    <header><h3>Разрешить доступ к адресу?</h3></header>
+    <p className="script-origin"><Icon name="puzzle" />{plugin}</p>
+    <p>Плагин просит отправлять запросы на <code>{origin}</code>{local ? " (этот компьютер или локальная сеть)" : ""}.</p>
+    {reason && <p className="convert-hint">{reason}</p>}
+    <p className="convert-hint">Разрешайте только адреса, которым доверяете: плагин сможет отправлять туда данные, которые ему доступны (например, текст документа). Отозвать разрешение можно в настройках плагинов.</p>
+    <footer><button type="button" autoFocus onClick={() => onDone(false)}>Запретить</button><button type="button" className="primary" onClick={() => onDone(true)}>Разрешить</button></footer>
+  </section></div>;
+}

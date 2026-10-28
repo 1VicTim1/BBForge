@@ -864,6 +864,8 @@ div.bb-plain, blockquote.bb-plain, pre.bb-plain, details.bb-plain { margin: 4px 
 /* misspelt words */
 .cm-editor .cm-misspelled { text-decoration: underline wavy color-mix(in srgb, var(--error) 75%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
 ::highlight(bbforge-spelling) { text-decoration: underline wavy color-mix(in srgb, var(--error) 75%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.cm-editor .cm-grammar { text-decoration: underline wavy color-mix(in srgb, var(--accent) 80%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
+::highlight(bbforge-grammar) { text-decoration: underline wavy color-mix(in srgb, var(--accent) 80%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 /* picture previews from plugins */
 .preview-media { display: inline-block; max-width: 100%; }
 .preview-image { display: block; max-width: 100%; max-height: 480px; border-radius: var(--radius); }
@@ -872,3 +874,7 @@ div.bb-plain, blockquote.bb-plain, pre.bb-plain, details.bb-plain { margin: 4px 
 .diff-output .diff-added { display: block; color: var(--diff-added-fg); background: var(--diff-added-bg); }
 .diff-output .diff-removed { display: block; color: var(--diff-removed-fg); background: var(--diff-removed-bg); }
 .diff-output .diff-hunk { display: block; color: var(--text-muted); }
+
+.package-origins { margin-top: 8px; font-size: 12px; }
+.package-origins ul { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+.package-origins li { display: flex; align-items: center; gap: 8px; }

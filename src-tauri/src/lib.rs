@@ -19,8 +19,6 @@ pub fn run() {
             use tauri::Manager;
             let file = app.path().app_data_dir()?.join("user-dictionary.txt");
             app.manage(std::sync::Arc::new(spell::Speller::new(file)));
-            // Parsing the Russian dictionary takes about a second: do it before the first check.
-            std::thread::spawn(spell::preload);
             Ok(())
         })
         .plugin(tauri_plugin_dialog::init())
@@ -43,9 +41,13 @@ pub fn run() {
             commands::spell_check,
             commands::spell_suggest,
             commands::spell_add,
+            commands::spell_configure,
             commands::update_check,
             commands::update_install,
             commands::script_http_get,
+            commands::script_http_post,
+            commands::script_origins,
+            commands::script_origin_set,
             commands::script_window_open,
             commands::script_window_cookies,
             commands::script_window_close,

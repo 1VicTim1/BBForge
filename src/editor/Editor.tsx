@@ -56,6 +56,8 @@ interface EditorProps {
   onScrollPosition?(position: ScrollPosition): void;
   /** Misspelt words of `text` (drawn only while the editor shows that text). */
   spelling?: { text: string; ranges: Array<{ from: number; to: number }> };
+  /** Grammar and style remarks of a text service from a plugin, the same way. */
+  grammar?: { text: string; ranges: Array<{ from: number; to: number }> };
   /** The light bulb in the gutter was clicked: show quick fixes at this position. */
   onQuickFix?(position: number): void;
   dark?: boolean;
@@ -63,11 +65,11 @@ interface EditorProps {
 type Problem = { from: number; to: number; severity: string; message: string };
 const refreshSpelling = StateEffect.define<null>();
 /** Dotted underlines under misspelt words; the context menu offers the corrections. */
-function spellingMarks(spelling: () => EditorProps["spelling"]) {
+function spellingMarks(spelling: () => EditorProps["spelling"], className = "cm-misspelled") {
   const build = (view: EditorView): DecorationSet => {
     const current = spelling();
     if (!current || current.text.length !== view.state.doc.length || current.text !== view.state.doc.toString()) return Decoration.none;
-    return Decoration.set(current.ranges.filter((item) => item.to > item.from && item.to <= current.text.length).map((item) => Decoration.mark({ class: "cm-misspelled" }).range(item.from, item.to)), true);
+    return Decoration.set(current.ranges.filter((item) => item.to > item.from && item.to <= current.text.length).map((item) => Decoration.mark({ class: className }).range(item.from, item.to)), true);
   };
   return ViewPlugin.fromClass(class {
     decorations: DecorationSet;
@@ -155,7 +157,7 @@ export function Editor(props: EditorProps) {
     const initial = props.document ?? { ...decodeDocument(new TextEncoder().encode(props.value)), endings: props.endings };
     const problems = problemMarks(() => latest.current.snapshot, (position) => latest.current.onQuickFix?.(position));
     const extensions = [
-      problems.gutter, lineNumbers(), highlightActiveLineGutter(), drawSelection(), highlightActiveLine(), bracketMatching(), foldGutter(), bbcodeLanguage, matchingTags(() => latest.current.snapshot), problems.decorations, spellingMarks(() => latest.current.spelling),
+      problems.gutter, lineNumbers(), highlightActiveLineGutter(), drawSelection(), highlightActiveLine(), bracketMatching(), foldGutter(), bbcodeLanguage, matchingTags(() => latest.current.snapshot), problems.decorations, spellingMarks(() => latest.current.spelling), spellingMarks(() => latest.current.grammar, "cm-grammar"),
       foldService.of((state, lineStart, lineEnd) => {
         const snapshot = latest.current.snapshot;
         if (!snapshot || snapshot.source !== state.doc.toString()) return null;
@@ -199,7 +201,7 @@ export function Editor(props: EditorProps) {
   }, [props.document?.id]);
   useEffect(() => { if (props.selectionRequest) controllerRef.current?.select(props.selectionRequest); }, [props.selectionRequest]);
   useEffect(() => { viewRef.current?.dispatch({ effects: refreshMatching.of(null) }); }, [props.snapshot]);
-  useEffect(() => { viewRef.current?.dispatch({ effects: refreshSpelling.of(null) }); }, [props.spelling]);
+  useEffect(() => { viewRef.current?.dispatch({ effects: refreshSpelling.of(null) }); }, [props.spelling, props.grammar]);
   useEffect(() => subscribeProfiles(() => viewRef.current?.dispatch({ effects: refreshHighlighting.of(null) })), []);
   // Colours come from CSS variables; only CodeMirror's own light/dark flag needs reconfiguring.
   useEffect(() => { viewRef.current?.dispatch({ effects: themeFlag.reconfigure(EditorView.theme({ "&": { height: "100%" }, ".cm-scroller": { overflow: "auto" } }, { dark: props.dark ?? true })) }); }, [props.dark]);

@@ -220,7 +220,7 @@ fn plugin_data(app: &tauri::AppHandle, id: &str) -> Result<crate::script_api::Pl
 
 #[cfg(feature = "desktop-runtime")]
 fn granted(app: &tauri::AppHandle, plugin: &str) -> Result<crate::script_api::Granted, String> {
-    crate::script_api::granted(&plugin_store(app)?, plugin)
+    crate::script_api::granted(&plugin_store(app)?, plugin, &plugin_data(app, plugin)?)
 }
 
 /// Window labels of a plugin: "plugin-<hex of the id>-<n>", so a label tells its owner.
@@ -240,12 +240,53 @@ pub async fn script_http_get(
     url: String,
     cookies: Option<std::collections::BTreeMap<String, String>>,
 ) -> Result<crate::script_api::HttpResponse, String> {
-    granted(&app, &plugin)?.url(&url)?;
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::script_api::http_get(&url, &cookies.unwrap_or_default())
-    })
-    .await
-    .map_err(|error| error.to_string())?
+    let granted = granted(&app, &plugin)?;
+    granted.request_url(&url)?;
+    // Cookies only go to the plugin's own domains, never to an address the user typed in.
+    let cookies = if granted.url(&url).is_ok() {
+        cookies.unwrap_or_default()
+    } else {
+        Default::default()
+    };
+    tauri::async_runtime::spawn_blocking(move || crate::script_api::http_get(&url, &cookies))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub async fn script_http_post(
+    app: tauri::AppHandle,
+    plugin: String,
+    url: String,
+    body: crate::script_api::PostBody,
+) -> Result<crate::script_api::HttpResponse, String> {
+    granted(&app, &plugin)?.request_url(&url)?;
+    tauri::async_runtime::spawn_blocking(move || crate::script_api::http_post(&url, &body))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Addresses the user allowed a plugin to reach (permission `network.custom`).
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub fn script_origins(app: tauri::AppHandle, plugin: String) -> Result<Vec<String>, String> {
+    Ok(plugin_data(&app, &plugin)?.origins())
+}
+
+/// Called by the interface after the user answered its own dialog (never by a plugin script).
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub fn script_origin_set(
+    app: tauri::AppHandle,
+    plugin: String,
+    origin: String,
+    allowed: bool,
+) -> Result<(), String> {
+    if allowed {
+        granted(&app, &plugin)?.require("network.custom")?;
+    }
+    plugin_data(&app, &plugin)?.set_origin(&origin, allowed)
 }
 
 /// Opens a page of the plugin's domains in its own window (no BBForge commands, browser storage
@@ -459,6 +500,52 @@ pub async fn spell_suggest(speller: SpellerState<'_>, word: String) -> Result<Ve
     tauri::async_runtime::spawn_blocking(move || speller.suggest(&word))
         .await
         .map_err(|error| error.to_string())
+}
+
+/// Loads the dictionaries of the active plugins (the interface knows which are active; each one
+/// is checked here again against the installed package and its manifest).
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub async fn spell_configure(
+    app: tauri::AppHandle,
+    speller: SpellerState<'_>,
+    dictionaries: Vec<crate::spell::DictionarySource>,
+) -> Result<Vec<crate::spell::DictionaryState>, String> {
+    let speller = std::sync::Arc::clone(&speller);
+    let store = plugin_store(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        speller.configure(dictionaries, |plugin, path| {
+            let package = store.installed(plugin)?;
+            if !package
+                .manifest
+                .permissions
+                .iter()
+                .any(|item| item == "dictionaries")
+            {
+                return Err(format!("{plugin}: нет разрешения «dictionaries»"));
+            }
+            let declared = package
+                .manifest
+                .contributes
+                .get("dictionaries")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|items| {
+                    items.iter().any(|item| {
+                        ["aff", "dic"].iter().any(|key| {
+                            item.get(key).and_then(serde_json::Value::as_str) == Some(path)
+                        })
+                    })
+                });
+            if !declared {
+                return Err(format!(
+                    "{plugin}: {path} не объявлен в contributes.dictionaries"
+                ));
+            }
+            store.package_file(plugin, path)
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 #[cfg(feature = "desktop-runtime")]

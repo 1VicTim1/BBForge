@@ -228,6 +228,25 @@ impl Store {
         self.save_registry(&registry)
     }
 
+    /// A file of an installed package that may run (enabled, unchanged since installation).
+    pub fn package_file(&self, id: &str, path: &str) -> Result<Vec<u8>, String> {
+        let entry = self
+            .registry()
+            .packages
+            .get(id)
+            .cloned()
+            .ok_or_else(|| format!("Пакет {id} не установлен"))?;
+        let package = read_archive(&read_package_file(&self.archive_path(id))?)?;
+        if !entry.enabled || package.inspect(&self.trusted()).digest != entry.digest {
+            return Err(format!("Пакет {id} выключен или изменён"));
+        }
+        package
+            .files
+            .get(path)
+            .cloned()
+            .ok_or_else(|| format!("{id}: нет файла {path}"))
+    }
+
     /// An installed package as it is on disk now (verified again).
     pub fn installed(&self, id: &str) -> Result<InstalledPackage, String> {
         self.load(id)

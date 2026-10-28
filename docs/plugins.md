@@ -62,6 +62,8 @@
 | `converters` | добавлять конвертеры разметки (`contributes.converters`) |
 | `scripts` | исполнять свой скрипт (`main`) в песочнице |
 | `network:<домен>` | скриптом обращаться к домену и его поддоменам по https, например `network:4pda.to` |
+| `network.custom` | скриптом обращаться к адресам, которые разрешит пользователь (`bb.network.allow`): https куда угодно, http — только этот компьютер и локальная сеть, с портом |
+| `dictionaries` | добавлять словари проверки орфографии (`contributes.dictionaries`) |
 | `windows` | скриптом открывать окно сайта из разрешённых доменов и читать его куки |
 | `storage` | скриптом хранить свои данные (до 1 МБ) |
 
@@ -280,7 +282,10 @@ exports.go = async (bb, args) => {
 
 | Вызов | Что делает | Разрешение |
 | --- | --- | --- |
-| `bb.http.get(url, { cookies, encoding })` | GET-запрос; `cookies` — объект имя → значение; возвращает `{ status, contentType, text }`, кодировка из `encoding` или заголовка | `network:<домен>` |
+| `bb.http.get(url, { cookies, encoding })` | GET-запрос; `cookies` — объект имя → значение; возвращает `{ status, contentType, text }`, кодировка из `encoding` или заголовка | `network:<домен>` или разрешённый адрес |
+| `bb.http.post(url, { form } \| { json })` | POST с полями формы (`application/x-www-form-urlencoded`) или JSON, без кук; ответ как у `get` | `network:<домен>` или разрешённый адрес |
+| `bb.network.allow(url, reason)` | спросить пользователя, можно ли обращаться к адресу (`scheme://host:port`); `true`, если разрешено (в том числе раньше) | `network.custom` |
+| `bb.network.allowed(url)` | разрешён ли адрес, не спрашивая | `network.custom` |
 | `bb.window.open(url, { title })` | окно сайта (своё хранилище браузера у каждого плагина, переходы только по его доменам); возвращает идентификатор окна | `windows` |
 | `bb.window.waitForCookies(window, names, { ignore, timeout })` | ждёт, пока у окна появятся все куки `names` (значения из `ignore` не считаются), возвращает их | `windows` |
 | `bb.window.close(window)`, `bb.window.clearData()` | закрыть окно; забыть куки и кэш окон плагина | `windows` |
@@ -297,6 +302,12 @@ exports.go = async (bb, args) => {
 `bb.http.get(url, { as: "dataUrl" })` возвращает картинку как `{ status, contentType, dataUrl }` (только `image/*`, до 6 МБ).
 
 **Предпросмотр картинок.** Плагин со скриптом может объявить `"imagePreview": { "script": "preview" }` в `contributes`. Для каждой картинки `[img]` с доменов из его разрешений `network:…` BBForge вызывает `preview(bb, { url })` и показывает возвращённый `data:image/…` в предпросмотре и миниатюрой в конструкторе; без такого плагина остаются заглушки.
+
+**Проверка текста.** `"textCheck": { "script": "check", "title": "LanguageTool" }` (нужно `document.read`): BBForge через секунду после правки отдаёт `check(bb, { text })` абзацы текста между тегами (без `[code]`), только ещё не проверенные, по нескольку за раз через пустую строку. Функция возвращает `[{ offset, length, message, replacements, kind }]` — позиции в `text`, `kind`: `spelling`, `grammar` или `style`. Замечания подчёркиваются синим в коде и конструкторе; сообщение, исправления и «Пропустить» — по правому клику. Пользователь может выключить такие проверки в настройках.
+
+**Проверка кода.** `"codeCheck": { "script": "check", "title": "Проверка кода" }` (нужно `document.read`): для каждого `[code]` вызывается `check(bb, { code, language })` (`language` — значение тега, `[code=json]`, или `null`), один раз на каждый текст блока. Возвращается `[{ offset, length, message, severity }]` (`error`, `warning`, `info`) — эти проблемы появляются в панели проблем и подчёркиваются в коде, как ошибки разметки.
+
+**Словари.** Пакет без скрипта с разрешением `dictionaries`: `"dictionaries": [{ "language": "uk", "name": "Українська", "aff": "uk_UA.aff", "dic": "uk_UA.dic" }]` — файлы Hunspell в UTF-8. Слово проверяется словарями своего алфавита (кириллица, латиница, греческий; алфавит словаря BBForge определяет по его словам) и считается верным, если его знает хоть один. Свой словарь пользователя общий для всех языков.
 
 Если в скрипте есть `exports.activate`, BBForge вызывает её при загрузке плагина: удобно, чтобы сразу выставить названия команд по сохранённому состоянию.
 

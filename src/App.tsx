@@ -52,7 +52,9 @@ import { useContextMenu } from "./context/useContextMenu";
 import { extractPreviewBbcode, readPreviewSelection, type PreviewSelection } from "./components/previewSelection";
 import { nodeLabel } from "./bbcode/labels";
 import { checkRules } from "./bbcode/rules";
-import { SpellChecker } from "./spell/spell";
+import { SpellChecker, type DictionarySource } from "./spell/spell";
+import { CodeChecker, PLUGIN_DIAGNOSTIC, withPluginDiagnostics } from "./plugins/codeCheck";
+import { paragraphsOf, TextChecker, type CheckerMatch, type TextIssue } from "./spell/textCheck";
 import { activeProfile, AUTO_PROFILE, builtinOf, detectProfile, listProfiles, profileVersion, setActiveProfile, setPluginProfiles, subscribeProfiles, tagFor, tagSpec } from "./bbcode/profile";
 import { buildHost, type PluginAction, type PluginCommand } from "./plugins/host";
 import { createPluginStore } from "./plugins/store";
@@ -67,7 +69,7 @@ import { ConvertDialog } from "./plugins/ConvertDialog";
 import { ImageResolverContext, type ImageResolver } from "./plugins/images";
 import { UpdateDialog, type UpdateInfo } from "./updates/UpdateDialog";
 import { ScriptRuntime, type CommandPatch, type PromptOptions, type ReviewOptions } from "./plugins/scripts";
-import { ScriptPromptDialog, ScriptReviewDialog } from "./plugins/ScriptDialogs";
+import { ScriptAllowOriginDialog, ScriptPromptDialog, ScriptReviewDialog } from "./plugins/ScriptDialogs";
 import type { Converter } from "./plugins/convert";
 import { fetchableDependencies, type DownloadProgress } from "./plugins/PluginsSettings";
 import "./ide.css";
@@ -233,10 +235,14 @@ export default function App() {
     ? createTauriAnalyzer<Analysis>(invoke, () => activeProfile().analyzer)
     : window.__BBFORGE_ANALYZE__ ? (request: AnalysisRequest) => window.__BBFORGE_ANALYZE__!({ ...request, profile: activeProfile().analyzer })
     : async (request: AnalysisRequest): Promise<AnalysisResponse<Analysis>> => ({ ...request, analysis: emptyAnalysis() }), []);
+  // [code] checks from plugins: what they already said about a block joins every new analysis.
+  const codeCheckerRef = useRef<CodeChecker | null>(null);
   const client = useMemo(() => createAnalysisClient(analyze, (result, response) => {
     // Section rules of the active profile join the analyser's diagnostics.
     const set = activeProfile().ruleSets.find((item) => item.id === ruleSetRef.current);
     if (set) { result = { ...result, diagnostics: [...result.diagnostics, ...checkRules(result, response.source, set, builtinOf)] }; response = { ...response, analysis: result }; }
+    const known = codeCheckerRef.current?.cached(result, response.source) ?? [];
+    if (known.length) { result = withPluginDiagnostics(result, known); response = { ...response, analysis: result }; }
     setAnalyses((current) => ({ ...current, [response.documentId]: result }));
     setSnapshots((current) => ({ ...current, [response.documentId]: response }));
   }, preferences.analysisDelay, (reason) => setError(`Ошибка анализа: ${String(reason)}`)), [analyze, preferences.analysisDelay]);
@@ -387,16 +393,26 @@ export default function App() {
       });
     }
     };
-    // A misspelt word under the pointer: its corrections come first, like in a word processor.
-    const misspelt = (surface === "code" || surface === "builder") && spelling?.text === documentRef.current.text ? spelling.ranges.find((item) => at >= item.from && at <= item.to) : undefined;
-    if (!misspelt || !speller) { show([]); return; }
-    const word = documentRef.current.text.slice(misspelt.from, misspelt.to), revision = documentRef.current.revision;
-    const replaceWord = (value: string) => run(() => {
+    const revision = documentRef.current.revision, onText = surface === "code" || surface === "builder";
+    const replaceRange = (range: { from: number; to: number }, value: string, label: string) => run(() => {
       if (documentRef.current.revision !== revision) throw new Error("Документ изменился. Откройте меню заново.");
-      return { ...identity(documentRef.current), label: "Исправить слово", changes: [{ from: misspelt.from, to: misspelt.to, insert: value }] };
+      return { ...identity(documentRef.current), label, changes: [{ from: range.from, to: range.to, insert: value }] };
     });
+    // A remark of a text service under the pointer: its message and corrections.
+    const remark = onText && grammar?.text === documentRef.current.text ? grammar.issues.find((item) => at >= item.from && at <= item.to) : undefined;
+    const remarkItems = remark ? [
+      { id: "grammar-message", label: `${remark.checker}: ${remark.message || "замечание"}`.slice(0, 120), run: () => undefined },
+      ...remark.replacements.map((value, index) => ({ id: `grammar-${index}`, label: `«${value}»`, run: () => replaceRange(remark, value, "Исправить по замечанию") })),
+      { id: "grammar-ignore", label: "Пропустить замечание", run: () => ignoreRemark(remark) },
+    ] : [];
+    // A misspelt word under the pointer: its corrections come first, like in a word processor.
+    const misspelt = onText && spelling?.text === documentRef.current.text ? spelling.ranges.find((item) => at >= item.from && at <= item.to) : undefined;
+    if (!misspelt || !speller) { show(remarkItems); return; }
+    const word = documentRef.current.text.slice(misspelt.from, misspelt.to);
+    const replaceWord = (value: string) => replaceRange(misspelt, value, "Исправить слово");
     const forget = () => setSpelling((current) => current && { ...current, ranges: current.ranges.filter((item) => documentRef.current.text.slice(item.from, item.to).toLowerCase() !== word.toLowerCase()) });
     void speller.suggest(word).catch(() => [] as string[]).then((suggestions) => show([
+      ...remarkItems,
       ...suggestions.slice(0, 6).map((value, index) => ({ id: `spell-${index}`, label: `«${value}»`, run: () => replaceWord(value) })),
       ...(suggestions.length ? [] : [{ id: "spell-none", label: "Нет вариантов исправления", run: () => undefined }]),
       { id: "spell-add", label: `Добавить «${word}» в словарь`, run: () => void speller.add(word).then(forget).catch((reason) => setError(String(reason))) },
@@ -555,6 +571,18 @@ export default function App() {
   const [conversion, setConversion] = useState<{ converter: Converter; range: VisualRange; initial: string } | null>(null);
   // Plugin scripts: one sandboxed worker per plugin, recreated when the packages change.
   const [scriptPrompt, setScriptPrompt] = useState<{ plugin: string; options: PromptOptions; resolve(value: string | null): void } | null>(null);
+  // Addresses users allowed plugins to reach, shown (and revocable) in the plugin settings.
+  const [originsRevision, setOriginsRevision] = useState(0);
+  const [pluginOrigins, setPluginOrigins] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    const backend = pluginStore.scriptBackend;
+    if (!backend) return;
+    let active = true;
+    const ids = host.packages.filter((item) => item.package.manifest.permissions.includes("network.custom")).map((item) => item.id);
+    void Promise.all(ids.map(async (id) => [id, await backend.origins(id).catch(() => [])] as const)).then((entries) => { if (active) setPluginOrigins(Object.fromEntries(entries)); });
+    return () => { active = false; };
+  }, [host, pluginStore, originsRevision]);
+  const [scriptOrigin, setScriptOrigin] = useState<{ plugin: string; origin: string; reason: string; resolve(allowed: boolean): void } | null>(null);
   const [scriptReview, setScriptReview] = useState<{ plugin: string; options: ReviewOptions; resolve(choice: "insert" | "copy" | null): void } | null>(null);
   // Titles and icons scripts set for their commands (bb.commands.update), until the packages change.
   const [commandOverrides, setCommandOverrides] = useState<Record<string, CommandPatch>>({});
@@ -565,6 +593,7 @@ export default function App() {
       prompt: (owner, options) => new Promise((resolve) => setScriptPrompt({ plugin: name(owner), options, resolve })),
       review: (owner, options) => new Promise((resolve) => setScriptReview({ plugin: name(owner), options, resolve })),
       notify: (owner, text) => log(`${name(owner)}: ${text}`, "info"),
+      allowOrigin: (owner, origin, reason) => new Promise((resolve) => setScriptOrigin({ plugin: name(owner), origin, reason, resolve })),
     }, host.commands.map((command) => command.id));
   }, [host, pluginStore]);
   useEffect(() => {
@@ -794,21 +823,98 @@ export default function App() {
   // Breadcrumbs: the structural blocks around the cursor.
   // Spelling: misspelt words of the text between tags (not [code], not links), from the analysis.
   const speller = useMemo(() => {
-    const backend = isTauri() ? { check: async (words: string[]) => await invoke("spell_check", { words }) as boolean[], suggest: async (word: string) => await invoke("spell_suggest", { word }) as string[], add: async (word: string) => { await invoke("spell_add", { word }); } } : window.__BBFORGE_SPELL__;
+    const backend = isTauri() ? { check: async (words: string[]) => await invoke("spell_check", { words }) as boolean[], suggest: async (word: string) => await invoke("spell_suggest", { word }) as string[], add: async (word: string) => { await invoke("spell_add", { word }); }, configure: async (dictionaries: DictionarySource[]) => await invoke("spell_configure", { dictionaries }) as Array<{ plugin: string; language: string; error: string | null }> } : window.__BBFORGE_SPELL__;
     return backend ? new SpellChecker(backend) : null;
   }, []);
-  const [spelling, setSpelling] = useState<{ text: string; ranges: Array<{ from: number; to: number }> } | null>(null);
+  // Dictionaries come from plugins: the desktop side loads the ones of the active packages.
+  const [dictionaryRevision, setDictionaryRevision] = useState(0);
+  const dictionaryList = JSON.stringify(host.dictionaries.map(({ owner, version, language, aff, dic }) => ({ plugin: owner, version, language, aff, dic })));
   useEffect(() => {
-    if (!speller || !preferences.spellcheck || !currentSnapshot) { if (!preferences.spellcheck) setSpelling(null); return; }
+    if (!speller) return;
     let active = true;
+    void speller.configure(JSON.parse(dictionaryList) as DictionarySource[]).then((states) => {
+      if (!active) return;
+      for (const state of states) if (state.error) log(`Словарь ${state.language} (${state.plugin}): ${state.error}`, "error");
+      setDictionaryRevision((value) => value + 1);
+    }).catch((reason) => log(`Словари: ${String(reason)}`, "error"));
+    return () => { active = false; };
+  }, [speller, dictionaryList]);
+  const [spelling, setSpelling] = useState<{ text: string; ranges: Array<{ from: number; to: number }> } | null>(null);
+  // Text between tags, outside [code] and other raw blocks: what spelling and text services check.
+  const proseSegments = useMemo(() => {
+    if (!currentSnapshot) return null;
     const index = createPositionIndex(currentSnapshot.source), raw: Array<[number, number]> = [];
     const walk = (nodes: Node[]) => { for (const node of nodes) { if (node.kind !== "element") continue; if (tagSpec(node.name)?.raw) raw.push([node.contentSpan.start, node.contentSpan.end]); else walk(node.children); } };
     walk(currentSnapshot.analysis.nodes);
-    const segments = currentSnapshot.analysis.tokens.filter((token) => token.kind === "text" && !raw.some(([from, to]) => token.span.start >= from && token.span.end <= to))
+    return currentSnapshot.analysis.tokens.filter((token) => token.kind === "text" && !raw.some(([from, to]) => token.span.start >= from && token.span.end <= to))
       .map((token) => ({ from: index.byteToUtf16(token.span.start), to: index.byteToUtf16(token.span.end) }));
-    void speller.misspellings(currentSnapshot.source, segments).then((found) => { if (active) setSpelling({ text: currentSnapshot.source, ranges: found.map(({ from, to }) => ({ from, to })) }); }).catch(() => undefined);
+  }, [currentSnapshot]);
+  useEffect(() => {
+    if (!speller || !preferences.spellcheck || !currentSnapshot || !proseSegments) { if (!preferences.spellcheck) setSpelling(null); return; }
+    let active = true;
+    void speller.misspellings(currentSnapshot.source, proseSegments).then((found) => { if (active) setSpelling({ text: currentSnapshot.source, ranges: found.map(({ from, to }) => ({ from, to })) }); }).catch(() => undefined);
     return () => { active = false; };
-  }, [speller, currentSnapshot, preferences.spellcheck]);
+  }, [speller, currentSnapshot, proseSegments, preferences.spellcheck, dictionaryRevision]);
+  // Text services from plugins (grammar, style): paragraphs not seen before go to the plugin's
+  // script a moment after typing stops.
+  const textCheckers = useMemo(() => host.textChecks.map((item) => new TextChecker(item.title, async (text) => {
+    const context = { selection: "", text: documentRef.current.text, insert: () => { throw new Error("Проверка текста не изменяет документ"); } };
+    const result = await runtime.run(item.owner, item.fn, { text }, context);
+    return Array.isArray(result) ? result as CheckerMatch[] : [];
+  })), [host, runtime]);
+  const [grammar, setGrammar] = useState<{ text: string; issues: TextIssue[] } | null>(null);
+  const ignoredRemarks = useRef(new Set<string>());
+  const [ignoredRevision, setIgnoredRevision] = useState(0);
+  const remarkKey = (issue: TextIssue) => `${issue.checker}\u0000${issue.message}\u0000${documentRef.current.text.slice(issue.from, issue.to)}`;
+  const ignoreRemark = (issue: TextIssue) => { ignoredRemarks.current.add(remarkKey(issue)); setIgnoredRevision((value) => value + 1); };
+  const lastCheckError = useRef("");
+  useEffect(() => {
+    if (!textCheckers.length || !preferences.textCheck || !currentSnapshot || !proseSegments) { setGrammar(null); return; }
+    let active = true;
+    const breaks = (gap: string) => [...gap.matchAll(/\[\/?([^\]=\s/]+)/g)].some((match) => tagSpec(match[1])?.role !== "inline");
+    const timer = setTimeout(() => {
+      const paragraphs = paragraphsOf(currentSnapshot.source, proseSegments, breaks);
+      void Promise.all(textCheckers.map((checker) => checker.issues(paragraphs, () => !active).catch((reason: unknown) => {
+        const message = `Проверка текста: ${reason instanceof Error ? reason.message : String(reason)}`;
+        if (message !== lastCheckError.current) { lastCheckError.current = message; log(message, "error"); }
+        return [] as TextIssue[];
+      }))).then((lists) => {
+        if (!active) return;
+        const issues = lists.flat().filter((issue) => !ignoredRemarks.current.has(`${issue.checker}\u0000${issue.message}\u0000${currentSnapshot.source.slice(issue.from, issue.to)}`));
+        setGrammar({ text: currentSnapshot.source, issues });
+      });
+    }, 1200);
+    return () => { active = false; clearTimeout(timer); };
+  }, [textCheckers, currentSnapshot, proseSegments, preferences.textCheck, ignoredRevision, log]);
+  const codeChecker = useMemo(() => host.codeChecks.length ? new CodeChecker(host.codeChecks, (checker, input) => runtime.run(checker.owner, checker.fn, input, {
+    selection: "", text: documentRef.current.text, insert: () => { throw new Error("Проверка кода не изменяет документ"); },
+  })) : null, [host, runtime]);
+  codeCheckerRef.current = codeChecker;
+  useEffect(() => {
+    if (!currentSnapshot) return;
+    const target = currentSnapshot;
+    if (!codeChecker) {
+      // Checkers gone: their old findings go too.
+      if (target.analysis.diagnostics.some((item) => item.code.startsWith(PLUGIN_DIAGNOSTIC))) {
+        const analysis = withPluginDiagnostics(target.analysis, []);
+        setAnalyses((current) => ({ ...current, [target.documentId]: analysis }));
+        setSnapshots((current) => current[target.documentId] === target ? { ...current, [target.documentId]: { ...target, analysis } } : current);
+      }
+      return;
+    }
+    let active = true;
+    const timer = setTimeout(() => void codeChecker.refresh(target.analysis, target.source, () => !active, (checker, reason) => {
+      const message = `${checker.title}: ${reason instanceof Error ? reason.message : String(reason)}`;
+      if (message !== lastCheckError.current) { lastCheckError.current = message; log(message, "error"); }
+    }).then((changed) => {
+      if (!active || !changed) return;
+      const analysis = withPluginDiagnostics(target.analysis, codeChecker.cached(target.analysis, target.source));
+      setAnalyses((current) => ({ ...current, [target.documentId]: analysis }));
+      setSnapshots((current) => current[target.documentId] === target ? { ...current, [target.documentId]: { ...target, analysis } } : current);
+    }), 600);
+    return () => { active = false; clearTimeout(timer); };
+  }, [codeChecker, currentSnapshot, log]);
+  const grammarMarks = useMemo(() => grammar && { text: grammar.text, ranges: grammar.issues }, [grammar]);
   // Text between tags (from the analysis): search and replace stay out of tags by default.
   const [replaceRequest, setReplaceRequest] = useState(0);
   const textSegments = useMemo(() => {
@@ -858,11 +964,11 @@ export default function App() {
         toolbar={<FormattingToolbar synced={synced} disabled={!currentSnapshot} states={formattingStates} onFormat={format} onSpoiler={openSpoilerDialog} onUndo={() => historyAction(false)} onRedo={() => historyAction(true)} />}
         page={settingsTab.active ? <SettingsPage key={settingsSection.nonce} initialSection={settingsSection.section} value={preferences} onChange={setPreferences} desktop={isTauri()}
           themes={host.themes.map((item) => [item.id, item.name])} ruleSets={activeProfile().ruleSets.map((set): [string, string] => [set.id, `${set.title}${set.description ? ` — ${set.description}` : ""}`])} profiles={[[AUTO_PROFILE, `Автоматически (сейчас ${activeProfile().name})`], ...listProfiles().map((item): [string, string] => [item.id, item.name])]}
-          plugins={<PluginsSettings packages={host.packages} broken={brokenPackages} desktop={pluginStore.available} busy={pluginBusy} onInstall={() => void installFromFile()}
+          plugins={<PluginsSettings origins={pluginOrigins} onForgetOrigin={(id, origin) => void pluginStore.scriptBackend?.setOrigin(id, origin, false).then(() => setOriginsRevision((value) => value + 1)).catch((reason) => setError(String(reason)))} packages={host.packages} broken={brokenPackages} desktop={pluginStore.available} busy={pluginBusy} onInstall={() => void installFromFile()}
             onToggle={(id, enabled) => pluginOperation(() => pluginStore.setEnabled(id, enabled))} onRemove={(id) => pluginOperation(() => pluginStore.remove(id))} onAcceptChanges={(id) => pluginOperation(() => pluginStore.acceptChanges(id))}
             catalog={catalog} catalogLoading={catalogLoading} onLoadCatalog={loadCatalog} onInstallFromCatalog={(entry) => void installFromCatalog(entry)} download={installPreview ? null : download} trustedDevelopers={trustedDevelopers} />} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}
-        editor={<Editor spelling={spelling ?? undefined} dark={theme === "dark"} document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} storedSelection={activeSession.ui.codeSelection} scroll={activeSession.ui.codeScroll} onScrollPosition={(codeScroll) => deferScroll(document.id, { codeScroll })} onChange={changeSource} onReady={setController} onQuickFix={showFixAt} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
-        builder={<Builder spelling={spelling ?? undefined} key={document.id} document={document} snapshot={snapshot} selectedSpan={selected?.span} scroll={activeSession.ui.builderScroll} storedSelection={activeSession.ui.visualSelection} restoreFocus={activeSession.ui.activeSurface === "builder"} onScrollPosition={(builderScroll) => deferScroll(document.id, { builderScroll })} execute={execute} getDocument={() => documentRef.current} onSelect={(reference) => { setSelected(reference); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { selected: reference } }); }} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onFix={(range) => showFixAt(range.from)} onDragHint={setDragHint} onError={setError} onComposition={(active) => { composition.current = active; }} />}
+        editor={<Editor spelling={spelling ?? undefined} grammar={grammarMarks ?? undefined} dark={theme === "dark"} document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} storedSelection={activeSession.ui.codeSelection} scroll={activeSession.ui.codeScroll} onScrollPosition={(codeScroll) => deferScroll(document.id, { codeScroll })} onChange={changeSource} onReady={setController} onQuickFix={showFixAt} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
+        builder={<Builder spelling={spelling ?? undefined} grammar={grammarMarks ?? undefined} key={document.id} document={document} snapshot={snapshot} selectedSpan={selected?.span} scroll={activeSession.ui.builderScroll} storedSelection={activeSession.ui.visualSelection} restoreFocus={activeSession.ui.activeSurface === "builder"} onScrollPosition={(builderScroll) => deferScroll(document.id, { builderScroll })} execute={execute} getDocument={() => documentRef.current} onSelect={(reference) => { setSelected(reference); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { selected: reference } }); }} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onFix={(range) => showFixAt(range.from)} onDragHint={setDragHint} onError={setError} onComposition={(active) => { composition.current = active; }} />}
         preview={<Preview document={document} source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} scroll={activeSession.ui.previewScroll} onScrollPosition={(previewScroll) => deferScroll(document.id, { previewScroll })} onSelection={setPreviewRange} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}
         problems={layout.showProblems ? <ProblemsPanel diagnostics={analysis.diagnostics} journal={journal} onClearJournal={() => setJournal([])} onNavigate={(item) => navigate(item.span)} onQuickFix={(item) => showFix(item)} canFix={(item) => !!currentSnapshot && fixesFor(item).length > 0} unambiguous={unambiguousFixes.length} onFixAll={showAllFixes} onClose={() => setLayout((current) => ({ ...current, showProblems: false }))} /> : null}
         inspector={layout.showInspector ? <><h2 className="inspector-heading">Свойства<button className="icon-button panel-close" aria-label="Скрыть свойства" onClick={() => setLayout((current) => ({ ...current, showInspector: false }))}><Icon name="close" /></button></h2><div className="inspector-body">
@@ -886,6 +992,7 @@ export default function App() {
     {update && <UpdateDialog info={update} busy={updateBusy} progress={updateProgress} error={updateError} onUpdate={() => void installUpdate()} onOpenPage={() => { void openUrl(update.page).catch((reason) => setError(String(reason))); setUpdate(null); }}
       onLater={() => setUpdate(null)} onSkip={() => { setPreferences((current) => ({ ...current, skippedUpdate: update.version })); setUpdate(null); }} />}
     {scriptPrompt && <ScriptPromptDialog plugin={scriptPrompt.plugin} options={scriptPrompt.options} onDone={(value) => { scriptPrompt.resolve(value); setScriptPrompt(null); }} />}
+    {scriptOrigin && <ScriptAllowOriginDialog plugin={scriptOrigin.plugin} origin={scriptOrigin.origin} reason={scriptOrigin.reason} onDone={(allowed) => { scriptOrigin.resolve(allowed); setScriptOrigin(null); if (allowed) setOriginsRevision((value) => value + 1); }} />}
     {scriptReview && <ScriptReviewDialog plugin={scriptReview.plugin} options={scriptReview.options} replacing={false} onDone={(choice) => {
       if (choice === "copy") void copyText(scriptReview.options.text).then(() => log("Текст скопирован в буфер обмена", "info"));
       scriptReview.resolve(choice); setScriptReview(null); }} />}

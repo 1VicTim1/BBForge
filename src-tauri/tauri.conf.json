@@ -33,11 +33,6 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ],
-    "resources": {
-      "dictionaries/LICENSE-ru_RU.txt": "licenses/LICENSE-ru_RU.txt",
-      "dictionaries/LICENSE-en_US.txt": "licenses/LICENSE-en_US.txt",
-      "dictionaries/README.md": "licenses/dictionaries.md"
-    }
+    ]
   }
 }

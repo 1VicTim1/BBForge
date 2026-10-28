@@ -79,4 +79,4 @@ BBFORGE_BINARY="$PWD/target/release/bbforge-app" bash scripts/smoke-desktop.sh
 
 ## Лицензия
 
-[MIT](LICENSE). Словари проверки орфографии — из проекта LibreOffice под их собственными лицензиями, см. [src-tauri/dictionaries](src-tauri/dictionaries/README.md).
+[MIT](LICENSE).

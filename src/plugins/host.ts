@@ -53,7 +53,15 @@ export interface PluginHost {
   imagePreviews: Array<{ owner: string; fn: string; hosts: string[] }>;
   /** Plugin scripts that may run (the package has the "scripts" permission). */
   scripts: ScriptDef[];
+  /** Hunspell dictionaries (files of the package, loaded by the desktop side). */
+  dictionaries: DictionaryDef[];
+  /** Script functions that check the text between tags (grammar, style: e.g. LanguageTool). */
+  textChecks: CheckerDef[];
+  /** Script functions that check the contents of [code] blocks. */
+  codeChecks: CheckerDef[];
 }
+export interface DictionaryDef { owner: string; version: string; language: string; name: string; aff: string; dic: string }
+export interface CheckerDef { owner: string; fn: string; title: string }
 export interface ScriptDef {
   owner: string;
   code: string;
@@ -63,7 +71,7 @@ export interface ScriptDef {
   permissions: string[];
   dependencies: Record<string, string>;
 }
-export const emptyHost = (): PluginHost => ({ packages: [], profiles: [], themes: [], styles: [], slots: [], patches: [], commands: [], converters: [], scripts: [], imagePreviews: [] });
+export const emptyHost = (): PluginHost => ({ packages: [], profiles: [], themes: [], styles: [], slots: [], patches: [], commands: [], converters: [], scripts: [], imagePreviews: [], dictionaries: [], textChecks: [], codeChecks: [] });
 
 const FUNCTION = /^[A-Za-z_]\w{0,63}$/;
 const CHORD = /^(Ctrl\+)?(Alt\+)?(Shift\+)?[A-Za-z0-9]+$/;
@@ -142,6 +150,12 @@ export function buildHost(installed: InstalledPackage[]): PluginHost {
       if (converter) host.converters.push(converter);
     }
     host.patches.push(...patches(list("ui"), "Интерфейс"));
+    if (list("dictionaries").length && allowed("dictionaries", "Словари")) for (const entry of list("dictionaries")) {
+      const item = (entry ?? {}) as Record<string, unknown>;
+      const language = typeof item.language === "string" ? item.language.slice(0, 20) : "";
+      if (!language || typeof item.aff !== "string" || typeof item.dic !== "string") { warn(owner, "Словарь: нужны language, aff и dic"); continue; }
+      host.dictionaries.push({ owner, version: manifest.version, language, name: typeof item.name === "string" ? item.name.slice(0, 60) : language, aff: item.aff, dic: item.dic });
+    }
     if (manifest.main && allowed("scripts", "Скрипт")) {
       const code = files[manifest.main];
       if (code === undefined) warn(owner, `Скрипт: нет файла ${manifest.main}`);
@@ -151,6 +165,13 @@ export function buildHost(installed: InstalledPackage[]): PluginHost {
         if (preview && typeof preview.script === "string" && FUNCTION.test(preview.script)) {
           const hosts = networkHosts([...granted]);
           if (hosts.length) host.imagePreviews.push({ owner, fn: preview.script, hosts }); else warn(owner, "Предпросмотр картинок: нет разрешений network:<домен>, пропущен");
+        }
+        for (const [key, target, what] of [["textCheck", host.textChecks, "Проверка текста"], ["codeCheck", host.codeChecks, "Проверка кода"]] as const) {
+          const checker = contributes[key] as { script?: unknown; title?: unknown } | undefined;
+          if (!checker) continue;
+          if (typeof checker.script !== "string" || !FUNCTION.test(checker.script)) { warn(owner, `${what}: нужен script — имя функции`); continue; }
+          if (!allowed("document.read", what)) continue;
+          target.push({ owner, fn: checker.script, title: typeof checker.title === "string" ? checker.title.slice(0, 60) : manifest.name });
         }
       }
     }

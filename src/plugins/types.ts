@@ -2,6 +2,26 @@ import permissions from "../../crates/bbforge-plugin/permissions.json";
 
 /** Types of the desktop plugin store (src-tauri/src/plugins.rs) and the package manifest. */
 
+/**
+ * `scheme://host[:port]` of an address the user may allow a plugin to reach ("network.custom"):
+ * https anywhere, http only on this computer or the local network (as in script_api.rs).
+ */
+export function originOf(url: string): string | null {
+  const match = /^(https?):\/\/([^/?#@]+)(?:[/?#]|$)/i.exec(url.trim());
+  if (!match) return null;
+  const scheme = match[1].toLowerCase(), authority = match[2].toLowerCase();
+  const parts = /^(\[[0-9a-f:]+\]|[^:]+)(?::(\d{1,5}))?$/.exec(authority);
+  if (!parts) return null;
+  const [, host, port] = parts;
+  if (port !== undefined && (Number(port) < 1 || Number(port) > 65535 || String(Number(port)) !== port)) return null;
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)?.slice(1).map(Number);
+  if (ipv4 && ipv4.some((part) => part > 255)) return null;
+  const local = host === "localhost" || host === "[::1]" || (!!ipv4 && (ipv4[0] === 127 || ipv4[0] === 10 || (ipv4[0] === 192 && ipv4[1] === 168) || (ipv4[0] === 172 && ipv4[1] >= 16 && ipv4[1] <= 31)));
+  const named = host === "localhost" || /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host);
+  if (!(named || ipv4 || host === "[::1]") || (scheme === "http" && !local)) return null;
+  return `${scheme}://${host}${port ? `:${port}` : ""}`;
+}
+
 export interface PermissionInfo { id: string; title: string; description: string; risk: "low" | "medium" | "high" }
 export const PERMISSIONS = permissions as PermissionInfo[];
 const NETWORK = /^network:([a-z0-9-]+(?:\.[a-z0-9-]+)+)$/;
