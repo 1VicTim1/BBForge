@@ -7,6 +7,7 @@ import { Decoration, drawSelection, EditorView, gutter, GutterMarker, highlightA
 import { Compartment, RangeSet, StateEffect } from "@codemirror/state";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { bbcodeLanguage } from "./language";
+import { autoCloseTags, codeBrackets } from "./autoClose";
 import { decodeDocument, type DocumentState, type LineEnding } from "../document/state";
 import { createEditorController, createEditorState, type EditorController } from "./controller";
 import type { SourceRange } from "../document/commands";
@@ -157,7 +158,7 @@ export function Editor(props: EditorProps) {
     const initial = props.document ?? { ...decodeDocument(new TextEncoder().encode(props.value)), endings: props.endings };
     const problems = problemMarks(() => latest.current.snapshot, (position) => latest.current.onQuickFix?.(position));
     const extensions = [
-      problems.gutter, lineNumbers(), highlightActiveLineGutter(), drawSelection(), highlightActiveLine(), bracketMatching(), foldGutter(), bbcodeLanguage, matchingTags(() => latest.current.snapshot), problems.decorations, spellingMarks(() => latest.current.spelling), spellingMarks(() => latest.current.grammar, "cm-grammar"),
+      problems.gutter, lineNumbers(), highlightActiveLineGutter(), drawSelection(), highlightActiveLine(), bracketMatching(), foldGutter(), bbcodeLanguage, autoCloseTags, codeBrackets, matchingTags(() => latest.current.snapshot), problems.decorations, spellingMarks(() => latest.current.spelling), spellingMarks(() => latest.current.grammar, "cm-grammar"),
       foldService.of((state, lineStart, lineEnd) => {
         const snapshot = latest.current.snapshot;
         if (!snapshot || snapshot.source !== state.doc.toString()) return null;
