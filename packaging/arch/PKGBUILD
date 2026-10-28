@@ -2,7 +2,7 @@
 # Arch Linux / CachyOS package built from the release .deb produced by `npm run tauri:build`.
 # Usage: npm run tauri:build -- --bundles deb && cd packaging/arch && makepkg -f
 pkgname=bbforge
-pkgver=0.4.0
+pkgver=0.5.0
 pkgrel=1
 pkgdesc="Desktop BBCode editor and visual constructor for 4PDA posts"
 arch=('x86_64')
