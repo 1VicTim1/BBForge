@@ -1,6 +1,6 @@
 import { validateProfile, type TagProfile } from "../bbcode/profile";
 import { validateTheme, type ThemeDef } from "./themes";
-import { knownPermission, type InstalledPackage } from "./types";
+import { knownPermission, networkHosts, type InstalledPackage } from "./types";
 import { patchPermission, validatePatch, type OwnedPatch, type UiPatch } from "./ui";
 import { satisfies } from "./semver";
 import { validateConverter, type Converter } from "./convert";
@@ -49,6 +49,8 @@ export interface PluginHost {
   patches: OwnedPatch[];
   commands: PluginCommand[];
   converters: Converter[];
+  /** Script functions that load picture previews, with the hosts they may reach. */
+  imagePreviews: Array<{ owner: string; fn: string; hosts: string[] }>;
   /** Plugin scripts that may run (the package has the "scripts" permission). */
   scripts: ScriptDef[];
 }
@@ -61,7 +63,7 @@ export interface ScriptDef {
   permissions: string[];
   dependencies: Record<string, string>;
 }
-export const emptyHost = (): PluginHost => ({ packages: [], profiles: [], themes: [], styles: [], slots: [], patches: [], commands: [], converters: [], scripts: [] });
+export const emptyHost = (): PluginHost => ({ packages: [], profiles: [], themes: [], styles: [], slots: [], patches: [], commands: [], converters: [], scripts: [], imagePreviews: [] });
 
 const FUNCTION = /^[A-Za-z_]\w{0,63}$/;
 const CHORD = /^(Ctrl\+)?(Alt\+)?(Shift\+)?[A-Za-z0-9]+$/;
@@ -143,7 +145,14 @@ export function buildHost(installed: InstalledPackage[]): PluginHost {
     if (manifest.main && allowed("scripts", "Скрипт")) {
       const code = files[manifest.main];
       if (code === undefined) warn(owner, `Скрипт: нет файла ${manifest.main}`);
-      else host.scripts.push({ owner, code, exports: (manifest.exports ?? []).filter((name) => FUNCTION.test(name)), permissions: [...granted], dependencies: manifest.dependencies ?? {} });
+      else {
+        host.scripts.push({ owner, code, exports: (manifest.exports ?? []).filter((name) => FUNCTION.test(name)), permissions: [...granted], dependencies: manifest.dependencies ?? {} });
+        const preview = contributes.imagePreview as { script?: unknown } | undefined;
+        if (preview && typeof preview.script === "string" && FUNCTION.test(preview.script)) {
+          const hosts = networkHosts([...granted]);
+          if (hosts.length) host.imagePreviews.push({ owner, fn: preview.script, hosts }); else warn(owner, "Предпросмотр картинок: нет разрешений network:<домен>, пропущен");
+        }
+      }
     }
   }
   // Script commands need the package's script.

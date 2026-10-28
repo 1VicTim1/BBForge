@@ -18,6 +18,7 @@ import { stripTags } from "../bbcode/labels";
 import { builtinOf, isKnownTag, namesFor, profileVersion, tagFor, tagSpec, type BuiltinTag } from "../bbcode/profile";
 import { allNodes } from "../document/formatting";
 import { PlainTag } from "../components/Preview";
+import { ResolvedImage } from "../plugins/images";
 
 // Selecting "the whole line" takes its formatting wrappers along, but never block tags like [/spoiler].
 let inlineCache: { version: number; close: RegExp; open: RegExp } | null = null;
@@ -577,7 +578,7 @@ export function Builder(props: BuilderProps) {
       const blocks = node.children.filter((child) => child.kind === "element" || source.slice(index.byteToUtf16(child.span.start), index.byteToUtf16(child.span.end)).trim()).length;
       return <SpoilerBlock key={path} tag={node.name ?? ""} blocks={blocks} selected={isSelected} title={node.parameter ?? "Спойлер"} onRename={node.parameter !== null ? (title) => run(() => renameSpoiler(props.getDocument(), snapshotRef.current!, reference, title)) : undefined} depth={path.split(".").length - 1} dragTarget={dragTarget(reference, "spoiler", from, to)} contentEnd={insertAt} onSelect={selectNode} onInsert={() => { props.onRange({ ...identity(props.document), from: insertAt, to: insertAt }); props.onSelect(reference); setInsertionPath(insertPath); }}>{() => <>{children()}{insertionPath === insertPath && <InsertionDraft onCommit={(value) => { setInsertionPath(null); run(() => textEditCommand(props.getDocument(), { from: insertAt, to: insertAt }, value, "")); }} onCancel={() => setInsertionPath(null)} />}</>}</SpoilerBlock>;
     }
-    if (is(node, "img", "attachment")) return <button key={path} className="media-placeholder" data-at-from={from} data-at-to={to} onClick={selectNode}><Icon name={is(node, "img") ? "image" : "file"} />{is(node, "img") ? (stripTags(source.slice(index.byteToUtf16(node.contentSpan.start), index.byteToUtf16(node.contentSpan.end))).split(/[\\/]/).at(-1)?.split("?")[0] || "Изображение") : `Вложение ${node.parameter ?? ""}`}</button>;
+    if (is(node, "img", "attachment")) return <button key={path} className="media-placeholder" data-at-from={from} data-at-to={to} onClick={selectNode}>{is(node, "img") ? <ResolvedImage url={stripTags(source.slice(index.byteToUtf16(node.contentSpan.start), index.byteToUtf16(node.contentSpan.end)))} className="builder-thumbnail" fallback={<Icon name="image" />} /> : <Icon name="file" />}{is(node, "img") ? (stripTags(source.slice(index.byteToUtf16(node.contentSpan.start), index.byteToUtf16(node.contentSpan.end))).split(/[\\/]/).at(-1)?.split("?")[0] || "Изображение") : `Вложение ${node.parameter ?? ""}`}</button>;
     if (is(node, "code") || (raw && !spec?.render)) return <pre className="builder-code" key={path} data-at-from={from} data-at-to={to} onClick={selectNode}>{children()}</pre>;
     if (is(node, "quote")) return <blockquote key={path} data-at-from={from} data-at-to={to} onClick={selectNode}>{children()}</blockquote>;
     if (is(node, "list")) return <ul key={path} {...dragTarget(reference, "list", from, to)} onClick={selectNode}>{children()}</ul>;

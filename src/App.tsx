@@ -64,6 +64,7 @@ import { InstallDialog, PluginsSettings } from "./plugins/PluginsSettings";
 import type { CatalogEntry, CatalogResult, InstallPreview, InstalledPackage } from "./plugins/types";
 import { planDependencies, type DependencyPlan } from "./plugins/dependencies";
 import { ConvertDialog } from "./plugins/ConvertDialog";
+import { ImageResolverContext, type ImageResolver } from "./plugins/images";
 import { UpdateDialog, type UpdateInfo } from "./updates/UpdateDialog";
 import { ScriptRuntime, type CommandPatch, type PromptOptions, type ReviewOptions } from "./plugins/scripts";
 import { ScriptPromptDialog, ScriptReviewDialog } from "./plugins/ScriptDialogs";
@@ -571,6 +572,24 @@ export default function App() {
     runtime.activateAll((owner, error) => log(`${host.packages.find((item) => item.id === owner)?.package.manifest.name ?? owner}: ${error.message}`, "error"));
     return () => runtime.dispose();
   }, [runtime]);
+  // Picture previews: the first plugin allowed to reach the image's host loads it; results are kept.
+  const resolveImage = useMemo<ImageResolver | null>(() => {
+    if (!host.imagePreviews.length) return null;
+    const cache = new Map<string, Promise<string | null>>();
+    const none = { selection: "", insert: () => { throw new Error("Предпросмотр не изменяет документ"); } };
+    return (url) => {
+      let address: URL;
+      try { address = new URL(url); } catch { return Promise.resolve(null); }
+      const provider = address.protocol === "https:" ? host.imagePreviews.find((item) => item.hosts.some((name) => address.hostname === name || address.hostname.endsWith(`.${name}`))) : undefined;
+      if (!provider) return Promise.resolve(null);
+      let loading = cache.get(address.href);
+      if (!loading) {
+        loading = runtime.run(provider.owner, provider.fn, { url: address.href }, none).then((value) => typeof value === "string" && /^data:image\/[a-z+]+;base64,/.test(value) ? value : null).catch(() => null);
+        cache.set(address.href, loading);
+      }
+      return loading;
+    };
+  }, [host, runtime]);
   const runScript = (command: PluginCommand, fn: string, args: unknown) => {
     // The run works on the selection the command started with; each insertion continues after the previous one.
     const target = { ...identity(documentRef.current), ...commandSelection() };
@@ -822,7 +841,7 @@ export default function App() {
     : layout.sidebarView === "blocks" ? { title: "Блоки", content: <BlocksPanel actions={blockActions} /> }
     : { title: "Структура", content: <StructureTree busy={!currentSnapshot} identity={identity(document)} nodes={currentSnapshot?.analysis.nodes ?? snapshot?.analysis.nodes ?? []} source={currentSnapshot?.source ?? snapshot?.source ?? document.text} diagnostics={currentSnapshot ? analysis.diagnostics : []} selected={selected?.span} cursor={activeRange.from} onDragHint={setDragHint} onNavigate={selectNode} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, source, { node: { ...identity(document), span: target }, placement })); }} /> };
   const windowControls = isTauri() && !preferences.systemFrame ? { minimize: () => void getCurrentWindow().minimize(), toggleMaximize: () => void getCurrentWindow().toggleMaximize(), close: () => void getCurrentWindow().close() } : null;
-  return <PreferencesContext.Provider value={preferences}><PluginUiContext.Provider value={pluginUi}><main className={`app ${appearance.className}`} style={appearance.style as React.CSSProperties} onContextMenu={openContextMenu}>
+  return <PreferencesContext.Provider value={preferences}><PluginUiContext.Provider value={pluginUi}><ImageResolverContext.Provider value={resolveImage}><main className={`app ${appearance.className}`} style={appearance.style as React.CSSProperties} onContextMenu={openContextMenu}>
     <TitleBar menus={menus} documentName={documentName} onCommandCenter={() => setPalette("")} commandCenterKey={key("app.quickOpen")} onSettings={() => openSettings()} settingsKey={key("app.settings")} windowControls={windowControls}
       exportPanel={{ diagnostics: analysis.diagnostics, onNavigate: (item) => navigate(item.span), actions: [
         { id: "copy", title: "Копировать BBCode", hint: "Весь документ в буфер обмена — для вставки в редактор форума", icon: "copy", run: () => void copyText(documentRef.current.text).then(() => log("BBCode скопирован в буфер обмена", "info")) },
@@ -872,6 +891,6 @@ export default function App() {
     {conversion && <ConvertDialog converter={conversion.converter} initial={conversion.initial} replacing={conversion.range.from !== conversion.range.to} onInsert={insertConverted} onCopy={(text) => void copyText(text).then(() => log("BBCode скопирован в буфер обмена", "info"))} onClose={() => setConversion(null)} />}
     {installPreview && (() => { const plan = planDependencies(installPreview.preview.manifest, installed, catalog?.packages ?? []); return <InstallDialog key={installPreview.preview.digest} preview={installPreview.preview} plan={plan} busy={pluginBusy} download={download}
       onInstall={() => void installPackage(installPreview.path, installPreview.preview)} onFetchDependencies={() => void fetchDependencies(plan)} onCancel={() => setInstallPreview(null)} />; })()}
-  </main></PluginUiContext.Provider></PreferencesContext.Provider>;
+  </main></ImageResolverContext.Provider></PluginUiContext.Provider></PreferencesContext.Provider>;
 }
 

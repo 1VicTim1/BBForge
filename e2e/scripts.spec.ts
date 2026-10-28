@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { execFileSync } from "node:child_process";
 import type { InstalledPackage, Manifest } from "../src/plugins/types";
 
 const pkg = (manifest: Partial<Manifest> & { id: string }, files: Record<string, string> = {}): InstalledPackage => ({
@@ -80,4 +81,23 @@ test("a script renames its own command on load and when run", async ({ page }) =
   await page.keyboard.press("Control+Shift+KeyP");
   await page.keyboard.type("Переключатель");
   await expect(page.getByRole("option", { name: /Переключатель: вкл/ })).toBeVisible();
+});
+
+test("an image preview plugin shows pictures of its hosts and leaves the rest as placeholders", async ({ page }) => {
+  const pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  await page.addInitScript(([items, image]) => {
+    window.__BBFORGE_PLUGINS__ = [...(window.__BBFORGE_PLUGINS__ ?? []), ...items].map((item) => item.manifest.id === "victim.images" ? { ...item, files: { "main.js": `exports.preview = async (bb, { url }) => url.includes("allowed") ? ${JSON.stringify(image)} : null;` } } : item);
+  }, [[pkg({ id: "victim.images", main: "main.js", permissions: ["scripts", "network:4pda.to"], contributes: { imagePreview: { script: "preview" } } })], pixel] as const);
+  // The preview needs the document's structure: the real analyser.
+  await page.exposeFunction("analyzeWithRust", (source: string) => JSON.parse(execFileSync("target/debug/examples/analyze", [], { input: JSON.stringify(source) + "\n", encoding: "utf8" })));
+  await page.addInitScript(() => {
+    window.__BBFORGE_ANALYZE__ = async (request) => ({ ...request, analysis: await (window as unknown as { analyzeWithRust(source: string): Promise<import("../src/analysis/types").Analysis> }).analyzeWithRust(request.source) });
+  });
+  await page.goto("/");
+  await page.locator(".cm-content").fill("[img]https://4pda.to/s/allowed.png[/img]\n[img]https://evil.example/x.png[/img]");
+  await page.getByRole("button", { name: "Предпросмотр", exact: true }).click();
+  await expect(page.locator(".preview-image")).toHaveCount(1);
+  await expect(page.locator(".rendered-post .media-placeholder")).toHaveCount(1);
+  await page.getByRole("button", { name: "Конструктор", exact: true }).click();
+  await expect(page.locator(".builder-thumbnail")).toHaveCount(1);
 });

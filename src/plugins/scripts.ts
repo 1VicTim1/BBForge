@@ -184,9 +184,16 @@ export class ScriptRuntime {
     const strings = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").slice(0, 50) : [];
     switch (method) {
       case "http.get": {
-        const url = this.requireUrl(script, text(args[0], 2000)), { cookies, encoding } = options(args[1]);
+        const url = this.requireUrl(script, text(args[0], 2000)), { cookies, encoding, as } = options(args[1]);
         const cookieMap = cookies && typeof cookies === "object" ? Object.fromEntries(Object.entries(cookies).filter((pair): pair is [string, string] => typeof pair[1] === "string")) : undefined;
         const response = await this.desktop().httpGet(owner, url, cookieMap);
+        // Pictures come back as data: URLs (shown in the preview; data: is all the page may load).
+        if (as === "dataUrl") {
+          const type = response.contentType.split(";")[0].trim().toLowerCase();
+          if (!/^image\/(png|jpeg|gif|webp|bmp|avif)$/.test(type)) return { status: response.status, contentType: response.contentType, dataUrl: null };
+          if (response.body.length > 8 * 1024 * 1024) throw new Error("Картинка больше 6 МБ");
+          return { status: response.status, contentType: response.contentType, dataUrl: `data:${type};base64,${response.body}` };
+        }
         const charset = typeof encoding === "string" ? encoding : /charset=([\w-]+)/i.exec(response.contentType)?.[1] ?? "utf-8";
         const bytes = Uint8Array.from(atob(response.body), (char) => char.charCodeAt(0));
         let decoder: TextDecoder;

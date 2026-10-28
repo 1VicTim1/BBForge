@@ -5,6 +5,7 @@ import { decodeDocument, type DocumentState } from "../document/state";
 import { readPreviewSelection, type PreviewSelection } from "./previewSelection";
 import type { ScrollPosition } from "../workspace/session";
 import { renderStyle, tagSpec, type ResolvedTag } from "../bbcode/profile";
+import { ResolvedImage } from "../plugins/images";
 
 interface PreviewProps { document?: DocumentState; source: string; nodes: Node[]; scroll?: ScrollPosition; onScrollPosition?(position: ScrollPosition): void; onNavigate(span: Span): void; onSelection?(range: PreviewSelection): void; openExternal?(url: string): void }
 
@@ -42,7 +43,7 @@ function RenderNode({ node, source, positions, onNavigate, openExternal }: { nod
   else if (tag === "list") rendered = <ul>{children}</ul>;
   else if (tag === "*") rendered = <li>{children}</li>;
   else if (tag === "spoiler") rendered = <details><summary onDoubleClick={() => onNavigate(node.span)}>{formatTitle(node.parameter ?? spec?.label ?? "Спойлер")}</summary><div>{children}</div></details>;
-  else if (tag === "img") rendered = <span className="media-placeholder" data-context-surface="media" data-source-value={plainText(node, source, positions)}>▧ {plainText(node, source, positions).split(/[\\/]/).at(-1)?.split("?")[0] || "Изображение"}</span>;
+  else if (tag === "img") { const address = plainText(node, source, positions); rendered = <span className="preview-media" data-context-surface="media" data-source-value={address}><ResolvedImage url={address} className="preview-image" fallback={<span className="media-placeholder">▧ {address.split(/[\\/]/).at(-1)?.split("?")[0] || "Изображение"}</span>} /></span>; }
   else if (tag === "attachment") rendered = <span className="media-placeholder" data-context-surface="media" data-source-value={node.parameter ?? ""}>Вложение: {node.parameter}</span>;
   if (tag === "url") {
     const raw = node.parameter ?? plainText(node, source, positions);

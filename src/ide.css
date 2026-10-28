@@ -863,3 +863,8 @@ div.bb-plain, blockquote.bb-plain, pre.bb-plain, details.bb-plain { margin: 4px 
 /* misspelt words */
 .cm-editor .cm-misspelled { text-decoration: underline wavy color-mix(in srgb, var(--error) 75%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
 ::highlight(bbforge-spelling) { text-decoration: underline wavy color-mix(in srgb, var(--error) 75%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+/* picture previews from plugins */
+.preview-media { display: inline-block; max-width: 100%; }
+.preview-image { display: block; max-width: 100%; max-height: 480px; border-radius: var(--radius); }
+.builder-thumbnail { width: auto; max-width: 160px; height: auto; max-height: 90px; border-radius: var(--radius-chip); }
+.media-placeholder:has(.builder-thumbnail) { height: auto; padding: 4px; }
