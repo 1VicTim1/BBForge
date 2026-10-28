@@ -841,3 +841,14 @@ div.bb-plain, blockquote.bb-plain, pre.bb-plain, details.bb-plain { margin: 4px 
 .script-review .convert-output { flex: 1; min-height: 0; }
 .script-dialog footer button { display: inline-flex; align-items: center; gap: 6px; }
 .trusted-developers { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; color: var(--text-muted); font-size: 12px; } .trusted-developers .ui-icon { width: 13px; height: 13px; color: var(--success); }
+/* search and replace */
+.search-scope { display: inline-flex; gap: 2px; }
+.search-error { color: var(--error); }
+.search-summary { display: flex; align-items: center; gap: 8px; }
+.search-summary .replace-all { margin-left: auto; height: 22px; font-size: 11px; }
+.search-result-row { display: flex; align-items: center; }
+.search-result-row .search-result { flex: 1; min-width: 0; }
+.search-result-row .replace-one { flex-shrink: 0; opacity: 0; }
+.search-result-row:hover .replace-one, .search-result-row .replace-one:focus-visible { opacity: 1; }
+.search-result mark.replaced { text-decoration: line-through; background: var(--diff-removed-bg); color: var(--diff-removed-fg); }
+.search-result ins { text-decoration: none; background: var(--diff-added-bg); color: var(--diff-added-fg); }

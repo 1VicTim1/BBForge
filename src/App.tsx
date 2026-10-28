@@ -614,7 +614,8 @@ export default function App() {
     "file.close": () => { if (settingsTab.active) setSettingsTab({ open: false, active: false }); else void closeDocument(workspaceRef.current.activeId); },
     "file.closeAll": () => void (async () => { for (const tab of [...workspaceRef.current.tabs]) await closeDocument(tab.document.id); })(),
     "tab.next": () => switchTab(1), "tab.previous": () => switchTab(-1),
-    "edit.undo": () => historyAction(false), "edit.redo": () => historyAction(true), "edit.find": focusSearch, "edit.fix": () => showFix(), "edit.fixAll": showAllFixes,
+    "edit.undo": () => historyAction(false), "edit.redo": () => historyAction(true), "edit.find": focusSearch,
+    "edit.replace": () => { setReplaceRequest(Date.now()); setLayout((current) => ({ ...current, showOutline: true, sidebarView: "search" })); }, "edit.fix": () => showFix(), "edit.fixAll": showAllFixes,
     "format.bold": () => format("b"), "format.italic": () => format("i"), "format.underline": () => format("u"), "format.strike": () => format("s"),
     "format.link": () => window.dispatchEvent(new Event("bbforge:link")), "format.quote": () => format("quote"), "format.code": () => format("code"), "format.list": () => format("list"), "format.spoiler": openSpoilerDialog,
     "view.code": () => setView("code"), "view.split": toggleSplit, "view.builder": () => setView("builder"), "view.preview": () => setView(view === "preview" ? "builder" : "preview"),
@@ -640,6 +641,7 @@ export default function App() {
     { id: "edit.undo", action: "edit.undo", title: "Отменить", category: "Правка", icon: "undo", run: actions["edit.undo"] },
     { id: "edit.redo", action: "edit.redo", title: "Повторить", category: "Правка", icon: "redo", run: actions["edit.redo"] },
     { id: "edit.find", action: "edit.find", title: "Найти в коде", category: "Правка", icon: "search", run: focusSearch },
+    { id: "edit.replace", action: "edit.replace", title: "Найти и заменить…", category: "Правка", icon: "wand", run: () => actionsRef.current["edit.replace"]?.() },
     { id: "edit.fix", action: "edit.fix", title: "Исправить в позиции…", category: "Правка", icon: "lightbulb", enabled, run: actions["edit.fix"] },
     { id: "edit.fixAll", action: "edit.fixAll", title: "Исправить однозначные ошибки…", category: "Правка", icon: "wand", enabled: enabled && unambiguousFixes.length > 0, count: () => currentSnapshot ? unambiguousFixes.length : null, run: showAllFixes },
     { id: "app.commandPalette", action: "app.commandPalette", title: "Палитра команд…", category: "Приложение", hidden: true, run: () => setPalette(">") },
@@ -667,7 +669,7 @@ export default function App() {
   ], (id) => keysFor(id, preferences.keymap).map(formatChord));
   const menuBase: Array<{ id: string; title: string; items: Array<string | null> }> = [
     { id: "menu.file", title: "Файл", items: ["file.new", "file.open", null, "file.save", "file.saveAs", "export.copy", null, "file.close", "file.closeAll", null, "app.settings"] },
-    { id: "menu.edit", title: "Правка", items: ["edit.undo", "edit.redo", null, "edit.find", "app.goToLine", null, "edit.fix", "edit.fixAll", null, "app.commandPalette"] },
+    { id: "menu.edit", title: "Правка", items: ["edit.undo", "edit.redo", null, "edit.find", "edit.replace", "app.goToLine", null, "edit.fix", "edit.fixAll", null, "app.commandPalette"] },
     { id: "menu.view", title: "Вид", items: ["view.code", "view.builder", "view.preview", "view.split", null, "view.structure", "view.search", "view.blocks", "view.problems", "view.inspector", null, "view.theme", "view.density"] },
     { id: "menu.refactor", title: "Рефакторинг", items: [...refactorings.map((item) => item?.id ?? null), null, "refactor.cleanup"] },
     { id: "menu.tools", title: "Инструменты", items: ["app.resetLayout", null, "edit.fixAll", "refactor.cleanup", null, "app.plugins", "app.installPlugin"] },
@@ -702,6 +704,13 @@ export default function App() {
   const synced = !!snapshot && snapshot.documentId === document.id && snapshot.revision === document.revision;
   const documentName = document.path?.split(/[\\/]/).at(-1) ?? "untitled.bbcode";
   // Breadcrumbs: the structural blocks around the cursor.
+  // Text between tags (from the analysis): search and replace stay out of tags by default.
+  const [replaceRequest, setReplaceRequest] = useState(0);
+  const textSegments = useMemo(() => {
+    if (!currentSnapshot) return null;
+    const index = createPositionIndex(currentSnapshot.source);
+    return currentSnapshot.analysis.tokens.filter((token) => token.kind === "text").map((token) => ({ from: index.byteToUtf16(token.span.start), to: index.byteToUtf16(token.span.end) }));
+  }, [currentSnapshot]);
   const crumbs: Crumb[] = useMemo(() => {
     if (!currentSnapshot) return [];
     const index = createPositionIndex(currentSnapshot.source), at = index.utf16ToByte(Math.min(activeRange.from, currentSnapshot.source.length)), path: Node[] = [];
@@ -723,7 +732,8 @@ export default function App() {
     { id: "img", title: "Изображение", description: "Вставить картинку по адресу в позицию курсора", icon: "image" as const, tag: `[${tagFor("img")}]…[/${tagFor("img")}]`, run: () => insertAtCursor(`[${tagFor("img")}]https://$[/${tagFor("img")}]`, "Вставить изображение"), disabled: !enabled },
   ];
   const sidebar = !layout.showOutline ? null
-    : layout.sidebarView === "search" ? { title: "Поиск", content: <SearchPanel text={document.text} onNavigate={(range) => { setActiveRange(range); navigateRange(range); }} /> }
+    : layout.sidebarView === "search" ? { title: "Поиск", content: <SearchPanel key={replaceRequest} text={document.text} segments={textSegments} replaceMode={replaceRequest > 0} onNavigate={(range) => { setActiveRange(range); navigateRange(range); }}
+      onReplace={(changes, label) => run(() => ({ ...identity(documentRef.current), label, changes }), true)} /> }
     : layout.sidebarView === "blocks" ? { title: "Блоки", content: <BlocksPanel actions={blockActions} /> }
     : { title: "Структура", content: <StructureTree busy={!currentSnapshot} identity={identity(document)} nodes={currentSnapshot?.analysis.nodes ?? snapshot?.analysis.nodes ?? []} source={currentSnapshot?.source ?? snapshot?.source ?? document.text} diagnostics={currentSnapshot ? analysis.diagnostics : []} selected={selected?.span} cursor={activeRange.from} onDragHint={setDragHint} onNavigate={selectNode} onMove={(source, target, placement) => { if (currentSnapshot) run(() => moveNode(document, currentSnapshot, source, { node: { ...identity(document), span: target }, placement })); }} /> };
   const windowControls = isTauri() && !preferences.systemFrame ? { minimize: () => void getCurrentWindow().minimize(), toggleMaximize: () => void getCurrentWindow().toggleMaximize(), close: () => void getCurrentWindow().close() } : null;

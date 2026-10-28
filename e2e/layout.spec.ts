@@ -113,3 +113,16 @@ test("section rules report pictures outside spoilers and wrap them with a quick 
   await page.getByRole("option", { name: /Убрать в спойлер «Скриншоты»/ }).click();
   await expect(page.locator(".cm-content")).toContainText("[spoiler=Скриншоты][img]https://4pda.to/s/photo.png[/img][/spoiler]");
 });
+
+test("Ctrl+H replaces text everywhere except inside tags", async ({ page }) => {
+  await page.goto("/");
+  await page.locator(".cm-content").fill('[b]Версия: 0.3.0[/b]\n[url="https://x/v0.3.0"]Скачать 0.3.0[/url]');
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Control+KeyH");
+  await page.getByRole("textbox", { name: "Найти в документе" }).fill("0.3.0");
+  await page.getByRole("textbox", { name: "Заменить на" }).fill("0.4.0");
+  await expect(page.locator(".search-summary")).toContainText("2 совпадения");
+  await page.getByRole("button", { name: "Заменить все" }).click();
+  await expect(page.locator(".cm-content")).toHaveText('[b]Версия: 0.4.0[/b][url="https://x/v0.3.0"]Скачать 0.4.0[/url]');
+});

@@ -5,7 +5,7 @@
 export type ActionId =
   | "file.new" | "file.open" | "file.save" | "file.saveAs" | "file.close" | "file.closeAll"
   | "tab.next" | "tab.previous"
-  | "edit.undo" | "edit.redo" | "edit.find" | "edit.fix" | "edit.fixAll"
+  | "edit.undo" | "edit.redo" | "edit.find" | "edit.replace" | "edit.fix" | "edit.fixAll"
   | "format.bold" | "format.italic" | "format.underline" | "format.strike" | "format.link" | "format.quote" | "format.code" | "format.list" | "format.spoiler"
   | "view.code" | "view.split" | "view.builder" | "view.preview" | "view.structure" | "view.problems" | "view.inspector" | "view.search"
   | "refactor.tidyDocument" | "refactor.trimTrailing" | "refactor.removeEmpty" | "refactor.merge" | "refactor.cleanup"
@@ -25,6 +25,7 @@ export const actionDefinitions: ActionDefinition[] = [
   { id: "edit.undo", title: "Отменить", category: "Правка", keys: ["Ctrl+KeyZ"] },
   { id: "edit.redo", title: "Повторить", category: "Правка", keys: ["Ctrl+Shift+KeyZ", "Ctrl+KeyY"] },
   { id: "edit.find", title: "Найти в коде", category: "Правка", keys: ["Ctrl+KeyF"] },
+  { id: "edit.replace", title: "Найти и заменить", category: "Правка", keys: ["Ctrl+KeyH"] },
   { id: "edit.fix", title: "Показать исправления", category: "Правка", keys: ["Alt+Enter"] },
   { id: "edit.fixAll", title: "Исправить однозначные ошибки", category: "Правка", keys: ["Ctrl+Alt+Enter"] },
   { id: "format.bold", title: "Жирный", category: "Оформление", keys: ["Ctrl+KeyB"] },
