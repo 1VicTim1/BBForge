@@ -34,6 +34,8 @@ export interface ScriptUi {
   notify(owner: string, text: string): void;
   /** Asks the user whether the plugin may reach an address of its own choosing. */
   allowOrigin(owner: string, origin: string, reason: string): Promise<boolean>;
+  /** Forget what the plugin's checkers said and check again (its settings changed). */
+  refreshChecks(owner: string): void;
 }
 /** What a run may do with the document: the selection when the command started, and insertion there. */
 export interface ScriptContext { selection: string; /** The whole document when the command started. */ text?: string; insert(text: string): void }
@@ -62,6 +64,7 @@ const __bb = (() => {
     document: Object.freeze({ selection: () => call(run, "document.selection", []), text: () => call(run, "document.text", []), insert: (text) => call(run, "document.insert", [String(text)]) }),
     plugins: Object.freeze({ call: (id, fn, args) => call(run, "plugins.call", [String(id), String(fn), args === undefined ? null : args]) }),
     commands: Object.freeze({ update: (id, patch) => call(run, "commands.update", [String(id), patch]) }),
+    checks: Object.freeze({ refresh: () => call(run, "checks.refresh", []) }),
     log: (...parts) => call(run, "log", [parts.map((part) => typeof part === "string" ? part : JSON.stringify(part)).join(" ")]),
   });
   setInterval(() => post({ type: "beat" }), 1000);
@@ -277,6 +280,7 @@ export class ScriptRuntime {
         return null;
       }
       case "log": this.ui.notify(owner, text(args[0], 2000)); return null;
+      case "checks.refresh": this.ui.refreshChecks(owner); return null;
       case "document.selection": this.require(script, "document.edit"); return run.context.selection;
       case "document.text": this.require(script, "document.read"); return run.context.text ?? "";
       case "document.insert": this.require(script, "document.edit"); run.context.insert(text(args[0], 5_000_000)); return null;

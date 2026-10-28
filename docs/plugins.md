@@ -297,6 +297,7 @@ exports.go = async (bb, args) => {
 | `bb.ui.notify(text)`, `bb.log(...)` | запись в журнал | — |
 | `bb.document.selection()`, `bb.document.insert(text)` | выделение на момент запуска команды; вставка на его место | `document.edit` |
 | `bb.plugins.call(id, fn, args)` | функция плагина из своих `dependencies`, если тот перечислил её в `exports` | — |
+| `bb.checks.refresh()` | забыть ответы своих проверок текста и кода и проверить заново (например, после смены настроек) | — |
 | `bb.commands.update(id, { title, icon, hint })` | изменить вид своей команды (меню, палитра, кнопки), например «Войти» ↔ «Выйти» | — |
 
 `bb.http.get(url, { as: "dataUrl" })` возвращает картинку как `{ status, contentType, dataUrl }` (только `image/*`, до 6 МБ).

@@ -582,6 +582,8 @@ export default function App() {
     void Promise.all(ids.map(async (id) => [id, await backend.origins(id).catch(() => [])] as const)).then((entries) => { if (active) setPluginOrigins(Object.fromEntries(entries)); });
     return () => { active = false; };
   }, [host, pluginStore, originsRevision]);
+  // Bumped when a checker plugin's settings change: its earlier answers are forgotten.
+  const [checkEpoch, setCheckEpoch] = useState(0);
   const [scriptOrigin, setScriptOrigin] = useState<{ plugin: string; origin: string; reason: string; resolve(allowed: boolean): void } | null>(null);
   const [scriptReview, setScriptReview] = useState<{ plugin: string; options: ReviewOptions; resolve(choice: "insert" | "copy" | null): void } | null>(null);
   // Titles and icons scripts set for their commands (bb.commands.update), until the packages change.
@@ -593,6 +595,7 @@ export default function App() {
       prompt: (owner, options) => new Promise((resolve) => setScriptPrompt({ plugin: name(owner), options, resolve })),
       review: (owner, options) => new Promise((resolve) => setScriptReview({ plugin: name(owner), options, resolve })),
       notify: (owner, text) => log(`${name(owner)}: ${text}`, "info"),
+      refreshChecks: () => setCheckEpoch((value) => value + 1),
       allowOrigin: (owner, origin, reason) => new Promise((resolve) => setScriptOrigin({ plugin: name(owner), origin, reason, resolve })),
     }, host.commands.map((command) => command.id));
   }, [host, pluginStore]);
@@ -861,7 +864,7 @@ export default function App() {
     const context = { selection: "", text: documentRef.current.text, insert: () => { throw new Error("Проверка текста не изменяет документ"); } };
     const result = await runtime.run(item.owner, item.fn, { text }, context);
     return Array.isArray(result) ? result as CheckerMatch[] : [];
-  })), [host, runtime]);
+  })), [host, runtime, checkEpoch]);
   const [grammar, setGrammar] = useState<{ text: string; issues: TextIssue[] } | null>(null);
   const ignoredRemarks = useRef(new Set<string>());
   const [ignoredRevision, setIgnoredRevision] = useState(0);
@@ -888,7 +891,7 @@ export default function App() {
   }, [textCheckers, currentSnapshot, proseSegments, preferences.textCheck, ignoredRevision, log]);
   const codeChecker = useMemo(() => host.codeChecks.length ? new CodeChecker(host.codeChecks, (checker, input) => runtime.run(checker.owner, checker.fn, input, {
     selection: "", text: documentRef.current.text, insert: () => { throw new Error("Проверка кода не изменяет документ"); },
-  })) : null, [host, runtime]);
+  })) : null, [host, runtime, checkEpoch]);
   codeCheckerRef.current = codeChecker;
   useEffect(() => {
     if (!currentSnapshot) return;
