@@ -29,7 +29,9 @@
     { "name": "quote", "role": "block", "label": "Цитата", "value": "optional" },
     { "name": "code", "role": "block", "label": "Код", "raw": true },
     { "name": "list", "role": "block", "label": "Список", "value": "optional" },
-    { "name": "*", "role": "item", "label": "Пункт списка" }
+    { "name": "*", "role": "item", "label": "Пункт списка" },
+    { "name": "offtop", "role": "inline", "label": "Оффтоп", "blankCheck": true,
+      "render": { "element": "span", "style": { "fontSize": "10px", "color": "#8a8a8a" } } }
   ],
   "ruleSets": [
     {
