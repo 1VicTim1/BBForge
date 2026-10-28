@@ -20,7 +20,7 @@ export interface ScriptBackend {
   storageSet(plugin: string, key: string, value: unknown): Promise<void>;
 }
 export interface PromptOptions { title?: string; label?: string; placeholder?: string; hint?: string; value?: string }
-export interface ReviewOptions { title?: string; text: string; hint?: string }
+export interface ReviewOptions { title?: string; text: string; hint?: string; /** "diff": lines starting with "+" / "-" are coloured. */ format?: "text" | "diff" }
 export interface CommandPatch { title?: string; icon?: string; hint?: string }
 export interface ScriptUi {
   /** Changes how one of the plugin's own commands looks (menus, palette, buttons). */
@@ -30,7 +30,7 @@ export interface ScriptUi {
   notify(owner: string, text: string): void;
 }
 /** What a run may do with the document: the selection when the command started, and insertion there. */
-export interface ScriptContext { selection: string; insert(text: string): void }
+export interface ScriptContext { selection: string; /** The whole document when the command started. */ text?: string; insert(text: string): void }
 
 interface Run { resolve(value: unknown): void; reject(error: Error): void; context: ScriptContext; depth: number }
 interface Instance { worker: Worker; runs: Map<number, Run>; lastBeat: number; script: ScriptDef }
@@ -52,7 +52,7 @@ const __bb = (() => {
     storage: Object.freeze({ get: (key) => call(run, "storage.get", [String(key)]), set: (key, value) => call(run, "storage.set", [String(key), value === undefined ? null : value]), remove: (key) => call(run, "storage.set", [String(key), null]) }),
     html: Object.freeze({ query: (html, selector) => call(run, "html.query", [String(html), String(selector)]) }),
     ui: Object.freeze({ prompt: (options = {}) => call(run, "ui.prompt", [options]), review: (options) => call(run, "ui.review", [options]), notify: (text) => call(run, "ui.notify", [String(text)]) }),
-    document: Object.freeze({ selection: () => call(run, "document.selection", []), insert: (text) => call(run, "document.insert", [String(text)]) }),
+    document: Object.freeze({ selection: () => call(run, "document.selection", []), text: () => call(run, "document.text", []), insert: (text) => call(run, "document.insert", [String(text)]) }),
     plugins: Object.freeze({ call: (id, fn, args) => call(run, "plugins.call", [String(id), String(fn), args === undefined ? null : args]) }),
     commands: Object.freeze({ update: (id, patch) => call(run, "commands.update", [String(id), patch]) }),
     log: (...parts) => call(run, "log", [parts.map((part) => typeof part === "string" ? part : JSON.stringify(part)).join(" ")]),
@@ -236,8 +236,8 @@ export class ScriptRuntime {
         return await this.ui.prompt(owner, { title: text(title, 120), label: text(label, 80), placeholder: text(placeholder, 200), hint: text(hint, 500), value: text(value, 20_000) });
       }
       case "ui.review": {
-        const { title, text: body, hint } = options(args[0]);
-        return await this.ui.review(owner, { title: text(title, 120), text: text(body, 5_000_000), hint: text(hint, 500) });
+        const { title, text: body, hint, format } = options(args[0]);
+        return await this.ui.review(owner, { title: text(title, 120), text: text(body, 5_000_000), hint: text(hint, 500), format: format === "diff" ? "diff" : "text" });
       }
       case "ui.notify": this.ui.notify(owner, text(args[0], 500)); return null;
       case "commands.update": {
@@ -248,6 +248,7 @@ export class ScriptRuntime {
       }
       case "log": this.ui.notify(owner, text(args[0], 2000)); return null;
       case "document.selection": this.require(script, "document.edit"); return run.context.selection;
+      case "document.text": this.require(script, "document.read"); return run.context.text ?? "";
       case "document.insert": this.require(script, "document.edit"); run.context.insert(text(args[0], 5_000_000)); return null;
       case "plugins.call": {
         const target = text(args[0], 64), fn = text(args[1], 64);

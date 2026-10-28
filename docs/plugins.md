@@ -57,6 +57,7 @@
 | `ui.remove` | удалять элементы (`op: "remove"`) |
 | `ui.slots` | объявлять свои точки расширения (`contributes.slots`) |
 | `commands` | добавлять команды и сочетания клавиш (`contributes.commands`) |
+| `document.read` | скриптом читать весь текст документа (`bb.document.text()`) |
 | `document.edit` | команды, которые вставляют или оборачивают текст (`insert`, `wrap`, `convert`) |
 | `converters` | добавлять конвертеры разметки (`contributes.converters`) |
 | `scripts` | исполнять свой скрипт (`main`) в песочнице |
@@ -286,7 +287,8 @@ exports.go = async (bb, args) => {
 | `bb.storage.get(key)`, `set(key, value)`, `remove(key)` | личное хранилище, значения — JSON | `storage` |
 | `bb.html.query(html, selector)` | разбор HTML в инертный документ; элементы `{ text, value, html, attributes }` | — |
 | `bb.ui.prompt({ title, label, placeholder, hint, value })` | строка от пользователя или `null` | — |
-| `bb.ui.review({ title, text, hint })` | показать текст: `"insert"`, `"copy"` или `null` | — |
+| `bb.ui.review({ title, text, hint, format })` | показать текст: `"insert"`, `"copy"` или `null`; `format: "diff"` раскрашивает строки на `+` и `-` | — |
+| `bb.document.text()` | весь документ на момент запуска команды | `document.read` |
 | `bb.ui.notify(text)`, `bb.log(...)` | запись в журнал | — |
 | `bb.document.selection()`, `bb.document.insert(text)` | выделение на момент запуска команды; вставка на его место | `document.edit` |
 | `bb.plugins.call(id, fn, args)` | функция плагина из своих `dependencies`, если тот перечислил её в `exports` | — |

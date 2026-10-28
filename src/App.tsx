@@ -595,6 +595,7 @@ export default function App() {
     const target = { ...identity(documentRef.current), ...commandSelection() };
     const context = {
       selection: documentRef.current.text.slice(target.from, target.to),
+      text: documentRef.current.text,
       insert: (text: string) => {
         if (documentRef.current.id !== target.documentId || documentRef.current.revision !== target.revision) throw new Error("Документ изменился во время работы плагина");
         execute({ ...identity(documentRef.current), label: command.title, changes: [{ from: target.from, to: target.to, insert: text }], selection: { from: target.from, to: target.from + text.length } });
