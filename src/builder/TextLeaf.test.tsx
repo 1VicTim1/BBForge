@@ -1,49 +1,40 @@
 // @vitest-environment jsdom
-import { fireEvent, render, cleanup } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { render, cleanup } from "@testing-library/react";
+import { afterEach, expect, it } from "vitest";
 import { TextLeaf } from "./TextLeaf";
+import { domToSource, placeSelection, renderedText, selectionToSource } from "./editing";
 afterEach(cleanup);
-it("commits IME text once after composition and survives source rerenders", () => {
-  const edit = vi.fn();
-  const props = { text: "я", from: 3, to: 4, onEdit: edit, onSelect: vi.fn(), onPasteCode: vi.fn(), onComposition: vi.fn() };
-  const view = render(<TextLeaf {...props} />);
-  const input = view.getByRole("textbox");
-  fireEvent.compositionStart(input);
-  input.textContent = "日本";
-  fireEvent.input(input, { isComposing: true });
-  view.rerender(<TextLeaf {...props} />);
-  expect(edit).not.toHaveBeenCalled();
-  expect(input.textContent).toBe("日本");
-  fireEvent.compositionEnd(input);
-  fireEvent.input(input);
-  expect(edit).toHaveBeenCalledTimes(1);
-  expect(edit).toHaveBeenCalledWith({ from: 3, to: 4 }, "日本", "я");
-});
-it("restores the original leaf when a transaction is rejected", () => {
-  const edit = vi.fn(() => { throw new Error("stale"); });
-  const view = render(<TextLeaf text="original" from={0} to={8} onEdit={edit} onSelect={vi.fn()} onPasteCode={vi.fn()} onComposition={vi.fn()} />);
-  const input = view.getByRole("textbox"); input.textContent = "lost";
-  fireEvent.input(input);
-  expect(input.textContent).toBe("original");
-});
-it("keeps rapid local input and its caret when a stale source snapshot rerenders", () => {
-  const edit = vi.fn();
-  const props = { text: "hello", from: 10, to: 15, onEdit: edit, onSelect: vi.fn(), onPasteCode: vi.fn(), onComposition: vi.fn() };
-  const view = render(<TextLeaf {...props} />);
-  const input = view.getByRole("textbox");
-  fireEvent.focus(input);
-  input.textContent = "heабllo";
-  const text = input.firstChild!;
-  const range = document.createRange();
-  range.setStart(text, 4); range.collapse(true);
-  const selection = window.getSelection()!;
-  selection.removeAllRanges(); selection.addRange(range);
-  fireEvent.input(input);
 
-  view.rerender(<TextLeaf {...props} to={16} />);
+it("draws its text with a sentinel for a trailing line break and keeps the text node while unchanged", () => {
+  const view = render(<TextLeaf text={"line\n"} from={3} to={8} />);
+  const leaf = view.getByRole("textbox");
+  expect(leaf.firstChild?.textContent).toBe("line\n");
+  expect(leaf.querySelector("[data-editor-sentinel]")).not.toBeNull();
+  const node = leaf.firstChild;
+  view.rerender(<TextLeaf text={"line\n"} from={3} to={8} />);
+  expect(leaf.firstChild).toBe(node);
+  view.rerender(<TextLeaf text="lines" from={3} to={8} />);
+  expect(leaf.textContent).toBe("lines");
+  expect(leaf.querySelector("[data-editor-sentinel]")).toBeNull();
+  expect(renderedText.get(leaf)).toBe("lines");
+});
 
-  expect(input.textContent).toBe("heабllo");
-  expect(selection.anchorNode).toBe(text);
-  expect(selection.anchorOffset).toBe(4);
-  expect(edit).toHaveBeenCalledWith({ from: 10, to: 15 }, "heабllo", "hello");
+it("rewrites text an input method left behind, but not while composing", () => {
+  const view = render(<div data-composing="true"><TextLeaf text="я" from={0} to={1} /></div>);
+  const leaf = view.getByRole("textbox");
+  leaf.textContent = "日本";
+  view.rerender(<div data-composing="true"><TextLeaf text="я" from={0} to={1} /></div>);
+  expect(leaf.textContent).toBe("日本");
+  view.rerender(<div><TextLeaf text="я" from={0} to={1} /></div>);
+  expect(leaf.textContent).toBe("я");
+});
+
+it("maps the caret between text pieces and source offsets", () => {
+  const view = render(<div contentEditable suppressContentEditableWarning><TextLeaf text="hello " from={0} to={6} /><b><TextLeaf text="world" from={9} to={14} /></b></div>);
+  const root = view.container.firstElementChild!;
+  expect(placeSelection(root, 11)).toBe(true);
+  expect(selectionToSource(root)).toMatchObject({ from: 11, to: 11, leaf: { from: 9, to: 14 } });
+  // A point between the pieces belongs to the next one.
+  expect(domToSource(root, root, 1)).toBe(9);
+  expect(domToSource(root, root, 2)).toBe(14);
 });

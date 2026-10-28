@@ -1,112 +1,29 @@
 import { useLayoutEffect, useRef } from "react";
-import type { SourceRange } from "../document/commands";
-import { normalizeInput } from "./input";
-interface Props {
-  text: string; from: number; to: number;
-  editable?: boolean;
-  autoFocus?: boolean;
-  literal?: boolean;
-  onError?(message: string): void;
-  onEdit(range: SourceRange, text: string, expected: string): void;
-  onSelect(): void; onPasteCode(range: SourceRange, text: string): void;
-  onComposition(active: boolean): void;
-  /** Enter with the caret at the end of the leaf; true when the builder handled it (e.g. left a link). */
-  onEnterAtEnd?(to: number): boolean;
-  /** Backspace at the start or Delete at the end of the leaf: the builder works across the tag edge. */
-  onEdgeKey?(key: "Backspace" | "Delete", from: number, to: number): boolean;
-}
-export function TextLeaf(props: Props) {
-  const host = useRef<HTMLSpanElement>(null), composing = useRef(false), focused = useRef(false);
-  const state = useRef({ text: props.text, from: props.from, to: props.to });
-  const confirmedText = useRef(props.text), pendingTexts = useRef(new Set<string>());
-  useLayoutEffect(() => { if (props.autoFocus) host.current?.focus(); }, [props.autoFocus]);
+import { renderedText } from "./editing";
+
+/**
+ * A run of text of the document. It is not editable by itself: the page (or a spoiler's body) it
+ * sits in is the editing area, and the builder turns every input into an edit of the source.
+ * Its content is written here rather than by React, so text an input method typed into it can be
+ * read back and replaced safely.
+ */
+export function TextLeaf({ text, from, to, literal, stale }: { text: string; from: number; to: number; literal?: boolean; stale?: boolean }) {
+  const host = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
-    if (composing.current) return;
-    if (focused.current && pendingTexts.current.size > 0) {
-      if (props.text === state.current.text) {
-        pendingTexts.current.clear();
-        confirmedText.current = props.text;
-        state.current = { text: props.text, from: props.from, to: props.to };
-        return;
-      }
-      if (props.text === confirmedText.current || pendingTexts.current.has(props.text)) {
-        confirmedText.current = props.text;
-        return;
-      }
-      pendingTexts.current.clear();
+    const element = host.current;
+    if (!element || element.closest("[data-composing]")) return;
+    // A trailing line break needs something after it to take up a line.
+    const sentinel = text.endsWith("\n"), nodes = element.childNodes, last = nodes[nodes.length - 1];
+    const intact = nodes.length === (text ? 1 : 0) + (sentinel ? 1 : 0)
+      && (!text || (nodes[0].nodeType === Node.TEXT_NODE && nodes[0].textContent === text))
+      && (!sentinel || (last instanceof HTMLElement && last.dataset.editorSentinel === "true"));
+    if (!intact) {
+      const children: globalThis.Node[] = [];
+      if (text) children.push(document.createTextNode(text));
+      if (sentinel) { const br = document.createElement("br"); br.dataset.editorSentinel = "true"; children.push(br); }
+      element.replaceChildren(...children);
     }
-    confirmedText.current = props.text;
-    state.current = { text: props.text, from: props.from, to: props.to };
-    if (host.current && host.current.textContent !== props.text) {
-      host.current.textContent = props.text;
-      if (focused.current) { const range = window.document.createRange(); range.selectNodeContents(host.current); range.collapse(false); const selection = window.getSelection(); selection?.removeAllRanges(); selection?.addRange(range); props.onSelect(); }
-    }
-  }, [props.text, props.from, props.to]);
-  const commit = () => {
-    const text = normalizeInput(host.current?.textContent ?? "");
-    if (composing.current || text === state.current.text) return;
-    const current = state.current;
-    try {
-      if (props.literal && /\[\/code\]/i.test(text)) throw new Error("Текст содержит [/code]. Измените его в режиме кода.");
-      props.onEdit({ from: current.from, to: current.to }, text, current.text);
-      pendingTexts.current.add(text);
-      state.current = { ...current, to: current.from + text.length, text };
-      if (host.current) host.current.dataset.sourceTo = String(state.current.to);
-      props.onSelect();
-    } catch (error) { if (host.current) host.current.textContent = current.text; props.onError?.(String(error)); }
-  };
-  const insertText = (value: string) => {
-    const selection = window.getSelection();
-    if (!selection?.rangeCount) return;
-    const range = selection.getRangeAt(0);
-    if (!host.current?.contains(range.commonAncestorContainer)) return;
-    range.deleteContents(); const text = window.document.createTextNode(value); range.insertNode(text);
-    if (host.current.textContent?.endsWith("\n") && !host.current.querySelector("[data-editor-sentinel]")) { const sentinel = window.document.createElement("br"); sentinel.dataset.editorSentinel = "true"; host.current.append(sentinel); }
-    range.setStart(text, text.length); range.collapse(true); selection.removeAllRanges(); selection.addRange(range); commit();
-  };
-  return <span ref={host} className={`visual-text${props.autoFocus ? " insertion-text" : ""}`} contentEditable={props.editable !== false || focused.current} suppressContentEditableWarning role="textbox" aria-label="Текст блока" data-source-from={props.from} data-source-to={props.to} data-visual-editable={props.editable === false ? "false" : "true"} spellCheck={false}
-    onFocus={() => { focused.current = true; }} onBlur={() => { commit(); focused.current = false; props.onSelect(); }}
-    onMouseUp={props.onSelect} onKeyUp={props.onSelect}
-    onCompositionStart={() => { composing.current = true; props.onComposition(true); }}
-    onCompositionEnd={() => { composing.current = false; props.onComposition(false); commit(); }}
-    onInput={commit}
-    onKeyDown={(event) => {
-      if ((event.key === "Backspace" || event.key === "Delete") && !composing.current && !event.nativeEvent.isComposing && props.onEdgeKey && host.current) {
-        const selection = window.getSelection(), range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-        if (range?.collapsed && host.current.contains(range.startContainer)) {
-          const before = window.document.createRange(); before.selectNodeContents(host.current); before.setEnd(range.startContainer, range.startOffset);
-          const offset = before.toString().length, length = (host.current.textContent ?? "").replace(/\n$/, "").length;
-          if ((event.key === "Backspace" && offset === 0) || (event.key === "Delete" && offset >= length)) {
-            commit();
-            if (props.onEdgeKey(event.key, state.current.from, state.current.to)) { event.preventDefault(); return; }
-          }
-        }
-      }
-      if (event.key !== "Enter" || composing.current || event.nativeEvent.isComposing) return;
-      event.preventDefault();
-      const selection = window.getSelection(), range = selection?.rangeCount ? selection.getRangeAt(0) : null;
-      if (range?.collapsed && host.current?.contains(range.startContainer) && props.onEnterAtEnd) {
-        const before = window.document.createRange(); before.selectNodeContents(host.current); before.setEnd(range.startContainer, range.startOffset);
-        if (before.toString().length === (host.current.textContent ?? "").replace(/\n$/, "").length) { commit(); if (props.onEnterAtEnd(state.current.to)) return; }
-      }
-      insertText("\n");
-    }}
-    onBeforeInput={(event) => {
-      const native = event.nativeEvent as InputEvent;
-      if (native.inputType === "insertParagraph" || native.inputType === "insertLineBreak") {
-        event.preventDefault(); insertText("\n");
-      }
-    }}
-    onPaste={(event) => {
-      event.preventDefault(); const text = normalizeInput(event.clipboardData.getData("text/plain"));
-      const selection = window.getSelection(); if (!selection?.rangeCount) return;
-      const range = selection.getRangeAt(0);
-      if (!host.current?.contains(range.commonAncestorContainer)) return;
-      if (!props.literal && /\[[\s\S]*?\]/.test(text)) {
-        const before = window.document.createRange(); before.selectNodeContents(host.current); before.setEnd(range.startContainer, range.startOffset);
-        const start = state.current.from + before.toString().length;
-        props.onPasteCode({ from: start, to: start + range.toString().length }, text); return;
-      }
-      insertText(text);
-    }} />;
+    renderedText.set(element, text);
+  });
+  return <span ref={host} className="visual-text" role="textbox" aria-label="Текст блока" data-source-from={from} data-source-to={to} data-literal={literal ? "true" : undefined} data-stale={stale ? "true" : undefined} />;
 }

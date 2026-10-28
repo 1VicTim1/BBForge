@@ -31,7 +31,8 @@ export function InsertionDraft({ onCommit, onCancel }: { onCommit(text: string):
     onCancel();
   };
 
-  return <span
+  // Its own editing area, apart from the text around it (which the builder edits by itself).
+  return <div className="insertion-island" contentEditable={false}><span
     ref={host}
     className="visual-text insertion-text"
     contentEditable
@@ -48,5 +49,5 @@ export function InsertionDraft({ onCommit, onCancel }: { onCommit(text: string):
         event.preventDefault(); commit();
       }
     }}
-  />;
+  /></div>;
 }

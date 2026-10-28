@@ -651,7 +651,7 @@ test("a link at the end of a line is erased with Backspace like plain text", asy
   // A click well past the end of the line puts the caret at the end of the link text.
   const column = (await page.locator(".builder-page").boundingBox())!;
   await page.mouse.click(column.x + column.width - 8, box.y + box.height / 2);
-  await expect.poll(() => page.evaluate(() => (document.activeElement as HTMLElement).textContent)).toBe("issues");
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.anchorNode?.parentElement?.closest(".visual-text")?.textContent)).toBe("issues");
   for (let at = 0; at < 6; at++) { await page.keyboard.press("Backspace"); }
   await expect(page.locator(".cm-content")).toContainText('пишите сюда или в [url="https://github.com/x/issues"][/url]');
   await page.keyboard.press("Backspace");
@@ -659,4 +659,23 @@ test("a link at the end of a line is erased with Backspace like plain text", asy
   await page.keyboard.press("Backspace");
   await page.keyboard.press("Backspace");
   await expect(page.locator(".cm-content")).toHaveText("пишите сюда или дальше");
+});
+
+test("the caret and Shift-selection cross formatting like in a word processor", async ({ page }) => {
+  const code = page.locator(".cm-content");
+  await code.fill("hello [b]world[/b] tail");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  const bold = page.getByRole("textbox", { name: "Текст блока" }).filter({ hasText: /^world$/ });
+  const box = (await bold.boundingBox())!;
+  await page.mouse.click(box.x + box.width - 1, box.y + box.height / 2);
+  for (let step = 0; step < 6; step++) await page.keyboard.press("ArrowLeft");
+  await page.keyboard.type("X");
+  await expect(code).toHaveText("helloX [b]world[/b] tail");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
+  // From the plain text before into the bold word: one selection, replaced with balanced tags.
+  await page.keyboard.press("ArrowLeft");
+  for (let step = 0; step < 4; step++) await page.keyboard.press("Shift+ArrowRight");
+  await page.keyboard.type("Q");
+  // "X wo" is replaced; the bold part keeps its tags.
+  await expect(code).toHaveText("helloQ[b]rld[/b] tail");
 });

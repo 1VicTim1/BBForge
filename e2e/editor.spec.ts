@@ -147,7 +147,8 @@ test("restores cursor and scroll positions independently for every document surf
   await expect.poll(() => codeScroller.evaluate((node) => node.scrollTop)).toBe(codeTop);
   await expect.poll(() => builder.evaluate((node) => node.scrollTop)).toBe(builderTop);
   await expect(page.locator(".statusbar")).toContainText("Стр 90,");
-  await expect(page.locator(".visual-text:focus")).toBeVisible();
+  await expect(page.locator(".builder-page:focus")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => { const node = window.getSelection()?.anchorNode; return !!(node?.nodeType === 1 ? node as Element : node?.parentElement)?.closest(".builder .visual-text"); })).toBe(true);
   await page.getByRole("button", { name: "Предпросмотр", exact: true }).click();
   await expect.poll(() => preview.evaluate((node) => node.scrollTop)).toBe(previewTop);
 });

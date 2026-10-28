@@ -340,7 +340,8 @@ code { font-family: var(--font-code); }
 .visual-text-node { position: relative; }
 .visual-text { min-width: 1px; white-space: pre-wrap; caret-color: var(--text); }
 .visual-text:empty { display: inline-block; min-width: 9px; min-height: 1.3em; border-bottom: 1px dashed var(--border-strong); }
-.visual-text:focus { outline: none; }
+.visual-text:focus, .builder-page:focus, .spoiler-body:focus { outline: none; }
+.builder-page[contenteditable], .spoiler-body[contenteditable] { caret-color: var(--text); }
 .visual-text.insertion-text { display: block; min-width: 100%; min-height: 28px; margin-top: 6px; padding: 3px 8px; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); }
 .visual-text.insertion-text:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
 ::highlight(bbforge-selection) { color: var(--text); background: var(--editor-selection); }
