@@ -132,6 +132,7 @@ test("misspelt words are underlined and fixed from the context menu", async ({ p
     window.__BBFORGE_SPELL__ = { check: async (words) => words.map((word) => word !== "праграмма"), suggest: async () => ["программа", "панорама"], add: async () => undefined };
   });
   await page.goto("/");
+  await expect(page.locator(".sync-state")).toContainText("Синхронизирован");
   await page.locator(".cm-content").fill("[b]Новая праграмма[/b] и [url=https://праграмма.рф]ссылка[/url]");
   const word = page.locator(".cm-misspelled");
   await expect(word).toHaveCount(1);
