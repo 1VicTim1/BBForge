@@ -10,6 +10,10 @@ export interface Preferences {
   profile: string;
   /** Section rules of the profile to check ("" — none). */
   ruleSet: string;
+  /** Look for a new BBForge release at start (at most once a day). */
+  checkUpdates: boolean;
+  /** A release the user chose to skip. */
+  skippedUpdate: string;
   density: Density;
   /** Linux/Windows: the window manager's title bar instead of BBForge's own. */
   systemFrame: boolean;
@@ -30,7 +34,7 @@ export interface Preferences {
 }
 
 export const defaultPreferences: Preferences = {
-  theme: "dark", profile: "auto", ruleSet: "", density: "comfortable", systemFrame: false,
+  theme: "dark", profile: "auto", ruleSet: "", checkUpdates: true, skippedUpdate: "", density: "comfortable", systemFrame: false,
   tooltips: true, animations: true,
   codeFontSize: 13, codeLineHeight: 1.54, codeWrap: true, codeLineNumbers: true, codeActiveLine: true,
   builderFontSize: 14, builderWidth: "medium", spoilerOpenDepth: 2, tagLabels: true,
@@ -47,6 +51,8 @@ export function validatePreferences(value: Partial<Preferences>): Preferences {
   return {
     theme: typeof value.theme === "string" && PACKAGE_ID.test(value.theme) ? value.theme : d.theme,
     profile: typeof value.profile === "string" && PACKAGE_ID.test(value.profile) ? value.profile : d.profile,
+    checkUpdates: flag(value.checkUpdates, d.checkUpdates),
+    skippedUpdate: typeof value.skippedUpdate === "string" && /^\d+\.\d+\.\d+$/.test(value.skippedUpdate) ? value.skippedUpdate : d.skippedUpdate,
     ruleSet: typeof value.ruleSet === "string" && (value.ruleSet === "" || PACKAGE_ID.test(value.ruleSet)) ? value.ruleSet : d.ruleSet,
     density: value.density === "compact" ? "compact" : d.density,
     systemFrame: flag(value.systemFrame, d.systemFrame),

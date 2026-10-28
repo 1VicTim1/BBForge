@@ -852,3 +852,11 @@ div.bb-plain, blockquote.bb-plain, pre.bb-plain, details.bb-plain { margin: 4px 
 .search-result-row:hover .replace-one, .search-result-row .replace-one:focus-visible { opacity: 1; }
 .search-result mark.replaced { text-decoration: line-through; background: var(--diff-removed-bg); color: var(--diff-removed-fg); }
 .search-result ins { text-decoration: none; background: var(--diff-added-bg); color: var(--diff-added-fg); }
+/* update dialog */
+.update-dialog { width: min(620px, 90vw); gap: 8px; }
+.update-dialog h4 { margin: 6px 0 0; color: var(--text); font-size: 12px; font-weight: 600; }
+.dialog .update-notes { max-height: 40vh; margin: 0; padding: 8px 10px; color: var(--text-secondary); font: 12px/1.5 var(--font-ui); white-space: pre-wrap; background: var(--bg-input); border-radius: var(--radius); }
+.update-how { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 0; color: var(--text-muted); font-size: 12px; }
+.update-how .ui-icon { flex-shrink: 0; width: 14px; height: 14px; margin-top: 1px; }
+.update-dialog footer { display: flex; align-items: center; gap: 8px; }
+.update-dialog footer button { display: inline-flex; align-items: center; gap: 6px; }

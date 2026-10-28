@@ -5,12 +5,14 @@ pub mod keyring;
 pub mod plugins;
 pub mod script_api;
 pub mod session;
+pub mod updater;
 
 #[cfg(all(target_os = "linux", feature = "legacy-webkit"))]
 mod webkit_compat;
 
 #[cfg(feature = "desktop-runtime")]
 pub fn run() {
+    updater::cleanup();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -29,6 +31,8 @@ pub fn run() {
             commands::catalog_list,
             commands::catalog_download,
             commands::keyring_refresh,
+            commands::update_check,
+            commands::update_install,
             commands::script_http_get,
             commands::script_window_open,
             commands::script_window_cookies,

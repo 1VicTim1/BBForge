@@ -63,6 +63,7 @@ import { InstallDialog, PluginsSettings } from "./plugins/PluginsSettings";
 import type { CatalogEntry, CatalogResult, InstallPreview, InstalledPackage } from "./plugins/types";
 import { planDependencies, type DependencyPlan } from "./plugins/dependencies";
 import { ConvertDialog } from "./plugins/ConvertDialog";
+import { UpdateDialog, type UpdateInfo } from "./updates/UpdateDialog";
 import { ScriptRuntime, type CommandPatch, type PromptOptions, type ReviewOptions } from "./plugins/scripts";
 import { ScriptPromptDialog, ScriptReviewDialog } from "./plugins/ScriptDialogs";
 import type { Converter } from "./plugins/convert";
@@ -116,6 +117,8 @@ export default function App() {
   const actionsRef = useRef<Partial<Record<ActionId, () => void>>>({}), keyRecording = useRef(false);
   const [palette, setPalette] = useState<string | null>(null);
   const [preferences, setPreferences] = useState(() => loadPreferences(localStorage));
+  const preferencesRef = useRef(preferences);
+  preferencesRef.current = preferences;
   const [settingsTab, setSettingsTab] = useState<{ open: boolean; active: boolean }>({ open: false, active: false });
   useEffect(() => { savePreferences(localStorage, preferences); }, [preferences]);
   const [prefersDark, setPrefersDark] = useState(() => typeof matchMedia === "undefined" || matchMedia("(prefers-color-scheme: dark)").matches);
@@ -129,6 +132,45 @@ export default function App() {
     setInstalled(listed.flatMap((item) => item.status === "ok" ? [item] : []));
     setBrokenPackages(listed.flatMap((item) => item.status === "broken" ? [{ id: item.id, error: item.error }] : []));
   }, [pluginStore]);
+  // Updates: a look at the latest GitHub release at most once a day (or on request from the menu).
+  const [update, setUpdate] = useState<UpdateInfo | null>(null), [updateBusy, setUpdateBusy] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<DownloadProgress | null>(null), [updateError, setUpdateError] = useState<string | null>(null);
+  const checkForUpdate = useCallback(async (manual: boolean) => {
+    if (!isTauri()) return;
+    try {
+      localStorage.setItem("bbforge.updateCheckedAt", String(Date.now()));
+      const info = await invoke("update_check") as UpdateInfo | null;
+      if (info && (manual || info.version !== preferencesRef.current.skippedUpdate)) { setUpdateError(null); setUpdate(info); }
+      else if (manual) log("Установлена последняя версия BBForge", "info");
+    } catch (reason) { if (manual) setError(`Не удалось проверить обновления: ${String(reason)}`); }
+  }, [log, setError]);
+  useEffect(() => {
+    if (!isTauri() || !preferences.checkUpdates) return;
+    const last = Number(localStorage.getItem("bbforge.updateCheckedAt") ?? 0);
+    if (Date.now() - last < 20 * 60 * 60 * 1000) return;
+    const timer = setTimeout(() => void checkForUpdate(false), 4000);
+    return () => clearTimeout(timer);
+  }, [preferences.checkUpdates, checkForUpdate]);
+  useEffect(() => {
+    if (!isTauri()) return;
+    let previous: { at: number; bytes: number } | null = null, stop: (() => void) | undefined;
+    void listen("update-download", (event) => {
+      const { downloaded, total } = event.payload as { downloaded: number; total: number | null }, now = performance.now();
+      const speed = previous && now > previous.at ? (downloaded - previous.bytes) / ((now - previous.at) / 1000) : 0;
+      previous = { at: now, bytes: downloaded };
+      setUpdateProgress((current) => ({ id: "update", downloaded, total, speed: speed > 0 ? speed : current?.speed ?? 0 }));
+    }).then((unlisten) => { stop = unlisten; });
+    return () => stop?.();
+  }, []);
+  const installUpdate = async () => {
+    if (!update) return;
+    setUpdateBusy(true); setUpdateError(null); setUpdateProgress(null);
+    try {
+      // Unsaved work is kept by the session store; flush it before the restart.
+      workspaceStore.schedule(workspaceRef.current); await workspaceStore.flush();
+      await invoke("update_install", { info: update });
+    } catch (reason) { setUpdateError(String(reason).replace(/^Error: /, "")); setUpdateBusy(false); setUpdateProgress(null); }
+  };
   // Trusted developers come from a list signed by the root key; packages are checked again with it.
   const [trustedDevelopers, setTrustedDevelopers] = useState<string[] | null>(null);
   useEffect(() => {
@@ -661,6 +703,7 @@ export default function App() {
     ...refactorings.filter((item): item is Refactoring => item !== null).map((item): Command => ({ id: item.id, action: item.action, title: item.title, category: "Рефакторинг", hint: item.hint, scoped: true, enabled, count: refactorCount(item), run: (scope) => refactor(item, scope) })),
     { id: "refactor.cleanup", action: "refactor.cleanup", title: "Очистка документа…", category: "Очистка", icon: "wand", enabled, hint: "Все операции рефакторинга с общим превью", run: cleanup },
     { id: "app.resetLayout", title: "Восстановить раскладку", category: "Инструменты", run: () => { setLayout({ ...defaultLayout }); setShowPreview(false); } },
+    { id: "app.checkUpdates", title: "Проверить обновления…", category: "Приложение", enabled: isTauri(), run: () => void checkForUpdate(true) },
     { id: "app.plugins", title: "Плагины и темы…", category: "Приложение", icon: "puzzle", run: () => openSettings("plugins") },
     { id: "app.installPlugin", title: "Установить плагин или тему…", category: "Приложение", icon: "package", enabled: pluginStore.available, run: () => void installFromFile() },
     ...([["format.bold", "Жирный", "bold"], ["format.italic", "Курсив", "italic"], ["format.underline", "Подчёркнутый", "underline"], ["format.strike", "Зачёркнутый", "strike"], ["format.link", "Ссылка", "link"], ["format.quote", "Цитата", "quote"], ["format.code", "Блок кода", "code"], ["format.list", "Список", "list"], ["format.spoiler", "Создать спойлер", "spoiler"]] as const)
@@ -672,7 +715,7 @@ export default function App() {
     { id: "menu.edit", title: "Правка", items: ["edit.undo", "edit.redo", null, "edit.find", "edit.replace", "app.goToLine", null, "edit.fix", "edit.fixAll", null, "app.commandPalette"] },
     { id: "menu.view", title: "Вид", items: ["view.code", "view.builder", "view.preview", "view.split", null, "view.structure", "view.search", "view.blocks", "view.problems", "view.inspector", null, "view.theme", "view.density"] },
     { id: "menu.refactor", title: "Рефакторинг", items: [...refactorings.map((item) => item?.id ?? null), null, "refactor.cleanup"] },
-    { id: "menu.tools", title: "Инструменты", items: ["app.resetLayout", null, "edit.fixAll", "refactor.cleanup", null, "app.plugins", "app.installPlugin"] },
+    { id: "menu.tools", title: "Инструменты", items: ["app.resetLayout", null, "edit.fixAll", "refactor.cleanup", null, "app.plugins", "app.installPlugin", null, "app.checkUpdates"] },
   ];
   const menuTitles: Record<string, string> = { "app.commandPalette": "Найти действие…" };
   const commandIds = registry.map((command) => command.id).join("|");
@@ -778,6 +821,8 @@ export default function App() {
       onFile={(id) => { setPalette(null); showDocuments(); dispatchWorkspace({ type: "activate", documentId: id }); }}
       onTag={(span) => { setPalette(null); selectNode(span); }}
       onLine={(line) => { setPalette(null); const text = documentRef.current.text; let at = 0; for (let current = 1; current < line && at >= 0; current++) at = text.indexOf("\n", at) + 1 || -1; const from = Math.max(0, at); setActiveRange({ from, to: from }); navigateRange({ from, to: from }); }} />}
+    {update && <UpdateDialog info={update} busy={updateBusy} progress={updateProgress} error={updateError} onUpdate={() => void installUpdate()} onOpenPage={() => { void openUrl(update.page).catch((reason) => setError(String(reason))); setUpdate(null); }}
+      onLater={() => setUpdate(null)} onSkip={() => { setPreferences((current) => ({ ...current, skippedUpdate: update.version })); setUpdate(null); }} />}
     {scriptPrompt && <ScriptPromptDialog plugin={scriptPrompt.plugin} options={scriptPrompt.options} onDone={(value) => { scriptPrompt.resolve(value); setScriptPrompt(null); }} />}
     {scriptReview && <ScriptReviewDialog plugin={scriptReview.plugin} options={scriptReview.options} replacing={false} onDone={(choice) => {
       if (choice === "copy") void copyText(scriptReview.options.text).then(() => log("Текст скопирован в буфер обмена", "info"));

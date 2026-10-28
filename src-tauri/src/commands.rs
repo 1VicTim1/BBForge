@@ -391,3 +391,44 @@ pub fn script_storage_set(
     granted(&app, &plugin)?.require("storage")?;
     plugin_data(&app, &plugin)?.set(&key, (!value.is_null()).then_some(value))
 }
+
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub async fn update_check() -> Result<Option<crate::updater::UpdateInfo>, String> {
+    tauri::async_runtime::spawn_blocking(crate::updater::check)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+/// Downloads and installs the update, then restarts BBForge (or leaves it to the installer).
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub async fn update_install(
+    app: tauri::AppHandle,
+    info: crate::updater::UpdateInfo,
+) -> Result<(), String> {
+    use tauri::Emitter;
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| error.to_string())?
+        .join("update");
+    let progress_app = app.clone();
+    let restart = tauri::async_runtime::spawn_blocking(move || {
+        let file = crate::updater::download(&dir, &info, |downloaded, total| {
+            let _ = progress_app.emit(
+                "update-download",
+                serde_json::json!({ "downloaded": downloaded, "total": total }),
+            );
+        })?;
+        crate::updater::install(info.kind, &file)
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    if restart {
+        app.restart();
+    } else {
+        app.exit(0);
+    }
+    Ok(())
+}
