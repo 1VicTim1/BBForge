@@ -52,6 +52,7 @@ import { useContextMenu } from "./context/useContextMenu";
 import { extractPreviewBbcode, readPreviewSelection, type PreviewSelection } from "./components/previewSelection";
 import { nodeLabel } from "./bbcode/labels";
 import { checkRules } from "./bbcode/rules";
+import { SpellChecker } from "./spell/spell";
 import { activeProfile, AUTO_PROFILE, builtinOf, detectProfile, listProfiles, profileVersion, setActiveProfile, setPluginProfiles, subscribeProfiles, tagFor, tagSpec } from "./bbcode/profile";
 import { buildHost, type PluginAction, type PluginCommand } from "./plugins/host";
 import { createPluginStore } from "./plugins/store";
@@ -368,13 +369,14 @@ export default function App() {
       copyMedia: () => void copyText(target.closest("[data-source-value]")?.getAttribute("data-source-value") ?? ""),
     };
     // Quick fixes for the problem under the pointer (code) or at the captured position (builder).
-    const at = surface === "code" ? controller?.positionAt(event.clientX, event.clientY) ?? captured.from : captured.from;
+    const at = surface === "code" ? controller?.positionAt(event.clientX, event.clientY) ?? captured.from : surface === "builder" ? builderOffsetAt(event.clientX, event.clientY) ?? captured.from : captured.from;
     const here = currentSnapshot ? analysis.diagnostics.filter((item) => { const range = sourceRange(documentRef.current, item.span); return at >= range.from && at <= Math.max(range.to, range.from + 1); }) : [];
     const anchor = { x: event.clientX, y: event.clientY };
     const quickFixes = here.flatMap((item) => suggestFixes(documentRef.current, currentSnapshot!, item).slice(0, 3).map((fix) => ({
       id: `fix-${fix.id}`, label: `Исправить: ${fix.title}${fix.impact ? ` (${fix.impact})` : ""}`, run: checked(() => { if (fix.needsParameter) setQuickFix({ diagnostic: item, fixes: [fix], anchor }); else run(() => fix.command, true); }),
     })));
-    const commands = buildContextCommands({ surface, editable: surface === "code" || surface === "builder", hasSelection: captured.from !== captured.to || Boolean(window.getSelection()?.toString()), hasBlock: Boolean(selected) || Boolean(target.closest("details,[data-source-span]")), hasDiagnostic: analysis.diagnostics.length > 0 }, handlers, quickFixes);
+    const show = (spellingItems: typeof quickFixes) => {
+    const commands = buildContextCommands({ surface, editable: surface === "code" || surface === "builder", hasSelection: captured.from !== captured.to || Boolean(window.getSelection()?.toString()), hasBlock: Boolean(selected) || Boolean(target.closest("details,[data-source-span]")), hasDiagnostic: analysis.diagnostics.length > 0 }, handlers, [...spellingItems, ...quickFixes]);
     if (commands.length) {
       contextMenu.open({ x: event.clientX, y: event.clientY, commands });
       if (domSelection && previewRoot?.contains(domSelection.commonAncestorContainer)) requestAnimationFrame(() => {
@@ -383,6 +385,29 @@ export default function App() {
         selection?.addRange(domSelection);
       });
     }
+    };
+    // A misspelt word under the pointer: its corrections come first, like in a word processor.
+    const misspelt = (surface === "code" || surface === "builder") && spelling?.text === documentRef.current.text ? spelling.ranges.find((item) => at >= item.from && at <= item.to) : undefined;
+    if (!misspelt || !speller) { show([]); return; }
+    const word = documentRef.current.text.slice(misspelt.from, misspelt.to), revision = documentRef.current.revision;
+    const replaceWord = (value: string) => run(() => {
+      if (documentRef.current.revision !== revision) throw new Error("Документ изменился. Откройте меню заново.");
+      return { ...identity(documentRef.current), label: "Исправить слово", changes: [{ from: misspelt.from, to: misspelt.to, insert: value }] };
+    });
+    const forget = () => setSpelling((current) => current && { ...current, ranges: current.ranges.filter((item) => documentRef.current.text.slice(item.from, item.to).toLowerCase() !== word.toLowerCase()) });
+    void speller.suggest(word).catch(() => [] as string[]).then((suggestions) => show([
+      ...suggestions.slice(0, 6).map((value, index) => ({ id: `spell-${index}`, label: `«${value}»`, run: () => replaceWord(value) })),
+      ...(suggestions.length ? [] : [{ id: "spell-none", label: "Нет вариантов исправления", run: () => undefined }]),
+      { id: "spell-add", label: `Добавить «${word}» в словарь`, run: () => void speller.add(word).then(forget).catch((reason) => setError(String(reason))) },
+      { id: "spell-ignore", label: "Пропустить это слово", run: () => { speller.ignore(word); forget(); } },
+    ]));
+  };
+  /** Source offset of the builder text under a point (for the context menu). */
+  const builderOffsetAt = (x: number, y: number): number | null => {
+    const caret = globalThis.document.caretPositionFromPoint?.(x, y), fallback = caret ? null : globalThis.document.caretRangeFromPoint?.(x, y);
+    const node = caret?.offsetNode ?? fallback?.startContainer, offset = caret?.offset ?? fallback?.startOffset;
+    const leaf = (node?.nodeType === 1 ? node as Element : node?.parentElement)?.closest<HTMLElement>(".visual-text[data-source-from]");
+    return leaf && offset !== undefined ? Number(leaf.dataset.sourceFrom) + Math.min(offset, (leaf.textContent ?? "").length) : null;
   };
 
   const saveTab = async (documentId: string, saveAs = false): Promise<boolean> => {
@@ -747,6 +772,23 @@ export default function App() {
   const synced = !!snapshot && snapshot.documentId === document.id && snapshot.revision === document.revision;
   const documentName = document.path?.split(/[\\/]/).at(-1) ?? "untitled.bbcode";
   // Breadcrumbs: the structural blocks around the cursor.
+  // Spelling: misspelt words of the text between tags (not [code], not links), from the analysis.
+  const speller = useMemo(() => {
+    const backend = isTauri() ? { check: async (words: string[]) => await invoke("spell_check", { words }) as boolean[], suggest: async (word: string) => await invoke("spell_suggest", { word }) as string[], add: async (word: string) => { await invoke("spell_add", { word }); } } : window.__BBFORGE_SPELL__;
+    return backend ? new SpellChecker(backend) : null;
+  }, []);
+  const [spelling, setSpelling] = useState<{ text: string; ranges: Array<{ from: number; to: number }> } | null>(null);
+  useEffect(() => {
+    if (!speller || !preferences.spellcheck || !currentSnapshot) { if (!preferences.spellcheck) setSpelling(null); return; }
+    let active = true;
+    const index = createPositionIndex(currentSnapshot.source), raw: Array<[number, number]> = [];
+    const walk = (nodes: Node[]) => { for (const node of nodes) { if (node.kind !== "element") continue; if (tagSpec(node.name)?.raw) raw.push([node.contentSpan.start, node.contentSpan.end]); else walk(node.children); } };
+    walk(currentSnapshot.analysis.nodes);
+    const segments = currentSnapshot.analysis.tokens.filter((token) => token.kind === "text" && !raw.some(([from, to]) => token.span.start >= from && token.span.end <= to))
+      .map((token) => ({ from: index.byteToUtf16(token.span.start), to: index.byteToUtf16(token.span.end) }));
+    void speller.misspellings(currentSnapshot.source, segments).then((found) => { if (active) setSpelling({ text: currentSnapshot.source, ranges: found.map(({ from, to }) => ({ from, to })) }); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [speller, currentSnapshot, preferences.spellcheck]);
   // Text between tags (from the analysis): search and replace stay out of tags by default.
   const [replaceRequest, setReplaceRequest] = useState(0);
   const textSegments = useMemo(() => {
@@ -799,8 +841,8 @@ export default function App() {
           plugins={<PluginsSettings packages={host.packages} broken={brokenPackages} desktop={pluginStore.available} busy={pluginBusy} onInstall={() => void installFromFile()}
             onToggle={(id, enabled) => pluginOperation(() => pluginStore.setEnabled(id, enabled))} onRemove={(id) => pluginOperation(() => pluginStore.remove(id))} onAcceptChanges={(id) => pluginOperation(() => pluginStore.acceptChanges(id))}
             catalog={catalog} catalogLoading={catalogLoading} onLoadCatalog={loadCatalog} onInstallFromCatalog={(entry) => void installFromCatalog(entry)} download={installPreview ? null : download} trustedDevelopers={trustedDevelopers} />} onRecording={(active) => { keyRecording.current = active; }} onResetLayout={() => { setLayout({ ...defaultLayout }); setShowPreview(false); }} /> : undefined}
-        editor={<Editor dark={theme === "dark"} document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} storedSelection={activeSession.ui.codeSelection} scroll={activeSession.ui.codeScroll} onScrollPosition={(codeScroll) => deferScroll(document.id, { codeScroll })} onChange={changeSource} onReady={setController} onQuickFix={showFixAt} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
-        builder={<Builder key={document.id} document={document} snapshot={snapshot} selectedSpan={selected?.span} scroll={activeSession.ui.builderScroll} storedSelection={activeSession.ui.visualSelection} restoreFocus={activeSession.ui.activeSurface === "builder"} onScrollPosition={(builderScroll) => deferScroll(document.id, { builderScroll })} execute={execute} getDocument={() => documentRef.current} onSelect={(reference) => { setSelected(reference); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { selected: reference } }); }} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onFix={(range) => showFixAt(range.from)} onDragHint={setDragHint} onError={setError} onComposition={(active) => { composition.current = active; }} />}
+        editor={<Editor spelling={spelling ?? undefined} dark={theme === "dark"} document={document} snapshot={currentSnapshot} value={document.text} endings={document.endings} storedSelection={activeSession.ui.codeSelection} scroll={activeSession.ui.codeScroll} onScrollPosition={(codeScroll) => deferScroll(document.id, { codeScroll })} onChange={changeSource} onReady={setController} onQuickFix={showFixAt} onSelection={(range) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { codeSelection: range, activeSurface: "code" } }); }} selectionRequest={selection} />}
+        builder={<Builder spelling={spelling ?? undefined} key={document.id} document={document} snapshot={snapshot} selectedSpan={selected?.span} scroll={activeSession.ui.builderScroll} storedSelection={activeSession.ui.visualSelection} restoreFocus={activeSession.ui.activeSurface === "builder"} onScrollPosition={(builderScroll) => deferScroll(document.id, { builderScroll })} execute={execute} getDocument={() => documentRef.current} onSelect={(reference) => { setSelected(reference); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { selected: reference } }); }} onRange={(range: VisualRange) => { setActiveRange(range); dispatchWorkspace({ type: "updateUi", documentId: document.id, ui: { visualSelection: range, activeSurface: "builder" } }); }} onNavigate={visualNavigate} onFix={(range) => showFixAt(range.from)} onDragHint={setDragHint} onError={setError} onComposition={(active) => { composition.current = active; }} />}
         preview={<Preview document={document} source={currentSnapshot?.source ?? document.text} nodes={currentSnapshot?.analysis.nodes ?? []} scroll={activeSession.ui.previewScroll} onScrollPosition={(previewScroll) => deferScroll(document.id, { previewScroll })} onSelection={setPreviewRange} onNavigate={navigate} openExternal={(url) => { if (isTauri()) void openUrl(url).catch((reason) => setError(String(reason))); }} />}
         problems={layout.showProblems ? <ProblemsPanel diagnostics={analysis.diagnostics} journal={journal} onClearJournal={() => setJournal([])} onNavigate={(item) => navigate(item.span)} onQuickFix={(item) => showFix(item)} canFix={(item) => !!currentSnapshot && fixesFor(item).length > 0} unambiguous={unambiguousFixes.length} onFixAll={showAllFixes} onClose={() => setLayout((current) => ({ ...current, showProblems: false }))} /> : null}
         inspector={layout.showInspector ? <><h2 className="inspector-heading">Свойства<button className="icon-button panel-close" aria-label="Скрыть свойства" onClick={() => setLayout((current) => ({ ...current, showInspector: false }))}><Icon name="close" /></button></h2><div className="inspector-body">

@@ -26,6 +26,7 @@ const settings: Setting[] = [
   { key: "builderWidth", section: "builder", label: "Ширина колонки", options: [["narrow", "Узкая (620 px)"], ["medium", "Средняя (700 px)"], ["full", "Во всю ширину"]] },
   { key: "spoilerOpenDepth", section: "builder", label: "Раскрывать спойлеры", hint: "При открытии документа", options: [[99, "Все"], [2, "Два уровня"], [1, "Только верхний уровень"], [0, "Все свёрнуты"]] },
   { key: "tagLabels", section: "builder", label: "Показывать метки тегов", hint: "Подпись «spoiler» в заголовке блока" },
+  { key: "spellcheck", section: "behavior", label: "Проверять орфографию", hint: "Русский и английский; варианты исправления — по правому клику на слове" },
   { key: "checkUpdates", section: "behavior", label: "Проверять обновления", hint: "Раз в день при запуске BBForge смотрит, нет ли новой версии на GitHub", desktop: true },
   { key: "restoreSession", section: "behavior", label: "Восстанавливать открытые документы при запуске" },
   { key: "analysisDelay", section: "behavior", label: "Обновление структуры", hint: "Пауза после ввода перед анализом", options: [[50, "Мгновенно"], [150, "Быстро (150 мс)"], [400, "Обычно (400 мс)"], [1000, "Медленно (1 с)"]] },

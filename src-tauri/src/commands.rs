@@ -432,3 +432,37 @@ pub async fn update_install(
     }
     Ok(())
 }
+
+#[cfg(feature = "desktop-runtime")]
+type SpellerState<'a> = tauri::State<'a, std::sync::Arc<crate::spell::Speller>>;
+
+/// For each word: whether it is spelt correctly. At most 20 000 words per call.
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub async fn spell_check(
+    speller: SpellerState<'_>,
+    words: Vec<String>,
+) -> Result<Vec<bool>, String> {
+    if words.len() > 20_000 {
+        return Err("Слишком много слов".into());
+    }
+    let speller = std::sync::Arc::clone(&speller);
+    tauri::async_runtime::spawn_blocking(move || speller.check(&words))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub async fn spell_suggest(speller: SpellerState<'_>, word: String) -> Result<Vec<String>, String> {
+    let speller = std::sync::Arc::clone(&speller);
+    tauri::async_runtime::spawn_blocking(move || speller.suggest(&word))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(feature = "desktop-runtime")]
+#[tauri::command]
+pub fn spell_add(speller: SpellerState<'_>, word: String) -> Result<(), String> {
+    speller.add(&word)
+}

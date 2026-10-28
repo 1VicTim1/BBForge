@@ -10,12 +10,34 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "security": { "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; worker-src blob:" },
-    "windows": [{ "title": "BBForge", "width": 1440, "height": 900, "minWidth": 960, "minHeight": 640, "decorations": false }]
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; worker-src blob:"
+    },
+    "windows": [
+      {
+        "title": "BBForge",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640,
+        "decorations": false
+      }
+    ]
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": {
+      "dictionaries/LICENSE-ru_RU.txt": "licenses/LICENSE-ru_RU.txt",
+      "dictionaries/LICENSE-en_US.txt": "licenses/LICENSE-en_US.txt",
+      "dictionaries/README.md": "licenses/dictionaries.md"
+    }
   }
 }

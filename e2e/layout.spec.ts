@@ -126,3 +126,18 @@ test("Ctrl+H replaces text everywhere except inside tags", async ({ page }) => {
   await page.getByRole("button", { name: "Заменить все" }).click();
   await expect(page.locator(".cm-content")).toHaveText('[b]Версия: 0.4.0[/b][url="https://x/v0.3.0"]Скачать 0.4.0[/url]');
 });
+
+test("misspelt words are underlined and fixed from the context menu", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__BBFORGE_SPELL__ = { check: async (words) => words.map((word) => word !== "праграмма"), suggest: async () => ["программа", "панорама"], add: async () => undefined };
+  });
+  await page.goto("/");
+  await page.locator(".cm-content").fill("[b]Новая праграмма[/b] и [url=https://праграмма.рф]ссылка[/url]");
+  const word = page.locator(".cm-misspelled");
+  await expect(word).toHaveCount(1);
+  await expect.poll(() => page.evaluate(() => CSS.highlights.has("bbforge-spelling"))).toBe(true);
+  await word.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "«программа»" }).click();
+  await expect(page.locator(".cm-content")).toHaveText("[b]Новая программа[/b] и [url=https://праграмма.рф]ссылка[/url]");
+  await expect(page.locator(".cm-misspelled")).toHaveCount(0);
+});

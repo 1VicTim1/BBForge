@@ -860,3 +860,6 @@ div.bb-plain, blockquote.bb-plain, pre.bb-plain, details.bb-plain { margin: 4px 
 .update-how .ui-icon { flex-shrink: 0; width: 14px; height: 14px; margin-top: 1px; }
 .update-dialog footer { display: flex; align-items: center; gap: 8px; }
 .update-dialog footer button { display: inline-flex; align-items: center; gap: 6px; }
+/* misspelt words */
+.cm-editor .cm-misspelled { text-decoration: underline wavy color-mix(in srgb, var(--error) 75%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
+::highlight(bbforge-spelling) { text-decoration: underline wavy color-mix(in srgb, var(--error) 75%, transparent); text-decoration-thickness: 1px; text-underline-offset: 3px; }

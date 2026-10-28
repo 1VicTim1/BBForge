@@ -40,6 +40,8 @@ export interface BuilderProps {
   selectedSpan?: Span;
   /** "Исправить…" on an unknown or broken tag. */
   onFix?(range: SourceRange): void;
+  /** Misspelt words of `text`, underlined while the builder shows that text. */
+  spelling?: { text: string; ranges: Array<{ from: number; to: number }> };
   /** Status-bar hint while a block is dragged; null when the drag ends. */
   onDragHint?(hint: string | null): void;
 }
@@ -523,6 +525,28 @@ export function Builder(props: BuilderProps) {
     pendingEdge.current = null;
     edgeKey(pending.key, pending.from, pending.to);
   });
+  // Misspelt words: a CSS highlight over the text pieces (drawn again after every render, since
+  // lazy groups and edits change which pieces exist).
+  useLayoutEffect(() => {
+    const registry = typeof CSS === "undefined" ? undefined : (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
+    const HighlightCtor = (globalThis as unknown as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight;
+    if (!registry || !HighlightCtor || !root.current) return;
+    const spelling = props.spelling;
+    if (!spelling || spelling.text !== props.document.text || !spelling.ranges.length) { registry.delete("bbforge-spelling"); return; }
+    const ranges: Range[] = [];
+    for (const leaf of Array.from(root.current.querySelectorAll<HTMLElement>(".visual-text[data-source-from][data-source-to]"))) {
+      const from = Number(leaf.dataset.sourceFrom), to = Number(leaf.dataset.sourceTo), text = leaf.firstChild;
+      if (!text || text.nodeType !== Node.TEXT_NODE) continue;
+      for (const item of spelling.ranges) {
+        if (item.from < from || item.to > to) continue;
+        const range = document.createRange();
+        range.setStart(text, item.from - from); range.setEnd(text, item.to - from);
+        ranges.push(range);
+      }
+    }
+    registry.set("bbforge-spelling", new HighlightCtor(...ranges));
+  });
+  useEffect(() => () => { (typeof CSS === "undefined" ? undefined : (CSS as unknown as { highlights?: Map<string, unknown> }).highlights)?.delete("bbforge-spelling"); }, []);
   const select = () => { if (root.current) { const range = readVisualSelection(root.current, props.getDocument()); if (range) { setSelectedRange(range, true); props.onRange(range); } } };
   const run = (build: () => EditCommand) => { try { props.execute(build()); } catch (error) { props.onError(String(error)); } };
   const dragTarget = (reference: NodeRef, kind: "spoiler" | "list" | "item" | "text", from: number, to: number) => ({ "data-drag-kind": kind, "data-drag-start": reference.span.start, "data-drag-end": reference.span.end, "data-at-from": from, "data-at-to": to });

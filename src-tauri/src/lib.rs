@@ -5,6 +5,7 @@ pub mod keyring;
 pub mod plugins;
 pub mod script_api;
 pub mod session;
+pub mod spell;
 pub mod updater;
 
 #[cfg(all(target_os = "linux", feature = "legacy-webkit"))]
@@ -14,6 +15,14 @@ mod webkit_compat;
 pub fn run() {
     updater::cleanup();
     tauri::Builder::default()
+        .setup(|app| {
+            use tauri::Manager;
+            let file = app.path().app_data_dir()?.join("user-dictionary.txt");
+            app.manage(std::sync::Arc::new(spell::Speller::new(file)));
+            // Parsing the Russian dictionary takes about a second: do it before the first check.
+            std::thread::spawn(spell::preload);
+            Ok(())
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -31,6 +40,9 @@ pub fn run() {
             commands::catalog_list,
             commands::catalog_download,
             commands::keyring_refresh,
+            commands::spell_check,
+            commands::spell_suggest,
+            commands::spell_add,
             commands::update_check,
             commands::update_install,
             commands::script_http_get,
