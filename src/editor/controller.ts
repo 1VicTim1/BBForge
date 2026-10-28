@@ -14,10 +14,22 @@ export interface EditorController {
   activate(documentId: string, document: DocumentState, viewport?: { top: number; left: number }): boolean;
   discard(documentId: string): void;
 }
+/**
+ * Undo goes word by word, like in word processors: typing a new word after a space or a line
+ * break starts a new step, instead of everything typed without a pause being one step.
+ */
+export const wordUndoSteps = EditorState.transactionExtender.of((transaction) => {
+  if (!transaction.isUserEvent("input.type") || !transaction.docChanged) return null;
+  let inserted = "", at = -1;
+  transaction.changes.iterChanges((from, _to, _fromB, _toB, text) => { if (at < 0) { at = from; inserted = text.toString(); } });
+  const before = at > 0 ? transaction.startState.doc.sliceString(at - 1, at) : "";
+  const wordStarts = /^\S/.test(inserted) && /\s/.test(before);
+  return wordStarts || inserted.includes("\n") ? { annotations: isolateHistory.of("before") } : null;
+});
 export function createEditorState(document: DocumentState, extensions: Extension[], onChange: (text: string, endings: LineEnding[]) => void, selection?: SourceRange): EditorState {
   const endings = lineEndingExtensions(document);
   const from = Math.min(document.text.length, Math.max(0, selection?.from ?? 0)), to = Math.min(document.text.length, Math.max(0, selection?.to ?? from));
-  return EditorState.create({ doc: document.text, selection: { anchor: from, head: to }, extensions: [history(), ...endings.extensions, ...extensions, EditorView.updateListener.of((update) => {
+  return EditorState.create({ doc: document.text, selection: { anchor: from, head: to }, extensions: [history(), wordUndoSteps, ...endings.extensions, ...extensions, EditorView.updateListener.of((update) => {
     if (update.docChanged) onChange(update.state.doc.toString(), update.state.field(endings.field));
   })] });
 }

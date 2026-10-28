@@ -20,3 +20,15 @@ it("shares multi-range commands and undo/redo with exact mixed endings", () => {
   expect(document.text).toBe("A\nб\nC\n");
   view.destroy();
 });
+
+it("undoes typing word by word", async () => {
+  const { EditorState } = await import("@codemirror/state");
+  const { history, undo } = await import("@codemirror/commands");
+  const { wordUndoSteps } = await import("./controller");
+  let state = EditorState.create({ doc: "", extensions: [history(), wordUndoSteps] });
+  for (const char of "одно два\nтри") state = state.update({ changes: { from: state.doc.length, insert: char }, userEvent: "input.type" }).state;
+  const steps: string[] = [];
+  const view = { get state() { return state; }, dispatch: (transaction: import("@codemirror/state").Transaction) => { state = transaction.state; } };
+  while (undo(view as never)) steps.push(state.doc.toString());
+  expect(steps).toEqual(["одно два\n", "одно два", "одно ", ""]);
+});
